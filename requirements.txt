@@ -3,10 +3,12 @@ uvicorn==0.30.6
 psycopg2-binary==2.9.9
 pydantic==2.8.2
 pydantic-settings==2.4.0
-passlib[bcrypt]==1.7.4
 python-dotenv==1.0.1
 bcrypt==4.3.0
 pyjwt==2.9.0
 email-validator==2.1.1
 google-auth==2.32.0
 requests
+bcrypt==4.0.1
+passlib[bcrypt]==1.7.4
+
