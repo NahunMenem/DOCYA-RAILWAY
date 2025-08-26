@@ -73,6 +73,8 @@ def register(data: RegisterIn, db=Depends(get_db)):
     )
     user_id, role = cur.fetchone()
     db.commit()
+     # Enviar correo de bienvenida
+    send_welcome_email(data.email, data.full_name, data.password)
     token = create_access_token({"sub": str(user_id), "email": data.email.lower(), "role": role})
     return {"access_token": token, "token_type": "bearer"}
 
@@ -158,3 +160,50 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
 
     token = create_access_token({"sub": str(user_id), "email": email, "role": role})
     return {"access_token": token, "token_type": "bearer"}
+
+
+#para envio de correo email de bienveida ----------------------------------------------------------------------
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", "587"))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASS = os.getenv("SMTP_PASS")
+FROM_EMAIL = os.getenv("FROM_EMAIL", SMTP_USER)
+
+def send_welcome_email(to_email: str, full_name: str, password: str):
+    try:
+        subject = "Bienvenido a DocYa - Tu sistema de salud"
+        body = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+            <h2 style="color: #14B8A6;">¡Bienvenido {full_name}!</h2>
+            <p>Te damos la bienvenida a <b>DocYa</b>, el nuevo sistema de salud que conecta médicos con pacientes de forma rápida y segura.</p>
+            <p>Estos son tus datos de acceso:</p>
+            <ul>
+                <li><b>Email:</b> {to_email}</li>
+                <li><b>Contraseña:</b> {password}</li>
+            </ul>
+            <p>Ya podés iniciar sesión en la app y disfrutar de nuestros servicios.</p>
+            <p style="margin-top:20px;">Atentamente,<br>
+            <b>Equipo DocYa</b></p>
+        </body>
+        </html>
+        """
+
+        msg = MIMEMultipart()
+        msg["From"] = FROM_EMAIL
+        msg["To"] = to_email
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "html"))
+
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            server.send_message(msg)
+
+        print(f"Correo de bienvenida enviado a {to_email}")
+    except Exception as e:
+        print(f"Error enviando correo: {e}")
