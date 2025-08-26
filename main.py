@@ -74,7 +74,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
     user_id, role = cur.fetchone()
     db.commit()
      # Enviar correo de bienvenida
-    send_welcome_email(data.email, data.full_name, data.password)
+    enviar_correo_bienvenida(data.email, data.full_name, data.password)
     token = create_access_token({"sub": str(user_id), "email": data.email.lower(), "role": role})
     return {"access_token": token, "token_type": "bearer"}
 
