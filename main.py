@@ -105,28 +105,39 @@ def decode_id_token_no_verify(id_token: str):
     except Exception:
         return None
 
+from google.oauth2 import id_token
+from google.auth.transport import requests
+
 @app.post("/auth/google", response_model=TokenOut)
 def auth_google(data: GoogleIn, db=Depends(get_db)):
-    payload = decode_id_token_no_verify(data.id_token)
-    if not payload or "sub" not in payload or "email" not in payload:
+    try:
+        # Validar token con Google
+        payload = id_token.verify_oauth2_token(
+            data.id_token,
+            requests.Request(),
+            os.getenv("GOOGLE_CLIENT_ID")  # tu client_id de Google
+        )
+    except Exception:
         raise HTTPException(status_code=400, detail="id_token inválido")
+
     sub = payload["sub"]
     email = payload["email"].lower()
     name = payload.get("name") or email.split("@")[0]
     picture = payload.get("picture")
 
     cur = db.cursor()
-    # Is there a provider link already?
+    # Buscar si ya existe el vínculo con Google
     cur.execute("""
         SELECT u.id, u.role FROM auth_providers ap
         JOIN users u ON ap.user_id = u.id
         WHERE ap.provider=%s AND ap.provider_uid=%s
     """, ("google", sub))
     row = cur.fetchone()
+
     if row:
         user_id, role = row
     else:
-        # Create user if not exists by email
+        # Crear usuario si no existe
         cur.execute("SELECT id, role FROM users WHERE email=%s", (email,))
         user = cur.fetchone()
         if user:
@@ -137,7 +148,8 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
                 (email, name, picture)
             )
             user_id, role = cur.fetchone()
-        # Link provider
+
+        # Vincular proveedor
         cur.execute(
             "INSERT INTO auth_providers (user_id, provider, provider_uid) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
             (user_id, "google", sub)
