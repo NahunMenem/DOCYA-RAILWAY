@@ -178,17 +178,40 @@ def send_welcome_email(to_email: str, full_name: str, password: str):
         subject = "Bienvenido a DocYa - Tu sistema de salud"
         body = f"""
         <html>
-        <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
-            <h2 style="color: #14B8A6;">¡Bienvenido {full_name}!</h2>
-            <p>Te damos la bienvenida a <b>DocYa</b>, el nuevo sistema de salud que conecta médicos con pacientes de forma rápida y segura.</p>
-            <p>Estos son tus datos de acceso:</p>
-            <ul>
-                <li><b>Email:</b> {to_email}</li>
-                <li><b>Contraseña:</b> {password}</li>
-            </ul>
-            <p>Ya podés iniciar sesión en la app y disfrutar de nuestros servicios.</p>
-            <p style="margin-top:20px;">Atentamente,<br>
-            <b>Equipo DocYa</b></p>
+        <body style="font-family: Arial, sans-serif; background-color: #f9f9f9; margin:0; padding:0;">
+            <table align="center" width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+                <tr style="background:#14B8A6;">
+                    <td align="center" style="padding:20px;">
+                        <img src="https://i.ibb.co/0YyytY9/docya-logo.png" alt="DocYa" width="120" style="display:block; margin-bottom:10px;" />
+                        <h1 style="color:#ffffff; margin:0; font-size:22px;">Bienvenido a DocYa</h1>
+                    </td>
+                </tr>
+                <tr>
+                    <td style="padding:30px; color:#333;">
+                        <h2 style="color:#14B8A6; margin-top:0;">¡Hola {full_name}!</h2>
+                        <p>Gracias por unirte a <b>DocYa</b>, la app que conecta médicos y pacientes de manera rápida, segura y confiable.</p>
+                        <p>Estos son tus datos de acceso:</p>
+                        <table width="100%" style="margin:20px 0; border-collapse:collapse;">
+                            <tr>
+                                <td style="padding:10px; border:1px solid #ddd;"><b>Email</b></td>
+                                <td style="padding:10px; border:1px solid #ddd;">{to_email}</td>
+                            </tr>
+                            <tr>
+                                <td style="padding:10px; border:1px solid #ddd;"><b>Contraseña</b></td>
+                                <td style="padding:10px; border:1px solid #ddd;">{password}</td>
+                            </tr>
+                        </table>
+                        <p>Podes iniciar sesión en la app y comenzar a disfrutar de todos nuestros servicios.</p>
+                        <p style="margin-top:30px;">Un cordial saludo,<br>
+                        <b>Equipo DocYa</b></p>
+                    </td>
+                </tr>
+                <tr style="background:#f1f1f1;">
+                    <td align="center" style="padding:15px; font-size:12px; color:#666;">
+                        © 2025 DocYa. Todos los derechos reservados.
+                    </td>
+                </tr>
+            </table>
         </body>
         </html>
         """
