@@ -173,66 +173,76 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 FROM_EMAIL = os.getenv("FROM_EMAIL")
 
+import os
+import requests
+
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")  # en Railway ponés tu clave SMTP como variable
+
 def enviar_correo_bienvenida(destinatario, nombre, password):
-    try:
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = "Bienvenido a DocYa 🚀"
-        msg["From"] = FROM_EMAIL
-        msg["To"] = destinatario
-
-        html = f"""
-        <html>
-          <body style="font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; margin:0;">
-            <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
-              
-              <!-- Header -->
-              <div style="background: #14B8A6; padding: 20px; text-align: center;">
-                <img src="https://i.ibb.co/tYj5QfM/docya-logo.png" alt="DocYa" style="height: 60px;"/>
-                <h1 style="color: white; margin: 10px 0 0; font-size: 24px;">¡Bienvenido a DocYa!</h1>
-              </div>
-        
-              <!-- Body -->
-              <div style="padding: 30px; color: #333333;">
-                <p style="font-size: 16px;">Hola <b>{nombre}</b>,</p>
-                <p style="font-size: 15px; line-height: 1.6;">
-                  Nos alegra darte la bienvenida a <b>DocYa</b>, tu nuevo sistema de salud en la palma de tu mano.
-                </p>
-                
-                <p style="font-size: 15px;">Estos son tus datos de acceso:</p>
-                <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin: 20px 0;">
-                  <p><b>Email:</b> {destinatario}</p>
-                  <p><b>Contraseña:</b> {password}</p>
-                </div>
-        
-                <p style="font-size: 15px; line-height: 1.6;">
-                  Ya podés ingresar desde la app y comenzar a disfrutar de nuestros servicios médicos a domicilio, de manera rápida y segura.
-                </p>
-        
-                <div style="text-align: center; margin: 30px 0;">
-                  <a href="https://play.google.com/store" 
-                     style="background: #14B8A6; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px;">
-                    Iniciar en DocYa
-                  </a>
-                </div>
-              </div>
-        
-              <!-- Footer -->
-              <div style="background: #f1f5f9; padding: 15px; text-align: center; font-size: 12px; color: #6b7280;">
-                <p>© 2025 DocYa · Salud a tu puerta</p>
-              </div>
+    html = f"""
+    <html>
+      <body style="font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; margin:0;">
+        <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
+          
+          <!-- Header -->
+          <div style="background: #14B8A6; padding: 20px; text-align: center;">
+            <img src="https://i.ibb.co/tYj5QfM/docya-logo.png" alt="DocYa" style="height: 60px;"/>
+            <h1 style="color: white; margin: 10px 0 0; font-size: 24px;">¡Bienvenido a DocYa!</h1>
+          </div>
+    
+          <!-- Body -->
+          <div style="padding: 30px; color: #333333;">
+            <p style="font-size: 16px;">Hola <b>{nombre}</b>,</p>
+            <p style="font-size: 15px; line-height: 1.6;">
+              Nos alegra darte la bienvenida a <b>DocYa</b>, tu nuevo sistema de salud en la palma de tu mano.
+            </p>
+            
+            <p style="font-size: 15px;">Estos son tus datos de acceso:</p>
+            <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin: 20px 0;">
+              <p><b>Email:</b> {destinatario}</p>
+              <p><b>Contraseña:</b> {password}</p>
             </div>
-          </body>
-        </html>
-        """
+    
+            <p style="font-size: 15px; line-height: 1.6;">
+              Ya podés ingresar desde la app y comenzar a disfrutar de nuestros servicios médicos a domicilio, de manera rápida y segura.
+            </p>
+    
+            <div style="text-align: center; margin: 30px 0;">
+              <a href="https://play.google.com/store" 
+                 style="background: #14B8A6; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px;">
+                Iniciar en DocYa
+              </a>
+            </div>
+          </div>
+    
+          <!-- Footer -->
+          <div style="background: #f1f5f9; padding: 15px; text-align: center; font-size: 12px; color: #6b7280;">
+            <p>© 2025 DocYa · Salud a tu puerta</p>
+          </div>
+        </div>
+      </body>
+    </html>
+    """
 
-        msg.attach(MIMEText(html, "html"))
+    url = "https://api.brevo.com/v3/smtp/email"
+    headers = {
+        "accept": "application/json",
+        "api-key": BREVO_API_KEY,
+        "content-type": "application/json"
+    }
+    data = {
+        "sender": {"name": "DocYa", "email": "no-reply@docya.com"},
+        "to": [{"email": destinatario, "name": nombre}],
+        "subject": "Bienvenido a DocYa 🚀",
+        "htmlContent": html
+    }
 
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            server.sendmail(FROM_EMAIL, destinatario, msg.as_string())
-
-        print("Correo enviado con éxito 🚀")
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 201:
+            print("Correo enviado con éxito 🚀")
+        else:
+            print("Error enviando correo:", response.text)
     except Exception as e:
         print(f"Error enviando correo: {e}")
 
