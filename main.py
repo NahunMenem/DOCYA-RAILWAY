@@ -182,20 +182,49 @@ def enviar_correo_bienvenida(destinatario, nombre, password):
 
         html = f"""
         <html>
-        <body>
-          <h2>¡Hola {nombre}!</h2>
-          <p>Bienvenido a <b>DocYa</b>, tu nuevo sistema de salud.</p>
-          <p>Estos son tus datos de acceso:</p>
-          <ul>
-            <li><b>Email:</b> {destinatario}</li>
-            <li><b>Contraseña:</b> {password}</li>
-          </ul>
-          <p>Ya podés ingresar desde la app y disfrutar de nuestros servicios.</p>
-          <br>
-          <p>El equipo de DocYa 💙</p>
-        </body>
+          <body style="font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; margin:0;">
+            <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
+              
+              <!-- Header -->
+              <div style="background: #14B8A6; padding: 20px; text-align: center;">
+                <img src="https://i.ibb.co/tYj5QfM/docya-logo.png" alt="DocYa" style="height: 60px;"/>
+                <h1 style="color: white; margin: 10px 0 0; font-size: 24px;">¡Bienvenido a DocYa!</h1>
+              </div>
+        
+              <!-- Body -->
+              <div style="padding: 30px; color: #333333;">
+                <p style="font-size: 16px;">Hola <b>{nombre}</b>,</p>
+                <p style="font-size: 15px; line-height: 1.6;">
+                  Nos alegra darte la bienvenida a <b>DocYa</b>, tu nuevo sistema de salud en la palma de tu mano.
+                </p>
+                
+                <p style="font-size: 15px;">Estos son tus datos de acceso:</p>
+                <div style="background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 15px; margin: 20px 0;">
+                  <p><b>Email:</b> {destinatario}</p>
+                  <p><b>Contraseña:</b> {password}</p>
+                </div>
+        
+                <p style="font-size: 15px; line-height: 1.6;">
+                  Ya podés ingresar desde la app y comenzar a disfrutar de nuestros servicios médicos a domicilio, de manera rápida y segura.
+                </p>
+        
+                <div style="text-align: center; margin: 30px 0;">
+                  <a href="https://play.google.com/store" 
+                     style="background: #14B8A6; color: white; text-decoration: none; padding: 12px 24px; border-radius: 8px; font-size: 16px;">
+                    Iniciar en DocYa
+                  </a>
+                </div>
+              </div>
+        
+              <!-- Footer -->
+              <div style="background: #f1f5f9; padding: 15px; text-align: center; font-size: 12px; color: #6b7280;">
+                <p>© 2025 DocYa · Salud a tu puerta</p>
+              </div>
+            </div>
+          </body>
         </html>
         """
+
         msg.attach(MIMEText(html, "html"))
 
         with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as server:
