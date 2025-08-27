@@ -259,3 +259,25 @@ def enviar_correo_bienvenida(destinatario: str, nombre: str, password: str):
     except ApiException as e:
         print(f"Error enviando correo: {e}")
 
+
+# GUARDAMOS LA DIRECCION DE CADA PACIENTE -------------------------------------------
+@app.post("/direccion/guardar")
+def guardar_direccion(data: DireccionIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO direcciones (user_id, lat, lng, direccion, piso, depto, indicaciones, telefono_contacto)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        ON CONFLICT (user_id) DO UPDATE SET
+            lat = EXCLUDED.lat,
+            lng = EXCLUDED.lng,
+            direccion = EXCLUDED.direccion,
+            piso = EXCLUDED.piso,
+            depto = EXCLUDED.depto,
+            indicaciones = EXCLUDED.indicaciones,
+            telefono_contacto = EXCLUDED.telefono_contacto
+    """, (
+        data.user_id, data.lat, data.lng, data.direccion,
+        data.piso, data.depto, data.indicaciones, data.telefono_contacto
+    ))
+    db.commit()
+    return {"mensaje": "Dirección guardada correctamente"}
