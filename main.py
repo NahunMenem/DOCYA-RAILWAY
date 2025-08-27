@@ -208,7 +208,7 @@ def enviar_correo_bienvenida(destinatario: str, nombre: str, password: str):
           
           <!-- Header -->
           <div style="background: #14B8A6; padding: 20px; text-align: center;">
-            <img src="https://i.ibb.co/tYj5QfM/docya-logo.png" alt="DocYa" style="height: 60px;"/>
+            <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1756262934/b73a7a0d-b1dd-4e93-93fb-867d205a2031_qc39ml.png" alt="DocYa" style="height: 60px;"/>
             <h1 style="color: white; margin: 10px 0 0; font-size: 24px;">¡Bienvenido a DocYa!</h1>
           </div>
     
