@@ -161,26 +161,26 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
     cur = db.cursor()
     # Buscar si ya existe el vínculo con Google
     cur.execute("""
-        SELECT u.id, u.role FROM auth_providers ap
+        SELECT u.id, u.full_name, u.role FROM auth_providers ap
         JOIN users u ON ap.user_id = u.id
         WHERE ap.provider=%s AND ap.provider_uid=%s
     """, ("google", sub))
     row = cur.fetchone()
 
     if row:
-        user_id, role = row
+        user_id, full_name, role = row
     else:
         # Crear usuario si no existe
-        cur.execute("SELECT id, role FROM users WHERE email=%s", (email,))
+        cur.execute("SELECT id, full_name, role FROM users WHERE email=%s", (email,))
         user = cur.fetchone()
         if user:
-            user_id, role = user
+            user_id, full_name, role = user
         else:
             cur.execute(
-                "INSERT INTO users (email, full_name, avatar_url) VALUES (%s, %s, %s) RETURNING id, role",
+                "INSERT INTO users (email, full_name, avatar_url) VALUES (%s, %s, %s) RETURNING id, full_name, role",
                 (email, name, picture)
             )
-            user_id, role = cur.fetchone()
+            user_id, full_name, role = cur.fetchone()
 
         # Vincular proveedor
         cur.execute(
@@ -190,7 +190,15 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
         db.commit()
 
     token = create_access_token({"sub": str(user_id), "email": email, "role": role})
-    return {"access_token": token, "token_type": "bearer"}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user_id),
+            "full_name": full_name
+        }
+    }
+
 
 
 #para envio de correo email de bienveida ----------------------------------------------------------------------
