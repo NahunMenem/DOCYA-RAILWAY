@@ -275,6 +275,7 @@ class DireccionIn(BaseModel):
     indicaciones: str | None = None
     telefono_contacto: str
 
+
 @app.post("/direccion/guardar")
 def guardar_direccion(data: DireccionIn, db=Depends(get_db)):
     cur = db.cursor()
@@ -304,4 +305,35 @@ def guardar_direccion(data: DireccionIn, db=Depends(get_db)):
 
     db.commit()
     return {"mensaje": "Dirección guardada correctamente"}
+
+
+@app.get("/direccion/mia/{user_id}")
+def obtener_direccion(user_id: UUID, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, user_id, direccion, lat, lng, piso, depto, indicaciones, telefono_contacto,
+               fecha_creacion, fecha_actualizacion
+        FROM direcciones
+        WHERE user_id = %s
+        LIMIT 1
+    """, (str(user_id),))
+    direccion = cur.fetchone()
+
+    if not direccion:
+        raise HTTPException(status_code=404, detail="No se encontró dirección para este usuario")
+
+    # Convertir a dict
+    return {
+        "id": direccion[0],
+        "user_id": direccion[1],
+        "direccion": direccion[2],
+        "lat": direccion[3],
+        "lng": direccion[4],
+        "piso": direccion[5],
+        "depto": direccion[6],
+        "indicaciones": direccion[7],
+        "telefono_contacto": direccion[8],
+        "fecha_creacion": direccion[9],
+        "fecha_actualizacion": direccion[10],
+    }
 
