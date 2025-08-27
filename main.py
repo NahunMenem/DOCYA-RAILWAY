@@ -56,11 +56,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+class UserOut(BaseModel):
+    id: str
+    full_name: str
+
+class AuthResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user: UserOut
+
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "service": "docya-auth"}
 
-@app.post("/auth/register", response_model=TokenOut)
+@app.post("/auth/register", response_model=AuthResponse)
 def register(data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
@@ -75,10 +86,10 @@ def register(data: RegisterIn, db=Depends(get_db)):
     user_id, full_name, role = cur.fetchone()
     db.commit()
 
-    # Enviar correo de bienvenida
+    # correo bienvenida
     enviar_correo_bienvenida(data.email, data.full_name, data.password)
 
-    # Generar token
+    # token
     token = create_access_token({
         "sub": str(user_id),
         "email": data.email.lower(),
@@ -97,7 +108,8 @@ def register(data: RegisterIn, db=Depends(get_db)):
 
 
 
-@app.post("/auth/login", response_model=TokenOut)
+
+@app.post("/auth/login", response_model=AuthResponse)
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id, full_name, password_hash, role FROM users WHERE email=%s", (data.email.lower(),))
@@ -141,14 +153,13 @@ def decode_id_token_no_verify(id_token: str):
 from google.oauth2 import id_token
 from google.auth.transport import requests
 
-@app.post("/auth/google", response_model=TokenOut)
+@app.post("/auth/google", response_model=AuthResponse)
 def auth_google(data: GoogleIn, db=Depends(get_db)):
     try:
-        # Validar token con Google
         payload = id_token.verify_oauth2_token(
             data.id_token,
             requests.Request(),
-            os.getenv("GOOGLE_CLIENT_ID")  # tu client_id de Google
+            os.getenv("GOOGLE_CLIENT_ID")
         )
     except Exception:
         raise HTTPException(status_code=400, detail="id_token inválido")
@@ -159,7 +170,6 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
     picture = payload.get("picture")
 
     cur = db.cursor()
-    # Buscar si ya existe el vínculo con Google
     cur.execute("""
         SELECT u.id, u.full_name, u.role FROM auth_providers ap
         JOIN users u ON ap.user_id = u.id
@@ -170,7 +180,6 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
     if row:
         user_id, full_name, role = row
     else:
-        # Crear usuario si no existe
         cur.execute("SELECT id, full_name, role FROM users WHERE email=%s", (email,))
         user = cur.fetchone()
         if user:
@@ -182,7 +191,6 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
             )
             user_id, full_name, role = cur.fetchone()
 
-        # Vincular proveedor
         cur.execute(
             "INSERT INTO auth_providers (user_id, provider, provider_uid) VALUES (%s, %s, %s) ON CONFLICT DO NOTHING",
             (user_id, "google", sub)
@@ -190,6 +198,7 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
         db.commit()
 
     token = create_access_token({"sub": str(user_id), "email": email, "role": role})
+
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -198,6 +207,7 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
             "full_name": full_name
         }
     }
+
 
 
 
