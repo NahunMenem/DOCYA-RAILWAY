@@ -10,4 +10,5 @@ google-auth==2.32.0
 requests
 bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
+sib-api-v3-sdk==7.6.0
 
