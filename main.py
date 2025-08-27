@@ -261,23 +261,47 @@ def enviar_correo_bienvenida(destinatario: str, nombre: str, password: str):
 
 
 # GUARDAMOS LA DIRECCION DE CADA PACIENTE -------------------------------------------
+from fastapi import HTTPException, Depends
+from pydantic import BaseModel
+from uuid import UUID
+
+class DireccionIn(BaseModel):
+    user_id: UUID
+    direccion: str
+    lat: float
+    lng: float
+    piso: str | None = None
+    depto: str | None = None
+    indicaciones: str | None = None
+    telefono_contacto: str
+
 @app.post("/direccion/guardar")
 def guardar_direccion(data: DireccionIn, db=Depends(get_db)):
     cur = db.cursor()
+
+    # Verificar que el usuario exista
+    cur.execute("SELECT id FROM users WHERE id=%s", (str(data.user_id),))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # Insertar o actualizar dirección
     cur.execute("""
-        INSERT INTO direcciones (user_id, lat, lng, direccion, piso, depto, indicaciones, telefono_contacto)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        INSERT INTO direcciones (user_id, direccion, lat, lng, piso, depto, indicaciones, telefono_contacto, fecha_actualizacion)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s, CURRENT_TIMESTAMP)
         ON CONFLICT (user_id) DO UPDATE SET
+            direccion = EXCLUDED.direccion,
             lat = EXCLUDED.lat,
             lng = EXCLUDED.lng,
-            direccion = EXCLUDED.direccion,
             piso = EXCLUDED.piso,
             depto = EXCLUDED.depto,
             indicaciones = EXCLUDED.indicaciones,
-            telefono_contacto = EXCLUDED.telefono_contacto
+            telefono_contacto = EXCLUDED.telefono_contacto,
+            fecha_actualizacion = CURRENT_TIMESTAMP
     """, (
-        data.user_id, data.lat, data.lng, data.direccion,
+        str(data.user_id), data.direccion, data.lat, data.lng,
         data.piso, data.depto, data.indicaciones, data.telefono_contacto
     ))
+
     db.commit()
     return {"mensaje": "Dirección guardada correctamente"}
+
