@@ -90,15 +90,27 @@ def register(data: RegisterIn, db=Depends(get_db)):
 @app.post("/auth/login", response_model=TokenOut)
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, password_hash, role FROM users WHERE email=%s", (data.email.lower(),))
+    cur.execute("SELECT id, full_name, password_hash, role FROM users WHERE email=%s", (data.email.lower(),))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
-    user_id, password_hash, role = row
+
+    user_id, full_name, password_hash, role = row
+
     if not password_hash or not pwd_context.verify(data.password, password_hash):
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
+
     token = create_access_token({"sub": str(user_id), "email": data.email.lower(), "role": role})
-    return {"access_token": token, "token_type": "bearer"}
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user_id),
+            "full_name": full_name
+        }
+    }
+
 
 # Minimal Google ID token verification without external libs (signature is NOT verified here).
 # In production, verify with Google's certs (google-auth library). For now, we decode without verify for demo.
