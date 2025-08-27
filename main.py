@@ -96,6 +96,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
 
 
 
+
 @app.post("/auth/login", response_model=TokenOut)
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
