@@ -69,10 +69,10 @@ def register(data: RegisterIn, db=Depends(get_db)):
     
     password_hash = pwd_context.hash(data.password)
     cur.execute(
-        "INSERT INTO users (email, full_name, password_hash) VALUES (%s, %s, %s) RETURNING id, role",
+        "INSERT INTO users (email, full_name, password_hash) VALUES (%s, %s, %s) RETURNING id, full_name, role",
         (data.email.lower(), data.full_name.strip(), password_hash)
     )
-    user_id, role = cur.fetchone()
+    user_id, full_name, role = cur.fetchone()
     db.commit()
 
     # Enviar correo de bienvenida
@@ -84,7 +84,16 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "email": data.email.lower(),
         "role": role
     })
-    return {"access_token": token, "token_type": "bearer"}
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": str(user_id),
+            "full_name": full_name
+        }
+    }
+
 
 
 @app.post("/auth/login", response_model=TokenOut)
