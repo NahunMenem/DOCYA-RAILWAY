@@ -66,6 +66,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
+    
     password_hash = pwd_context.hash(data.password)
     cur.execute(
         "INSERT INTO users (email, full_name, password_hash) VALUES (%s, %s, %s) RETURNING id, role",
@@ -73,10 +74,18 @@ def register(data: RegisterIn, db=Depends(get_db)):
     )
     user_id, role = cur.fetchone()
     db.commit()
-     # Enviar correo de bienvenida
+
+    # Enviar correo de bienvenida
     enviar_correo_bienvenida(data.email, data.full_name, data.password)
-    token = create_access_token({"sub": str(user_id), "email": data.email.lower(), "role": role})
+
+    # Generar token
+    token = create_access_token({
+        "sub": str(user_id),
+        "email": data.email.lower(),
+        "role": role
+    })
     return {"access_token": token, "token_type": "bearer"}
+
 
 @app.post("/auth/login", response_model=TokenOut)
 def login(data: LoginIn, db=Depends(get_db)):
