@@ -178,8 +178,21 @@ import requests
 
 BREVO_API_KEY = os.getenv("BREVO_API_KEY")  # en Railway ponés tu clave SMTP como variable
 
-def enviar_correo_bienvenida(destinatario, nombre, password):
-    html = f"""
+import os
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
+
+BREVO_API_KEY = os.getenv("BREVO_API_KEY")
+FROM_EMAIL = os.getenv("FROM_EMAIL", "nahundeveloper@gmail.com")
+
+def enviar_correo_bienvenida(destinatario: str, nombre: str, password: str):
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = BREVO_API_KEY
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+    subject = "Bienvenido a DocYa 🚀"
+    html_content = f"""
     <html>
       <body style="font-family: Arial, sans-serif; background-color: #f4f6f8; padding: 20px; margin:0;">
         <div style="max-width: 600px; margin: auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 2px 6px rgba(0,0,0,0.15);">
@@ -224,25 +237,16 @@ def enviar_correo_bienvenida(destinatario, nombre, password):
     </html>
     """
 
-    url = "https://api.brevo.com/v3/smtp/email"
-    headers = {
-        "accept": "application/json",
-        "api-key": BREVO_API_KEY,
-        "content-type": "application/json"
-    }
-    data = {
-        "sender": {"name": "DocYa", "email": "no-reply@docya.com"},
-        "to": [{"email": destinatario, "name": nombre}],
-        "subject": "Bienvenido a DocYa 🚀",
-        "htmlContent": html
-    }
+    send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": destinatario, "name": nombre}],
+        sender={"email": FROM_EMAIL, "name": "DocYa"},
+        subject=subject,
+        html_content=html_content
+    )
 
     try:
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 201:
-            print("Correo enviado con éxito 🚀")
-        else:
-            print("Error enviando correo:", response.text)
-    except Exception as e:
+        api_instance.send_transac_email(send_smtp_email)
+        print("Correo enviado con éxito 🚀")
+    except ApiException as e:
         print(f"Error enviando correo: {e}")
 
