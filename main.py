@@ -377,3 +377,34 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
         "fecha_actualizacion": direccion[10],
     }
 
+#perfil datos --------------------------------------------------------------------
+
+@app.get("/usuarios/{user_id}")
+def obtener_usuario(user_id: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, email
+        FROM users
+        WHERE id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    # buscar también el teléfono en la tabla direcciones (si existe)
+    cur.execute("""
+        SELECT telefono_contacto
+        FROM direcciones
+        WHERE user_id = %s
+        LIMIT 1
+    """, (user_id,))
+    direccion = cur.fetchone()
+    telefono = direccion[0] if direccion else None
+
+    return {
+        "id": row[0],
+        "full_name": row[1],
+        "email": row[2],
+        "telefono": telefono
+    }
