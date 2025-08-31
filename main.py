@@ -78,12 +78,19 @@ def register(data: RegisterIn, db=Depends(get_db)):
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
     
+    if not data.acepto_condiciones:
+        raise HTTPException(status_code=400, detail="Debes aceptar los Términos y Condiciones")
+
     password_hash = pwd_context.hash(data.password)
 
     cur.execute(
         """
-        INSERT INTO users (email, full_name, password_hash, dni, telefono, pais, provincia, localidad, fecha_nacimiento)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO users (
+            email, full_name, password_hash, dni, telefono,
+            pais, provincia, localidad, fecha_nacimiento,
+            acepto_condiciones, fecha_aceptacion, version_texto
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, full_name, role
         """,
         (
@@ -95,16 +102,17 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.pais,
             data.provincia,
             data.localidad,
-            data.fecha_nacimiento,   # 👈 formato `date`
+            data.fecha_nacimiento,
+            True,  # 👈 siempre true porque es obligatorio
+            datetime.now(),  # 👈 fecha actual
+            data.version_texto,
         )
     )
     user_id, full_name, role = cur.fetchone()
     db.commit()
 
-    # correo bienvenida
     enviar_correo_bienvenida(data.email, data.full_name, data.password)
 
-    # token
     token = create_access_token({
         "sub": str(user_id),
         "email": data.email.lower(),
@@ -119,6 +127,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
             "full_name": full_name
         }
     }
+
 
 
 
