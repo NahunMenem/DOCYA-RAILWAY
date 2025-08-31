@@ -79,10 +79,11 @@ def register(data: RegisterIn, db=Depends(get_db)):
         raise HTTPException(status_code=409, detail="El email ya está registrado")
     
     password_hash = pwd_context.hash(data.password)
+
     cur.execute(
         """
-        INSERT INTO users (email, full_name, password_hash, dni, telefono, pais, localidad)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO users (email, full_name, password_hash, dni, telefono, pais, provincia, localidad, fecha_nacimiento)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING id, full_name, role
         """,
         (
@@ -92,14 +93,18 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.dni,
             data.telefono,
             data.pais,
-            data.localidad
+            data.provincia,
+            data.localidad,
+            data.fecha_nacimiento,   # 👈 formato `date`
         )
     )
     user_id, full_name, role = cur.fetchone()
     db.commit()
 
+    # correo bienvenida
     enviar_correo_bienvenida(data.email, data.full_name, data.password)
 
+    # token
     token = create_access_token({
         "sub": str(user_id),
         "email": data.email.lower(),
