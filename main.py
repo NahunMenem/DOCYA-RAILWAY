@@ -30,6 +30,7 @@ def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
+from datetime import date
 from typing import Optional
 
 class RegisterIn(BaseModel):
