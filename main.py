@@ -74,20 +74,21 @@ def health():
 @app.post("/auth/register", response_model=AuthResponse)
 def register(data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
+
+    # 📌 Verificamos email único
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
-    
-    if not data.acepto_condiciones:
-        raise HTTPException(status_code=400, detail="Debes aceptar los Términos y Condiciones")
 
+    # 📌 Hashear contraseña
     password_hash = pwd_context.hash(data.password)
 
+    # 📌 Insert con todos los campos
     cur.execute(
         """
         INSERT INTO users (
-            email, full_name, password_hash, dni, telefono,
-            pais, provincia, localidad, fecha_nacimiento,
+            email, full_name, password_hash,
+            dni, telefono, pais, provincia, localidad, fecha_nacimiento,
             acepto_condiciones, fecha_aceptacion, version_texto
         )
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
@@ -102,17 +103,19 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.pais,
             data.provincia,
             data.localidad,
-            data.fecha_nacimiento,
-            True,  # 👈 siempre true porque es obligatorio
-            datetime.now(),  # 👈 fecha actual
-            data.version_texto,
+            data.fecha_nacimiento,   # 👈 tipo DATE
+            data.acepto_condiciones,
+            datetime.utcnow() if data.acepto_condiciones else None,  # fecha de aceptación
+            "v1.0"  # 👈 podés cambiar la versión del texto legal
         )
     )
     user_id, full_name, role = cur.fetchone()
     db.commit()
 
+    # 📩 correo bienvenida
     enviar_correo_bienvenida(data.email, data.full_name, data.password)
 
+    # 🔑 token
     token = create_access_token({
         "sub": str(user_id),
         "email": data.email.lower(),
