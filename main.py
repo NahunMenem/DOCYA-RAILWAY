@@ -71,51 +71,53 @@ class AuthResponse(BaseModel):
 def health():
     return {"ok": True, "service": "docya-auth"}
 
+from datetime import datetime
+
 @app.post("/auth/register", response_model=AuthResponse)
 def register(data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 📌 Verificamos email único
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
 
-    # 📌 Hashear contraseña
     password_hash = pwd_context.hash(data.password)
 
-    # 📌 Insert con todos los campos
-    cur.execute(
-        """
-        INSERT INTO users (
-            email, full_name, password_hash,
-            dni, telefono, pais, provincia, localidad, fecha_nacimiento,
-            acepto_condiciones, fecha_aceptacion, version_texto
+    try:
+        cur.execute(
+            """
+            INSERT INTO users (
+                email, full_name, password_hash,
+                dni, telefono, pais, provincia, localidad, fecha_nacimiento,
+                acepto_condiciones, fecha_aceptacion, version_texto
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING id, full_name, role
+            """,
+            (
+                data.email.lower(),
+                data.full_name.strip(),
+                password_hash,
+                data.dni,
+                data.telefono,
+                data.pais,
+                data.provincia,
+                data.localidad,
+                data.fecha_nacimiento,   # debe ser date, no string
+                data.acepto_condiciones,
+                datetime.utcnow() if data.acepto_condiciones else None,
+                "v1.0",
+            )
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        RETURNING id, full_name, role
-        """,
-        (
-            data.email.lower(),
-            data.full_name.strip(),
-            password_hash,
-            data.dni,
-            data.telefono,
-            data.pais,
-            data.provincia,
-            data.localidad,
-            data.fecha_nacimiento,   # 👈 tipo DATE
-            data.acepto_condiciones,
-            datetime.utcnow() if data.acepto_condiciones else None,  # fecha de aceptación
-            "v1.0"  # 👈 podés cambiar la versión del texto legal
-        )
-    )
-    user_id, full_name, role = cur.fetchone()
-    db.commit()
+        user_id, full_name, role = cur.fetchone()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print("❌ ERROR en register:", e)
+        raise HTTPException(status_code=500, detail="Error interno en registro")
 
-    # 📩 correo bienvenida
     enviar_correo_bienvenida(data.email, data.full_name, data.password)
 
-    # 🔑 token
     token = create_access_token({
         "sub": str(user_id),
         "email": data.email.lower(),
@@ -130,6 +132,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
             "full_name": full_name
         }
     }
+
 
 
 
