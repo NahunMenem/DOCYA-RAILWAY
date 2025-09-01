@@ -30,10 +30,20 @@ def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
+from typing import Optional
+
 class RegisterIn(BaseModel):
     email: EmailStr
     password: str
     full_name: str
+    dni: Optional[str] = None
+    telefono: Optional[str] = None
+    pais: Optional[str] = None
+    provincia: Optional[str] = None
+    localidad: Optional[str] = None
+    fecha_nacimiento: Optional[date] = None
+    acepto_condiciones: bool = False
+
 
 class LoginIn(BaseModel):
     email: EmailStr
