@@ -521,35 +521,29 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     }
 
 #login medicos ---------------------------------------------------------------------------------
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
-from psycopg2.extras import RealDictCursor
-  # ya lo tenés
-
-
-router = APIRouter(prefix="/auth", tags=["auth_medico"])
-
 class LoginMedicoIn(BaseModel):
     email: EmailStr
     password: str
 
-@router.post("/login_medico")
+@app.post("/auth/login_medico")
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
-    cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT id, full_name, password_hash, matricula, especialidad FROM medicos WHERE email=%s",
-                (data.email.lower(),))
+    cur = db.cursor()
+    cur.execute(
+        "SELECT id, full_name, password_hash FROM medicos WHERE email=%s",
+        (data.email.lower(),)
+    )
     row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
 
-    # Verificar contraseña
-    if not pwd_context.verify(data.password, row["password_hash"]):
+    medico_id, full_name, password_hash = row
+
+    if not password_hash or not pwd_context.verify(data.password, password_hash):
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
 
-    # Crear token JWT con rol "medico"
     token = create_access_token({
-        "sub": str(row["id"]),
+        "sub": str(medico_id),
         "email": data.email.lower(),
         "role": "medico"
     })
@@ -558,9 +552,7 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         "access_token": token,
         "token_type": "bearer",
         "medico": {
-            "id": str(row["id"]),
-            "full_name": row["full_name"],
-            "matricula": row["matricula"],
-            "especialidad": row["especialidad"]
+            "id": str(medico_id),
+            "full_name": full_name
         }
     }
