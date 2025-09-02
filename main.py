@@ -424,7 +424,7 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
 
     return result
 
-    }
+    
 
 #perfil datos --------------------------------------------------------------------
 
