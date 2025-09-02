@@ -404,7 +404,6 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
     if not direccion:
         raise HTTPException(status_code=404, detail="No se encontró dirección para este usuario")
 
-    # Convertir a dict
     result = {
         "id": direccion[0],
         "user_id": direccion[1],
@@ -419,10 +418,10 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
         "fecha_actualizacion": direccion[10],
     }
 
-    # 👇 Agregamos log para Railway
-    print(f"📍 Dirección devuelta: {result}")
+    print(f"📍 Dirección devuelta: {result}")  # 👈 Log en Railway
 
     return result
+
 
     
 
