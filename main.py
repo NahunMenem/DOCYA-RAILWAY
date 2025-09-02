@@ -449,3 +449,59 @@ def obtener_usuario(user_id: str, db=Depends(get_db)):
         "email": row[2],
         "telefono": telefono
     }
+
+
+#registro medicos -----------------------------------
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, EmailStr
+from psycopg2.extras import RealDictCursor
+
+router = APIRouter(prefix="/auth", tags=["auth_medico"])
+
+class RegisterMedicoIn(BaseModel):
+    email: EmailStr
+    password: str
+    full_name: str
+    matricula: str
+    especialidad: str | None = None
+    telefono: str | None = None
+    provincia: str | None = None
+    localidad: str | None = None
+
+@router.post("/register_medico")
+def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("SELECT id FROM medicos WHERE email=%s OR matricula=%s",
+                (data.email.lower(), data.matricula))
+    if cur.fetchone():
+        raise HTTPException(status_code=409, detail="El email o matrícula ya está registrado")
+
+    password_hash = pwd_context.hash(data.password)
+
+    cur.execute("""
+        INSERT INTO medicos (full_name, email, password_hash, matricula, especialidad, telefono, provincia, localidad)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+        RETURNING id, full_name
+    """, (
+        data.full_name.strip(),
+        data.email.lower(),
+        password_hash,
+        data.matricula,
+        data.especialidad,
+        data.telefono,
+        data.provincia,
+        data.localidad
+    ))
+    medico = cur.fetchone()
+    db.commit()
+
+    token = create_access_token({"sub": str(medico["id"]), "role": "medico"})
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "medico": {
+            "id": str(medico["id"]),
+            "full_name": medico["full_name"]
+        }
+    }
