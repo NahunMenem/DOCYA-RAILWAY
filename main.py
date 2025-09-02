@@ -452,59 +452,74 @@ def obtener_usuario(user_id: str, db=Depends(get_db)):
 
 
 #registro medicos -----------------------------------
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel, EmailStr
-from psycopg2.extras import RealDictCursor
-
-router = APIRouter(prefix="/auth", tags=["auth_medico"])
+from pydantic import BaseModel
 
 class RegisterMedicoIn(BaseModel):
+    full_name: str
     email: EmailStr
     password: str
-    full_name: str
     matricula: str
-    especialidad: str | None = None
+    especialidad: str
     telefono: str | None = None
     provincia: str | None = None
     localidad: str | None = None
 
-@router.post("/register_medico")
+@app.post("/auth/register_medico")
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
-    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur = db.cursor()
 
-    cur.execute("SELECT id FROM medicos WHERE email=%s OR matricula=%s",
-                (data.email.lower(), data.matricula))
+    # validar email
+    cur.execute("SELECT id FROM medicos WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
-        raise HTTPException(status_code=409, detail="El email o matrícula ya está registrado")
+        raise HTTPException(status_code=409, detail="El email ya está registrado")
+
+    # validar matrícula
+    cur.execute("SELECT id FROM medicos WHERE matricula=%s", (data.matricula,))
+    if cur.fetchone():
+        raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
 
     password_hash = pwd_context.hash(data.password)
 
-    cur.execute("""
-        INSERT INTO medicos (full_name, email, password_hash, matricula, especialidad, telefono, provincia, localidad)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
-        RETURNING id, full_name
-    """, (
-        data.full_name.strip(),
-        data.email.lower(),
-        password_hash,
-        data.matricula,
-        data.especialidad,
-        data.telefono,
-        data.provincia,
-        data.localidad
-    ))
-    medico = cur.fetchone()
-    db.commit()
+    try:
+        cur.execute("""
+            INSERT INTO medicos (
+                full_name, email, password_hash,
+                matricula, especialidad, telefono, provincia, localidad
+            )
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id, full_name
+        """, (
+            data.full_name.strip(),
+            data.email.lower(),
+            password_hash,
+            data.matricula,
+            data.especialidad,
+            data.telefono,
+            data.provincia,
+            data.localidad
+        ))
+        medico_id, full_name = cur.fetchone()
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        print("❌ ERROR en register_medico:", e)
+        raise HTTPException(status_code=500, detail="Error interno en registro")
 
-    token = create_access_token({"sub": str(medico["id"]), "role": "medico"})
+    token = create_access_token({
+        "sub": str(medico_id),
+        "email": data.email.lower(),
+        "role": "medico"
+    })
+
     return {
         "access_token": token,
         "token_type": "bearer",
         "medico": {
-            "id": str(medico["id"]),
-            "full_name": medico["full_name"]
+            "id": str(medico_id),
+            "full_name": full_name
         }
     }
+
 #login medicos ---------------------------------------------------------------------------------
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
