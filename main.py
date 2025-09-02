@@ -737,3 +737,45 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 
     return consultas
 
+#Cuando el paciente solicita consulta
+#El backend guarda en la tabla consultas la dirección + lat/lng + motivo.
+@app.post("/consultas")
+def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO consultas (paciente_id, motivo, direccion, lat, lng, estado)
+        VALUES (%s, %s, %s, %s, %s, 'pendiente')
+        RETURNING id
+    """, (data.paciente_id, data.motivo, data.direccion, data.lat, data.lng))
+    consulta_id = cur.fetchone()[0]
+    db.commit()
+    return {"consulta_id": consulta_id}
+
+
+#El backend asigna al médico disponible más cercano
+#Creamos un endpoint para el médico que pregunte: "¿tengo consultas nuevas?"
+@app.get("/consultas/asignadas/{medico_id}")
+def consulta_asignada(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id, c.paciente_id, c.motivo, c.direccion, c.lat, c.lng, c.estado
+        FROM consultas c
+        WHERE c.medico_id = %s AND c.estado IN ('pendiente','aceptada')
+        ORDER BY c.creado_en DESC
+        LIMIT 1
+    """, (medico_id,))
+    row = cur.fetchone()
+
+    if not row:
+        return {"consulta": None}
+
+    return {
+        "id": row[0],
+        "paciente_id": row[1],
+        "motivo": row[2],
+        "direccion": row[3],
+        "lat": row[4],
+        "lng": row[5],
+        "estado": row[6],
+    }
+
