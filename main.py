@@ -600,3 +600,125 @@ def buscar_medico(lat: float = Query(...), lng: float = Query(...), db=Depends(g
         "lng": row[3],
         "distancia_km": round(row[4], 2)
     }
+
+
+from pydantic import BaseModel
+from uuid import UUID
+
+class SolicitarConsultaIn(BaseModel):
+    paciente_id: UUID
+    motivo: str
+    direccion: str
+    lat: float
+    lng: float
+
+
+
+from pydantic import BaseModel
+
+class SolicitarConsultaIn(BaseModel):
+    paciente_id: int
+    motivo: str
+    direccion: str
+    lat: float
+    lng: float
+
+@app.post("/consultas/solicitar")
+def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
+    cur = db.cursor()
+
+    # 1. Buscar médico disponible más cercano
+    cur.execute("""
+        SELECT id, full_name, latitud, longitud,
+        (6371 * acos(
+            cos(radians(%s)) * cos(radians(latitud)) *
+            cos(radians(longitud) - radians(%s)) +
+            sin(radians(%s)) * sin(radians(latitud))
+        )) AS distancia
+        FROM medicos
+        WHERE disponible = TRUE
+          AND latitud IS NOT NULL
+          AND longitud IS NOT NULL
+        ORDER BY distancia ASC
+        LIMIT 1
+    """, (data.lat, data.lng, data.lat))
+
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="No hay médicos disponibles en este momento")
+
+    medico_id, medico_nombre, medico_lat, medico_lng, distancia = row
+
+    # 2. Guardar la consulta en la tabla
+    cur.execute("""
+        INSERT INTO consultas (paciente_id, medico_id, estado, motivo, direccion)
+        VALUES (%s, %s, 'pendiente', %s, %s)
+        RETURNING id, creado_en
+    """, (data.paciente_id, medico_id, data.motivo, data.direccion))
+
+    consulta_id, creado_en = cur.fetchone()
+    db.commit()
+
+    return {
+        "consulta_id": consulta_id,
+        "paciente_id": data.paciente_id,
+        "medico": {
+            "id": medico_id,
+            "nombre": medico_nombre,
+            "lat": medico_lat,
+            "lng": medico_lng,
+            "distancia_km": round(distancia, 2)
+        },
+        "motivo": data.motivo,
+        "direccion": data.direccion,
+        "estado": "pendiente",
+        "creado_en": creado_en
+    }
+
+
+@app.post("/consultas/{consulta_id}/aceptar")
+def aceptar_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("UPDATE consultas SET estado='aceptada', creado_en=NOW() WHERE id=%s RETURNING id", (consulta_id,))
+    row = cur.fetchone()
+    db.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+    return {"consulta_id": consulta_id, "estado": "aceptada"}
+
+
+@app.post("/consultas/{consulta_id}/rechazar")
+def rechazar_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("UPDATE consultas SET estado='rechazada', creado_en=NOW() WHERE id=%s RETURNING id", (consulta_id,))
+    row = cur.fetchone()
+    db.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+    return {"consulta_id": consulta_id, "estado": "rechazada"}
+
+@app.get("/consultas/mias/{medico_id}")
+def consultas_mias(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, paciente_id, estado, motivo, direccion, creado_en
+        FROM consultas
+        WHERE medico_id = %s
+          AND estado IN ('pendiente','aceptada')
+        ORDER BY creado_en DESC
+    """, (medico_id,))
+
+    rows = cur.fetchall()
+    consultas = []
+    for row in rows:
+        consultas.append({
+            "id": row[0],
+            "paciente_id": row[1],
+            "estado": row[2],
+            "motivo": row[3],
+            "direccion": row[4],
+            "creado_en": row[5]
+        })
+
+    return consultas
+
