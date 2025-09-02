@@ -556,3 +556,47 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
             "full_name": full_name
         }
     }
+
+#MANDA EL MEDICO SU UBICACION TODO MEL TIEMPO MIENTRAS ESTE DISPONIBLE
+@app.post("/medico/{medico_id}/ubicacion")
+def actualizar_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool):
+    db.execute("""
+        UPDATE medicos 
+        SET latitud = %s, longitud = %s, disponible = %s, updated_at = NOW()
+        WHERE id = %s
+    """, (lat, lng, disponible, medico_id))
+    return {"status": "ok"}
+
+
+#PACIENTE BUSCA MEDICO 
+from fastapi import Depends
+
+@app.get("/buscar_medico_cercano")
+def buscar_medico(lat: float = Query(...), lng: float = Query(...), db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, latitud, longitud,
+        (6371 * acos(
+            cos(radians(%s)) * cos(radians(latitud)) *
+            cos(radians(longitud) - radians(%s)) +
+            sin(radians(%s)) * sin(radians(latitud))
+        )) AS distancia
+        FROM medicos
+        WHERE disponible = TRUE
+          AND latitud IS NOT NULL
+          AND longitud IS NOT NULL
+        ORDER BY distancia ASC
+        LIMIT 1
+    """, (lat, lng, lat))
+
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="No hay médicos disponibles cerca tuyo")
+
+    return {
+        "id": row[0],
+        "full_name": row[1],
+        "lat": row[2],
+        "lng": row[3],
+        "distancia_km": round(row[4], 2)
+    }
