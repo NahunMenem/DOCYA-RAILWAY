@@ -558,14 +558,29 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     }
 
 #MANDA EL MEDICO SU UBICACION TODO MEL TIEMPO MIENTRAS ESTE DISPONIBLE
+#MANDA EL MEDICO SU UBICACION TODO EL TIEMPO MIENTRAS ESTE DISPONIBLE
 @app.post("/medico/{medico_id}/ubicacion")
-def actualizar_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool):
-    db.execute("""
+def actualizar_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
         UPDATE medicos 
         SET latitud = %s, longitud = %s, disponible = %s, updated_at = NOW()
         WHERE id = %s
     """, (lat, lng, disponible, medico_id))
+    db.commit()
     return {"status": "ok"}
+
+
+# PACIENTE SOLICITA CONSULTA
+from pydantic import BaseModel
+
+class SolicitarConsultaIn(BaseModel):
+    paciente_id: int
+    motivo: str
+    direccion: str
+    lat: float
+    lng: float
+
 
 
 #PACIENTE BUSCA MEDICO 
@@ -604,13 +619,6 @@ def buscar_medico(lat: float = Query(...), lng: float = Query(...), db=Depends(g
 
 from pydantic import BaseModel
 from uuid import UUID
-
-class SolicitarConsultaIn(BaseModel):
-    paciente_id: UUID
-    motivo: str
-    direccion: str
-    lat: float
-    lng: float
 
 
 
