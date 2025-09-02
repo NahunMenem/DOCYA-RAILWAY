@@ -2,7 +2,8 @@ import os
 import jwt
 import psycopg2
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Depends, Header
+from fastapi import FastAPI, HTTPException, Depends, Header, Query
+
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
