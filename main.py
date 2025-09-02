@@ -805,7 +805,7 @@ def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg2.extras import RealDictCursor
-from . import get_db  # ajusta según tu estructura
+from main import get_db  # ajusta según tu estructura
 
 router = APIRouter(prefix="/medicos", tags=["Medicos"])
 
