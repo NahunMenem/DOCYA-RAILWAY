@@ -762,49 +762,44 @@ def consulta_asignada(medico_id: int, db=Depends(get_db)):
 
 
 from pydantic import BaseModel
-from uuid import UUID
 
 class MedicoAccion(BaseModel):
-    medico_id: str  # o int según tu tabla `medicos`
+    medico_id: int
 
+# 🔹 Aceptar consulta
 @app.post("/consultas/{consulta_id}/aceptar")
 def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     cur = db.cursor()
-
-    # Verificar que la consulta exista y esté pendiente
-    cur.execute("SELECT id, estado FROM consultas WHERE id=%s", (consulta_id,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    if row[1] != "pendiente":
-        raise HTTPException(status_code=400, detail="La consulta ya fue asignada")
-
-    # Actualizar estado
     cur.execute("""
         UPDATE consultas
         SET estado = 'aceptada', medico_id = %s
-        WHERE id = %s
-        RETURNING id, estado, medico_id
+        WHERE id = %s AND estado = 'pendiente'
+        RETURNING id
     """, (data.medico_id, consulta_id))
-    updated = cur.fetchone()
+    consulta = cur.fetchone()
     db.commit()
 
-    return {"id": updated[0], "estado": updated[1], "medico_id": updated[2]}
+    if not consulta:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada o ya asignada")
 
+    return {"status": "ok", "id": consulta[0]}
+
+
+# 🔹 Rechazar consulta
 @app.post("/consultas/{consulta_id}/rechazar")
 def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         UPDATE consultas
         SET estado = 'rechazada'
-        WHERE id = %s
-        RETURNING id, estado
+        WHERE id = %s AND estado = 'pendiente'
+        RETURNING id
     """, (consulta_id,))
-    updated = cur.fetchone()
+    consulta = cur.fetchone()
     db.commit()
 
-    if not updated:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+    if not consulta:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada o ya asignada")
 
-    return {"id": updated[0], "estado": updated[1]}
+    return {"status": "ok", "id": consulta[0]}
 
