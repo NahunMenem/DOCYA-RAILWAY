@@ -693,50 +693,6 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
 from fastapi import HTTPException
 
-@app.post("/consultas/{consulta_id}/aceptar")
-def aceptar_consulta(consulta_id: int, medico_id: UUID, db=Depends(get_db)):
-    cur = db.cursor()
-
-    # Verificar que la consulta exista y esté pendiente
-    cur.execute("""
-        SELECT id, estado FROM consultas WHERE id = %s
-    """, (consulta_id,))
-    consulta = cur.fetchone()
-
-    if not consulta:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
-
-    if consulta[1] != "pendiente":
-        raise HTTPException(status_code=400, detail="La consulta ya fue asignada")
-
-    # Actualizar estado
-    cur.execute("""
-        UPDATE consultas
-        SET estado = 'aceptada', medico_id = %s
-        WHERE id = %s
-        RETURNING id, estado, medico_id
-    """, (str(medico_id), consulta_id))
-    db.commit()
-
-    consulta_actualizada = cur.fetchone()
-    return {
-        "id": consulta_actualizada[0],
-        "estado": consulta_actualizada[1],
-        "medico_id": consulta_actualizada[2]
-    }
-
-
-
-@app.post("/consultas/{consulta_id}/rechazar")
-def rechazar_consulta(consulta_id: int, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("UPDATE consultas SET estado='rechazada', creado_en=NOW() WHERE id=%s RETURNING id", (consulta_id,))
-    row = cur.fetchone()
-    db.commit()
-    if not row:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    return {"consulta_id": consulta_id, "estado": "rechazada"}
-
 @app.get("/consultas/mias/{medico_id}")
 def consultas_mias(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
@@ -803,4 +759,52 @@ def consulta_asignada(medico_id: int, db=Depends(get_db)):
         "lng": row[5],
         "estado": row[6],
     }
+
+
+from pydantic import BaseModel
+from uuid import UUID
+
+class MedicoAccion(BaseModel):
+    medico_id: str  # o int según tu tabla `medicos`
+
+@app.post("/consultas/{consulta_id}/aceptar")
+def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
+    cur = db.cursor()
+
+    # Verificar que la consulta exista y esté pendiente
+    cur.execute("SELECT id, estado FROM consultas WHERE id=%s", (consulta_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+    if row[1] != "pendiente":
+        raise HTTPException(status_code=400, detail="La consulta ya fue asignada")
+
+    # Actualizar estado
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'aceptada', medico_id = %s
+        WHERE id = %s
+        RETURNING id, estado, medico_id
+    """, (data.medico_id, consulta_id))
+    updated = cur.fetchone()
+    db.commit()
+
+    return {"id": updated[0], "estado": updated[1], "medico_id": updated[2]}
+
+@app.post("/consultas/{consulta_id}/rechazar")
+def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'rechazada'
+        WHERE id = %s
+        RETURNING id, estado
+    """, (consulta_id,))
+    updated = cur.fetchone()
+    db.commit()
+
+    if not updated:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    return {"id": updated[0], "estado": updated[1]}
 
