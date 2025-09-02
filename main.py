@@ -510,7 +510,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, EmailStr
 from psycopg2.extras import RealDictCursor
   # ya lo tenés
-from utils import create_access_token, pwd_context  # reusamos seguridad
+
 
 router = APIRouter(prefix="/auth", tags=["auth_medico"])
 
