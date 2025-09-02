@@ -803,3 +803,29 @@ def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
     return {"status": "ok", "id": consulta[0]}
 
+from fastapi import APIRouter, Depends, HTTPException
+from psycopg2.extras import RealDictCursor
+from . import get_db  # ajusta según tu estructura
+
+router = APIRouter(prefix="/medicos", tags=["Medicos"])
+
+@router.post("/{medico_id}/disponibilidad")
+def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
+    try:
+        cur = db.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            "UPDATE medicos SET disponible = %s WHERE id = %s RETURNING id, disponible",
+            (disponible, medico_id)
+        )
+        result = cur.fetchone()
+        db.commit()
+        cur.close()
+
+        if not result:
+            raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+        return {"ok": True, "medico_id": medico_id, "disponible": result["disponible"]}
+    except Exception as e:
+        db.rollback()
+        print("❌ Error al actualizar disponibilidad:", e)
+        raise HTTPException(status_code=500, detail="Error interno")
