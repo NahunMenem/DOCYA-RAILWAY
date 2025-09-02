@@ -718,20 +718,6 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 
     return consultas
 
-#Cuando el paciente solicita consulta
-#El backend guarda en la tabla consultas la dirección + lat/lng + motivo.
-@app.post("/consultas")
-def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        INSERT INTO consultas (paciente_id, motivo, direccion, lat, lng, estado)
-        VALUES (%s, %s, %s, %s, %s, 'pendiente')
-        RETURNING id
-    """, (data.paciente_id, data.motivo, data.direccion, data.lat, data.lng))
-    consulta_id = cur.fetchone()[0]
-    db.commit()
-    return {"consulta_id": consulta_id}
-
 
 #El backend asigna al médico disponible más cercano
 #Creamos un endpoint para el médico que pregunte: "¿tengo consultas nuevas?"
