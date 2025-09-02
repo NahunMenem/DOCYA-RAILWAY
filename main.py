@@ -691,15 +691,40 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     }
 
 
+from fastapi import HTTPException
+
 @app.post("/consultas/{consulta_id}/aceptar")
-def aceptar_consulta(consulta_id: int, db=Depends(get_db)):
+def aceptar_consulta(consulta_id: int, medico_id: UUID, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE consultas SET estado='aceptada', creado_en=NOW() WHERE id=%s RETURNING id", (consulta_id,))
-    row = cur.fetchone()
-    db.commit()
-    if not row:
+
+    # Verificar que la consulta exista y esté pendiente
+    cur.execute("""
+        SELECT id, estado FROM consultas WHERE id = %s
+    """, (consulta_id,))
+    consulta = cur.fetchone()
+
+    if not consulta:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    return {"consulta_id": consulta_id, "estado": "aceptada"}
+
+    if consulta[1] != "pendiente":
+        raise HTTPException(status_code=400, detail="La consulta ya fue asignada")
+
+    # Actualizar estado
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'aceptada', medico_id = %s
+        WHERE id = %s
+        RETURNING id, estado, medico_id
+    """, (str(medico_id), consulta_id))
+    db.commit()
+
+    consulta_actualizada = cur.fetchone()
+    return {
+        "id": consulta_actualizada[0],
+        "estado": consulta_actualizada[1],
+        "medico_id": consulta_actualizada[2]
+    }
+
 
 
 @app.post("/consultas/{consulta_id}/rechazar")
