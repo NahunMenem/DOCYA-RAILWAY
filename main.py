@@ -721,10 +721,27 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         LIMIT 1
     """, (medico_id,))
     row = cur.fetchone()
-    if not row:
-        return {"consulta": None}
 
-    dist_km = calcular_distancia(row[9], row[10], row[5], row[6])
+    if not row:
+        return {"consulta": None}  # 👈 evita el crash
+
+    # ⚠️ validar que no haya NULL en coordenadas
+    if not row[8] or not row[9] or not row[5] or not row[6]:
+        return {
+            "id": row[0],
+            "paciente_id": row[1],
+            "paciente_nombre": row[2],
+            "motivo": row[3],
+            "direccion": row[4],
+            "lat": row[5],
+            "lng": row[6],
+            "estado": row[7],
+            "distancia_km": None,
+            "tiempo_estimado_min": None
+        }
+
+    # calcular distancia
+    dist_km = calcular_distancia(row[8], row[9], row[5], row[6])
     tiempo_min = (dist_km / 40) * 60  # 40 km/h promedio
 
     return {
