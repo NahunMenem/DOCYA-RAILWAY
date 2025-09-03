@@ -620,7 +620,7 @@ class SolicitarConsultaIn(BaseModel):
 def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 1. Buscar médico disponible más cercano
+    # Buscar médico disponible más cercano
     cur.execute("""
         SELECT id, full_name, latitud, longitud,
         (6371 * acos(
@@ -642,28 +642,19 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     medico_id, medico_nombre, medico_lat, medico_lng, distancia = row
 
-    # 2. Guardar la consulta en la tabla
+    # Guardar la consulta con paciente_uuid
     cur.execute("""
-        INSERT INTO consultas (paciente_id, paciente_uuid, medico_id, estado, motivo, direccion, lat, lng)
-        VALUES (%s, %s, %s, 'pendiente', %s, %s, %s, %s)
+        INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng)
+        VALUES (%s, %s, 'pendiente', %s, %s, %s, %s)
         RETURNING id, creado_en
-    """, (
-        data.paciente_id,
-        str(data.paciente_uuid) if data.paciente_uuid else None,
-        medico_id,
-        data.motivo,
-        data.direccion,
-        data.lat,
-        data.lng
-    ))
+    """, (str(data.paciente_uuid), medico_id, data.motivo, data.direccion, data.lat, data.lng))
 
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
     return {
         "consulta_id": consulta_id,
-        "paciente_id": data.paciente_id,
-        "paciente_uuid": str(data.paciente_uuid) if data.paciente_uuid else None,
+        "paciente_uuid": str(data.paciente_uuid),
         "medico": {
             "id": medico_id,
             "nombre": medico_nombre,
