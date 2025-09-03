@@ -637,12 +637,12 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     medico_id, medico_nombre, medico_lat, medico_lng, distancia = row
 
-    # 2. Guardar la consulta en la tabla
+    # 2. Guardar la consulta en la tabla → SIEMPRE en estado 'pendiente'
     cur.execute("""
-        INSERT INTO consultas (paciente_id, medico_id, estado, motivo, direccion)
-        VALUES (%s, %s, 'pendiente', %s, %s)
+        INSERT INTO consultas (paciente_id, medico_id, estado, motivo, direccion, lat, lng)
+        VALUES (%s, %s, 'pendiente', %s, %s, %s, %s)
         RETURNING id, creado_en
-    """, (data.paciente_id, medico_id, data.motivo, data.direccion))
+    """, (data.paciente_id, medico_id, data.motivo, data.direccion, data.lat, data.lng))
 
     consulta_id, creado_en = cur.fetchone()
     db.commit()
@@ -662,6 +662,7 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": creado_en
     }
+
 
 
 from fastapi import HTTPException
