@@ -562,7 +562,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionMedicoIn, db=Depends(get
 # PACIENTE SOLICITA CONSULTA
 from pydantic import BaseModel
 class SolicitarConsultaIn(BaseModel):
-    paciente_id: Optional[int] = None
+    paciente_uuid: Optional[int] = None
     paciente_uuid: Optional[str] = None
     motivo: str
     direccion: str
@@ -680,7 +680,7 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 @app.get("/consultas/debug/{consulta_id}")
 def debug_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, paciente_id, paciente_uuid FROM consultas WHERE id = %s", (consulta_id,))
+    cur.execute("SELECT id, paciente_uuid, paciente_uuid FROM consultas WHERE id = %s", (consulta_id,))
     return cur.fetchone()
 
 from fastapi import HTTPException
@@ -689,7 +689,7 @@ from fastapi import HTTPException
 def consultas_mias(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT id, paciente_id, estado, motivo, direccion, creado_en
+        SELECT id, paciente_uuid, estado, motivo, direccion, creado_en
         FROM consultas
         WHERE medico_id = %s
           AND estado IN ('pendiente','aceptada')
@@ -701,7 +701,7 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
     for row in rows:
         consultas.append({
             "id": row[0],
-            "paciente_id": row[1],
+            "paciente_uuid": row[1],
             "estado": row[2],
             "motivo": row[3],
             "direccion": row[4],
@@ -933,7 +933,7 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
 def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT id, paciente_id, medico_id, estado, motivo, direccion, lat, lng, creado_en
+        SELECT id, paciente_uuid, medico_id, estado, motivo, direccion, lat, lng, creado_en
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
@@ -944,7 +944,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
 
     return {
         "id": row[0],
-        "paciente_id": row[1],
+        "paciente_uuid": row[1],
         "medico_id": row[2],
         "estado": row[3],
         "motivo": row[4],
