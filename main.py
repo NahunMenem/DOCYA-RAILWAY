@@ -605,12 +605,16 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from uuid import UUID
+from typing import Optional
+
 class SolicitarConsultaIn(BaseModel):
-    paciente_id: int
+    paciente_uuid: UUID   # 👈 ahora obligatorio
     motivo: str
     direccion: str
     lat: float
     lng: float
+
 
 @app.post("/consultas/solicitar")
 def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
