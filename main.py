@@ -822,7 +822,8 @@ def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         UPDATE consultas
-        SET estado = 'rechazada'
+        SET estado = 'pendiente',  -- vuelve a pendiente
+            medico_id = NULL       -- liberamos al médico anterior
         WHERE id = %s AND estado = 'pendiente'
         RETURNING id
     """, (consulta_id,))
@@ -830,9 +831,10 @@ def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     db.commit()
 
     if not consulta:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada o ya asignada")
+        raise HTTPException(status_code=404, detail="Consulta no encontrada o ya reasignada")
 
-    return {"status": "ok", "id": consulta[0]}
+    return {"status": "reopened", "id": consulta[0]}
+
 
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg2.extras import RealDictCursor
