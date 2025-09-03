@@ -578,6 +578,7 @@ def actualizar_ubicacion(medico_id: int, lat: float, lng: float, disponible: boo
     return {"status": "ok"}
 
 
+
 # PACIENTE SOLICITA CONSULTA
 from pydantic import BaseModel
 
