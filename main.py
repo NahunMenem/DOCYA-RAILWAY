@@ -701,7 +701,7 @@ def consulta_asignada(medico_id: int, db=Depends(get_db)):
     cur.execute("""
         SELECT c.id, c.paciente_id, c.motivo, c.direccion, c.lat, c.lng, c.estado
         FROM consultas c
-        WHERE c.medico_id = %s AND c.estado IN ('pendiente','aceptada')
+        WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (medico_id,))
@@ -719,6 +719,7 @@ def consulta_asignada(medico_id: int, db=Depends(get_db)):
         "lng": row[5],
         "estado": row[6],
     }
+
 
 
 from pydantic import BaseModel
