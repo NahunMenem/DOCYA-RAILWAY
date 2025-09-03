@@ -849,4 +849,38 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
 # 👇 Muy importante: recién al final montamos el router en la app
 app.include_router(router)
 
+@app.get("/pacientes/{user_id}")
+def obtener_paciente(user_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, email
+        FROM users
+        WHERE id = %s
+    """, (user_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    return {"id": row[0], "full_name": row[1], "email": row[2]}
+
+
+@app.get("/medicos/{medico_id}")
+def obtener_medico(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, email, especialidad, telefono
+        FROM medicos
+        WHERE id = %s
+    """, (medico_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+    return {
+        "id": row[0],
+        "full_name": row[1],
+        "email": row[2],
+        "especialidad": row[3],
+        "telefono": row[4],
+    }
 
