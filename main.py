@@ -711,10 +711,9 @@ def calcular_distancia(lat1, lon1, lat2, lon2):
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id, c.paciente_id, u.full_name, c.motivo, c.direccion, c.lat, c.lng, c.estado,
+        SELECT c.id, c.paciente_id, c.motivo, c.direccion, c.lat, c.lng, c.estado,
                m.latitud, m.longitud
         FROM consultas c
-        JOIN users u ON c.paciente_id = u.id
         JOIN medicos m ON c.medico_id = m.id
         WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
@@ -723,36 +722,36 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     row = cur.fetchone()
 
     if not row:
-        return {"consulta": None}  # 👈 evita el crash
+        return {"consulta": None}
 
-    # ⚠️ validar que no haya NULL en coordenadas
-    if not row[8] or not row[9] or not row[5] or not row[6]:
+    # si faltan coords no calculamos distancia
+    if not row[7] or not row[8] or not row[4] or not row[5]:
         return {
             "id": row[0],
             "paciente_id": row[1],
-            "paciente_nombre": row[2],
-            "motivo": row[3],
-            "direccion": row[4],
-            "lat": row[5],
-            "lng": row[6],
-            "estado": row[7],
+            "paciente_nombre": f"Paciente #{row[1]}",
+            "motivo": row[2],
+            "direccion": row[3],
+            "lat": row[4],
+            "lng": row[5],
+            "estado": row[6],
             "distancia_km": None,
             "tiempo_estimado_min": None
         }
 
-    # calcular distancia
-    dist_km = calcular_distancia(row[8], row[9], row[5], row[6])
-    tiempo_min = (dist_km / 40) * 60  # 40 km/h promedio
+    # calcular distancia y tiempo
+    dist_km = calcular_distancia(row[7], row[8], row[4], row[5])
+    tiempo_min = (dist_km / 40) * 60
 
     return {
         "id": row[0],
         "paciente_id": row[1],
-        "paciente_nombre": row[2],
-        "motivo": row[3],
-        "direccion": row[4],
-        "lat": row[5],
-        "lng": row[6],
-        "estado": row[7],
+        "paciente_nombre": f"Paciente #{row[1]}",
+        "motivo": row[2],
+        "direccion": row[3],
+        "lat": row[4],
+        "lng": row[5],
+        "estado": row[6],
         "distancia_km": round(dist_km, 2),
         "tiempo_estimado_min": round(tiempo_min)
     }
