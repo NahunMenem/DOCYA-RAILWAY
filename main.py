@@ -791,20 +791,8 @@ def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg2.extras import RealDictCursor
-from main import get_db  # ajusta según tu estructura
 
 router = APIRouter(prefix="/medicos", tags=["Medicos"])
-
-@router.post("/{medico_id}/disponibilidad")
-def actualizar_disponibilidad(...):
-    ...
-
-@router.get("/{medico_id}/stats")
-def medico_stats(...):
-    ...
-
-# 👇 Muy importante: montar el router en la app
-app.include_router(router)
 
 
 @router.post("/{medico_id}/disponibilidad")
@@ -827,6 +815,39 @@ def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_d
         db.rollback()
         print("❌ Error al actualizar disponibilidad:", e)
         raise HTTPException(status_code=500, detail="Error interno")
+
+
+@router.get("/{medico_id}/stats")
+def medico_stats(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+
+    # Consultas del mes
+    cur.execute("""
+        SELECT COUNT(*) 
+        FROM consultas
+        WHERE medico_id = %s 
+          AND estado = 'aceptada'
+          AND DATE_TRUNC('month', creado_en) = DATE_TRUNC('month', CURRENT_DATE);
+    """, (medico_id,))
+    total_consultas = cur.fetchone()[0]
+
+    # Ganancias del mes
+    cur.execute("""
+        SELECT COUNT(*) * 24000
+        FROM consultas
+        WHERE medico_id = %s 
+          AND estado = 'aceptada'
+          AND DATE_TRUNC('month', creado_en) = DATE_TRUNC('month', CURRENT_DATE);
+    """, (medico_id,))
+    ganancias = cur.fetchone()[0] or 0
+
+    cur.close()
+    return {"consultas": total_consultas, "ganancias": ganancias}
+
+
+# 👇 Muy importante: recién al final montamos el router en la app
+app.include_router(router)
+
 
 # es para qe el medico vea sus estadisticas
 @router.get("/{medico_id}/stats")
