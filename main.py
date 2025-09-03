@@ -695,29 +695,31 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 #El backend asigna al médico disponible más cercano
 #Creamos un endpoint para el médico que pregunte: "¿tengo consultas nuevas?"
 @app.get("/consultas/asignadas/{medico_id}")
-def consulta_asignada(medico_id: int, db=Depends(get_db)):
+def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id, c.paciente_id, c.motivo, c.direccion, c.lat, c.lng, c.estado
+        SELECT c.id, c.paciente_id, u.full_name, c.motivo, c.direccion, c.lat, c.lng, c.estado
         FROM consultas c
+        JOIN users u ON c.paciente_id = u.id   -- 👈 ajusta según sea tu tabla de pacientes
         WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (medico_id,))
     row = cur.fetchone()
-
     if not row:
         return {"consulta": None}
 
     return {
         "id": row[0],
         "paciente_id": row[1],
-        "motivo": row[2],
-        "direccion": row[3],
-        "lat": row[4],
-        "lng": row[5],
-        "estado": row[6],
+        "paciente_nombre": row[2],  # 👈 nuevo
+        "motivo": row[3],
+        "direccion": row[4],
+        "lat": row[5],
+        "lng": row[6],
+        "estado": row[7],
     }
+
 
 
 
