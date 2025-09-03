@@ -698,9 +698,11 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id, c.paciente_id, u.full_name, c.motivo, c.direccion, c.lat, c.lng, c.estado
+        SELECT c.id, c.paciente_id,
+               p.nombre || ' ' || p.apellido AS paciente_nombre,
+               c.motivo, c.direccion, c.lat, c.lng, c.estado
         FROM consultas c
-        JOIN users u ON c.paciente_id = u.id   -- 👈 ajusta según sea tu tabla de pacientes
+        JOIN pacientes p ON c.paciente_id = p.id
         WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
         LIMIT 1
@@ -712,7 +714,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     return {
         "id": row[0],
         "paciente_id": row[1],
-        "paciente_nombre": row[2],  # 👈 nuevo
+        "paciente_nombre": row[2],  # 👈 nombre y apellido juntos
         "motivo": row[3],
         "direccion": row[4],
         "lat": row[5],
