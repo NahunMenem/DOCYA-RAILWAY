@@ -796,6 +796,18 @@ from main import get_db  # ajusta según tu estructura
 router = APIRouter(prefix="/medicos", tags=["Medicos"])
 
 @router.post("/{medico_id}/disponibilidad")
+def actualizar_disponibilidad(...):
+    ...
+
+@router.get("/{medico_id}/stats")
+def medico_stats(...):
+    ...
+
+# 👇 Muy importante: montar el router en la app
+app.include_router(router)
+
+
+@router.post("/{medico_id}/disponibilidad")
 def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
