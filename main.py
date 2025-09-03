@@ -553,13 +553,14 @@ def actualizar_ubicacion(medico_id: int, lat: float, lng: float, disponible: boo
 
 # PACIENTE SOLICITA CONSULTA
 from pydantic import BaseModel
-
 class SolicitarConsultaIn(BaseModel):
-    paciente_id: int
+    paciente_id: Optional[int] = None
+    paciente_uuid: Optional[str] = None
     motivo: str
     direccion: str
     lat: float
     lng: float
+
 
 
 
@@ -615,7 +616,7 @@ class SolicitarConsultaIn(BaseModel):
 def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Buscar médico disponible más cercano
+    # 1. Buscar médico disponible más cercano
     cur.execute("""
         SELECT id, full_name, latitud, longitud,
         (6371 * acos(
@@ -637,12 +638,20 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     medico_id, medico_nombre, medico_lat, medico_lng, distancia = row
 
-    # Guardar la consulta en la tabla
+    # 2. Guardar la consulta en la tabla
     cur.execute("""
-        INSERT INTO consultas (paciente_id, medico_id, estado, motivo, direccion, lat, lng)
-        VALUES (%s, %s, 'pendiente', %s, %s, %s, %s)
+        INSERT INTO consultas (paciente_id, paciente_uuid, medico_id, estado, motivo, direccion, lat, lng)
+        VALUES (%s, %s, %s, 'pendiente', %s, %s, %s, %s)
         RETURNING id, creado_en
-    """, (data.paciente_id, medico_id, data.motivo, data.direccion, data.lat, data.lng))
+    """, (
+        data.paciente_id,
+        str(data.paciente_uuid) if data.paciente_uuid else None,
+        medico_id,
+        data.motivo,
+        data.direccion,
+        data.lat,
+        data.lng
+    ))
 
     consulta_id, creado_en = cur.fetchone()
     db.commit()
@@ -650,6 +659,7 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     return {
         "consulta_id": consulta_id,
         "paciente_id": data.paciente_id,
+        "paciente_uuid": str(data.paciente_uuid) if data.paciente_uuid else None,
         "medico": {
             "id": medico_id,
             "nombre": medico_nombre,
@@ -663,6 +673,12 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "creado_en": creado_en
     }
 
+
+@app.get("/consultas/debug/{consulta_id}")
+def debug_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT id, paciente_id, paciente_uuid FROM consultas WHERE id = %s", (consulta_id,))
+    return cur.fetchone()
 
 from fastapi import HTTPException
 
@@ -711,10 +727,21 @@ def calcular_distancia(lat1, lon1, lat2, lon2):
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id, c.paciente_id, c.motivo, c.direccion, c.lat, c.lng, c.estado,
-               m.latitud, m.longitud
+        SELECT 
+            c.id, 
+            c.paciente_id, 
+            c.paciente_uuid, 
+            COALESCE(u.full_name, CONCAT('Paciente #', c.paciente_id::text)) AS paciente_nombre,
+            c.motivo, 
+            c.direccion, 
+            c.lat, 
+            c.lng, 
+            c.estado,
+            m.latitud, 
+            m.longitud
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
+        LEFT JOIN users u ON c.paciente_uuid = u.id  -- 👈 si tiene UUID, traemos nombre real
         WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
         LIMIT 1
@@ -724,37 +751,43 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     if not row:
         return {"consulta": None}
 
-    # si faltan coords no calculamos distancia
-    if not row[7] or not row[8] or not row[4] or not row[5]:
+    (consulta_id, paciente_id, paciente_uuid, paciente_nombre,
+     motivo, direccion, lat, lng, estado, med_lat, med_lng) = row
+
+    # ⚠️ validar coordenadas
+    if not med_lat or not med_lng or not lat or not lng:
         return {
-            "id": row[0],
-            "paciente_id": row[1],
-            "paciente_nombre": f"Paciente #{row[1]}",
-            "motivo": row[2],
-            "direccion": row[3],
-            "lat": row[4],
-            "lng": row[5],
-            "estado": row[6],
+            "id": consulta_id,
+            "paciente_id": paciente_id,
+            "paciente_uuid": str(paciente_uuid) if paciente_uuid else None,
+            "paciente_nombre": paciente_nombre,
+            "motivo": motivo,
+            "direccion": direccion,
+            "lat": lat,
+            "lng": lng,
+            "estado": estado,
             "distancia_km": None,
             "tiempo_estimado_min": None
         }
 
     # calcular distancia y tiempo
-    dist_km = calcular_distancia(row[7], row[8], row[4], row[5])
-    tiempo_min = (dist_km / 40) * 60
+    dist_km = calcular_distancia(med_lat, med_lng, lat, lng)
+    tiempo_min = (dist_km / 40) * 60  # 40 km/h promedio
 
     return {
-        "id": row[0],
-        "paciente_id": row[1],
-        "paciente_nombre": f"Paciente #{row[1]}",
-        "motivo": row[2],
-        "direccion": row[3],
-        "lat": row[4],
-        "lng": row[5],
-        "estado": row[6],
+        "id": consulta_id,
+        "paciente_id": paciente_id,
+        "paciente_uuid": str(paciente_uuid) if paciente_uuid else None,
+        "paciente_nombre": paciente_nombre,
+        "motivo": motivo,
+        "direccion": direccion,
+        "lat": lat,
+        "lng": lng,
+        "estado": estado,
         "distancia_km": round(dist_km, 2),
         "tiempo_estimado_min": round(tiempo_min)
     }
+
 
 
 
