@@ -694,15 +694,28 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 
 #El backend asigna al médico disponible más cercano
 #Creamos un endpoint para el médico que pregunte: "¿tengo consultas nuevas?"
+import math
+
+def calcular_distancia(lat1, lon1, lat2, lon2):
+    R = 6371  # radio Tierra en km
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = (math.sin(dlat/2)**2 +
+         math.cos(math.radians(lat1)) *
+         math.cos(math.radians(lat2)) *
+         math.sin(dlon/2)**2)
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+    return R * c
+
 @app.get("/consultas/asignadas/{medico_id}")
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id, c.paciente_id,
-               p.nombre || ' ' || p.apellido AS paciente_nombre,
-               c.motivo, c.direccion, c.lat, c.lng, c.estado
+        SELECT c.id, c.paciente_id, u.full_name, c.motivo, c.direccion, c.lat, c.lng, c.estado,
+               m.latitud, m.longitud
         FROM consultas c
-        JOIN pacientes p ON c.paciente_id = p.id
+        JOIN users u ON c.paciente_id = u.id
+        JOIN medicos m ON c.medico_id = m.id
         WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
         LIMIT 1
@@ -711,15 +724,20 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     if not row:
         return {"consulta": None}
 
+    dist_km = calcular_distancia(row[9], row[10], row[5], row[6])
+    tiempo_min = (dist_km / 40) * 60  # 40 km/h promedio
+
     return {
         "id": row[0],
         "paciente_id": row[1],
-        "paciente_nombre": row[2],  # 👈 nombre y apellido juntos
+        "paciente_nombre": row[2],
         "motivo": row[3],
         "direccion": row[4],
         "lat": row[5],
         "lng": row[6],
         "estado": row[7],
+        "distancia_km": round(dist_km, 2),
+        "tiempo_estimado_min": round(tiempo_min)
     }
 
 
