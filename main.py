@@ -615,7 +615,7 @@ class SolicitarConsultaIn(BaseModel):
 def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 1. Buscar médico disponible más cercano
+    # Buscar médico disponible más cercano
     cur.execute("""
         SELECT id, full_name, latitud, longitud,
         (6371 * acos(
@@ -637,7 +637,7 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     medico_id, medico_nombre, medico_lat, medico_lng, distancia = row
 
-    # 2. Guardar la consulta en la tabla → SIEMPRE en estado 'pendiente'
+    # Guardar la consulta en la tabla
     cur.execute("""
         INSERT INTO consultas (paciente_id, medico_id, estado, motivo, direccion, lat, lng)
         VALUES (%s, %s, 'pendiente', %s, %s, %s, %s)
@@ -662,7 +662,6 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": creado_en
     }
-
 
 
 from fastapi import HTTPException
@@ -856,5 +855,30 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "email": row[2],
         "especialidad": row[3],
         "telefono": row[4],
+    }
+
+@app.get("/consultas/{consulta_id}")
+def obtener_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, paciente_id, medico_id, estado, motivo, direccion, lat, lng, creado_en
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    return {
+        "id": row[0],
+        "paciente_id": row[1],
+        "medico_id": row[2],
+        "estado": row[3],
+        "motivo": row[4],
+        "direccion": row[5],
+        "lat": row[6],
+        "lng": row[7],
+        "creado_en": row[8]
     }
 
