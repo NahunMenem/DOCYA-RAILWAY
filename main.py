@@ -849,30 +849,3 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
 app.include_router(router)
 
 
-# es para qe el medico vea sus estadisticas
-@router.get("/{medico_id}/stats")
-def medico_stats(medico_id: int, db=Depends(get_db)):
-    cur = db.cursor()
-
-    # Consultas del mes
-    cur.execute("""
-        SELECT COUNT(*) 
-        FROM consultas
-        WHERE medico_id = %s 
-          AND estado = 'aceptada'
-          AND DATE_TRUNC('month', creado_en) = DATE_TRUNC('month', CURRENT_DATE);
-    """, (medico_id,))
-    total_consultas = cur.fetchone()[0]
-
-    # Ganancias del mes
-    cur.execute("""
-        SELECT COUNT(*) * 24000
-        FROM consultas
-        WHERE medico_id = %s 
-          AND estado = 'aceptada'
-          AND DATE_TRUNC('month', creado_en) = DATE_TRUNC('month', CURRENT_DATE);
-    """, (medico_id,))
-    ganancias = cur.fetchone()[0] or 0
-
-    cur.close()
-    return {"consultas": total_consultas, "ganancias": ganancias}
