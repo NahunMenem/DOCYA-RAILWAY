@@ -723,20 +723,19 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         SELECT 
-            c.id, 
-            c.paciente_id, 
-            c.paciente_uuid, 
-            COALESCE(u.full_name, CONCAT('Paciente #', c.paciente_id::text)) AS paciente_nombre,
-            c.motivo, 
-            c.direccion, 
-            c.lat, 
-            c.lng, 
+            c.id,
+            c.paciente_uuid,
+            COALESCE(u.full_name, 'Paciente desconocido') AS paciente_nombre,
+            c.motivo,
+            c.direccion,
+            c.lat,
+            c.lng,
             c.estado,
-            m.latitud, 
+            m.latitud,
             m.longitud
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
-        LEFT JOIN users u ON c.paciente_uuid = u.id  -- 👈 si tiene UUID, traemos nombre real
+        LEFT JOIN users u ON c.paciente_uuid = u.id
         WHERE c.medico_id = %s AND c.estado = 'pendiente'
         ORDER BY c.creado_en DESC
         LIMIT 1
@@ -746,14 +745,13 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     if not row:
         return {"consulta": None}
 
-    (consulta_id, paciente_id, paciente_uuid, paciente_nombre,
+    (consulta_id, paciente_uuid, paciente_nombre,
      motivo, direccion, lat, lng, estado, med_lat, med_lng) = row
 
     # ⚠️ validar coordenadas
     if not med_lat or not med_lng or not lat or not lng:
         return {
             "id": consulta_id,
-            "paciente_id": paciente_id,
             "paciente_uuid": str(paciente_uuid) if paciente_uuid else None,
             "paciente_nombre": paciente_nombre,
             "motivo": motivo,
@@ -767,11 +765,10 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
 
     # calcular distancia y tiempo
     dist_km = calcular_distancia(med_lat, med_lng, lat, lng)
-    tiempo_min = (dist_km / 40) * 60  # 40 km/h promedio
+    tiempo_min = (dist_km / 40) * 60
 
     return {
         "id": consulta_id,
-        "paciente_id": paciente_id,
         "paciente_uuid": str(paciente_uuid) if paciente_uuid else None,
         "paciente_nombre": paciente_nombre,
         "motivo": motivo,
@@ -782,7 +779,6 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "distancia_km": round(dist_km, 2),
         "tiempo_estimado_min": round(tiempo_min)
     }
-
 
 
 
