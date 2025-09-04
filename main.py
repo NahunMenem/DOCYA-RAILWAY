@@ -954,3 +954,93 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "creado_en": row[8]
     }
 
+#Endpoint para que el paciente vea en tiempo real la ubicación
+@app.get("/consultas/{consulta_id}/ubicacion_medico")
+def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT m.id, m.full_name, m.latitud, m.longitud, m.telefono
+        FROM consultas c
+        JOIN medicos m ON c.medico_id = m.id
+        WHERE c.id = %s AND c.estado = 'aceptada'
+    """, (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="No se encontró ubicación para esta consulta")
+
+    return {
+        "medico_id": row[0],
+        "nombre": row[1],
+        "lat": row[2],
+        "lng": row[3],
+        "telefono": row[4]
+    }
+class LlegoIn(BaseModel):
+    medico_id: int
+
+@app.post("/consultas/{consulta_id}/llego")
+def medico_llego(consulta_id: int, data: LlegoIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'en_domicilio'
+        WHERE id = %s AND medico_id = %s AND estado = 'aceptada'
+        RETURNING id
+    """, (consulta_id, data.medico_id))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada o estado inválido")
+
+    return {"ok": True, "consulta_id": row[0], "estado": "en_domicilio"}
+
+class FinalizarConsultaIn(BaseModel):
+    medico_id: int
+
+@app.post("/consultas/{consulta_id}/finalizar")
+def finalizar_consulta(consulta_id: int, data: FinalizarConsultaIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'finalizada'
+        WHERE id = %s AND medico_id = %s 
+          AND estado IN ('aceptada', 'en_domicilio')
+        RETURNING id
+    """, (consulta_id, data.medico_id))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada o ya finalizada")
+
+    return {"ok": True, "consulta_id": row[0], "estado": "finalizada"}
+@app.get("/consultas/historial/{paciente_uuid}")
+def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id, c.estado, c.motivo, c.direccion, c.creado_en,
+               m.full_name AS medico_nombre, m.especialidad
+        FROM consultas c
+        LEFT JOIN medicos m ON c.medico_id = m.id
+        WHERE c.paciente_uuid = %s
+        ORDER BY c.creado_en DESC
+    """, (paciente_uuid,))
+    rows = cur.fetchall()
+
+    historial = []
+    for row in rows:
+        historial.append({
+            "id": row[0],
+            "estado": row[1],
+            "motivo": row[2],
+            "direccion": row[3],
+            "creado_en": row[4],
+            "medico": {
+                "nombre": row[5],
+                "especialidad": row[6]
+            }
+        })
+
+    return historial
