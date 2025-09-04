@@ -933,9 +933,12 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
 def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT id, paciente_uuid, medico_id, estado, motivo, direccion, lat, lng, creado_en
-        FROM consultas
-        WHERE id = %s
+        SELECT c.id, c.paciente_uuid, c.medico_id, c.estado, c.motivo, c.direccion, 
+               c.lat, c.lng, c.creado_en,
+               m.full_name, m.matricula
+        FROM consultas c
+        LEFT JOIN medicos m ON c.medico_id = m.id
+        WHERE c.id = %s
     """, (consulta_id,))
     row = cur.fetchone()
 
@@ -951,7 +954,9 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "direccion": row[5],
         "lat": row[6],
         "lng": row[7],
-        "creado_en": row[8]
+        "creado_en": row[8],
+        "medico_nombre": row[9],
+        "medico_matricula": row[10],
     }
 
 #Endpoint para que el paciente vea en tiempo real la ubicación
