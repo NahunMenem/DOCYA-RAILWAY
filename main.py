@@ -1211,3 +1211,65 @@ def test_push(medico_id: int, db=Depends(get_db)):
     except Exception as e:
         print(f"⚠️ Error enviando test push: {e}")
         raise HTTPException(status_code=500, detail="Error enviando push")
+
+
+from pydantic import BaseModel
+
+# ---------- MODELOS ----------
+class CertificadoIn(BaseModel):
+    medico_id: int
+    paciente_uuid: str
+    contenido: str
+
+class RecetaIn(BaseModel):
+    medico_id: int
+    paciente_uuid: str
+    medicamentos: list[dict]  # [{nombre, dosis, frecuencia, duracion}]
+
+class NotaIn(BaseModel):
+    medico_id: int
+    paciente_uuid: str
+    contenido: str
+
+# ---------- CERTIFICADO ----------
+@app.post("/consultas/{consulta_id}/certificado")
+def crear_certificado(consulta_id: int, data: CertificadoIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO certificados (consulta_id, medico_id, paciente_uuid, contenido)
+        VALUES (%s, %s, %s, %s) RETURNING id
+    """, (consulta_id, data.medico_id, data.paciente_uuid, data.contenido))
+    certificado_id = cur.fetchone()[0]
+    db.commit()
+    return {"ok": True, "certificado_id": certificado_id}
+
+# ---------- RECETA ----------
+@app.post("/consultas/{consulta_id}/receta")
+def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO recetas (consulta_id, medico_id, paciente_uuid)
+        VALUES (%s, %s, %s) RETURNING id
+    """, (consulta_id, data.medico_id, data.paciente_uuid))
+    receta_id = cur.fetchone()[0]
+
+    for med in data.medicamentos:
+        cur.execute("""
+            INSERT INTO receta_items (receta_id, nombre, dosis, frecuencia, duracion)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (receta_id, med["nombre"], med["dosis"], med["frecuencia"], med["duracion"]))
+
+    db.commit()
+    return {"ok": True, "receta_id": receta_id}
+
+# ---------- NOTAS ----------
+@app.post("/consultas/{consulta_id}/nota")
+def crear_nota(consulta_id: int, data: NotaIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO notas_medicas (consulta_id, medico_id, paciente_uuid, contenido)
+        VALUES (%s, %s, %s, %s) RETURNING id
+    """, (consulta_id, data.medico_id, data.paciente_uuid, data.contenido))
+    nota_id = cur.fetchone()[0]
+    db.commit()
+    return {"ok": True, "nota_id": nota_id}
