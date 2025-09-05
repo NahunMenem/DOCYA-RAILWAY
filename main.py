@@ -1273,3 +1273,24 @@ def crear_nota(consulta_id: int, data: NotaIn, db=Depends(get_db)):
     nota_id = cur.fetchone()[0]
     db.commit()
     return {"ok": True, "nota_id": nota_id}
+
+
+class EnCaminoIn(BaseModel):
+    medico_id: int
+
+@app.post("/consultas/{consulta_id}/encamino")
+def medico_encamino(consulta_id: int, data: EnCaminoIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'en_camino'
+        WHERE id = %s AND medico_id = %s AND estado = 'aceptada'
+        RETURNING id
+    """, (consulta_id, data.medico_id))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada o estado inválido")
+
+    return {"ok": True, "consulta_id": row[0], "estado": "en_camino"}
