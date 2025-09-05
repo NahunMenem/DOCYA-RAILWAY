@@ -1173,7 +1173,8 @@ def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
             "token": fcm_token,
             "notification": {
                 "title": titulo,
-                "body": cuerpo
+                "body": cuerpo,
+                "icon": ic_stat_docya
             },
             "data": data
         }
