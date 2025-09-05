@@ -1113,3 +1113,30 @@ def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Médico no encontrado")
 
     return {"ok": True, "medico_id": medico_id, "fcm_token": data.fcm_token}
+
+
+import requests
+
+FCM_SERVER_KEY = os.getenv("FCM_SERVER_KEY")  # 🔑 agregalo en tu Railway/Render como variable de entorno
+
+def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
+    """
+    Envía una notificación push a un dispositivo específico usando FCM.
+    """
+    headers = {
+        "Authorization": f"key={FCM_SERVER_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "to": fcm_token,
+        "notification": {
+            "title": titulo,
+            "body": cuerpo,
+            "sound": "default"
+        },
+        "data": data
+    }
+
+    r = requests.post("https://fcm.googleapis.com/fcm/send", headers=headers, json=payload)
+    print("📤 Push enviado:", r.status_code, r.text)
+    return r.json()
