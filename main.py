@@ -1084,8 +1084,9 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
 
     try:
         while True:
-            # El médico podría mandar "pong" o heartbeat
-            await websocket.receive_text()
+            data = await websocket.receive_text()
+            if data == '{"tipo":"ping"}':
+                print(f"❤️ Ping recibido de médico {medico_id}")
     except WebSocketDisconnect:
         print(f"❌ Médico {medico_id} desconectado")
         if medico_id in active_medicos:
