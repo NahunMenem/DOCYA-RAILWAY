@@ -625,7 +625,7 @@ class SolicitarConsultaIn(BaseModel):
 
 
 @app.post("/consultas/solicitar")
-def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
+async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
     # Buscar médico disponible más cercano
@@ -660,6 +660,24 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
+    # 🔔 Notificar al médico si está conectado por WS
+    if medico_id in active_medicos:
+        try:
+            await active_medicos[medico_id].send_json({
+                "tipo": "consulta_nueva",
+                "consulta_id": consulta_id,
+                "paciente_uuid": str(data.paciente_uuid),
+                "motivo": data.motivo,
+                "direccion": data.direccion,
+                "lat": data.lat,
+                "lng": data.lng,
+                "distancia_km": round(distancia, 2),
+                "creado_en": str(creado_en)
+            })
+            print(f"📨 Consulta {consulta_id} enviada en tiempo real al médico {medico_id}")
+        except Exception as e:
+            print(f"⚠️ No se pudo notificar al médico {medico_id}: {e}")
+
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -675,6 +693,7 @@ def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": creado_en
     }
+
 
 
 @app.get("/consultas/debug/{consulta_id}")
@@ -1049,3 +1068,25 @@ def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
         })
 
     return historial
+
+
+from fastapi import WebSocket, WebSocketDisconnect
+from typing import Dict
+
+# Guardamos conexiones activas de médicos
+active_medicos: Dict[int, WebSocket] = {}
+
+@app.websocket("/ws/medico/{medico_id}")
+async def medico_ws(websocket: WebSocket, medico_id: int):
+    await websocket.accept()
+    active_medicos[medico_id] = websocket
+    print(f"👨‍⚕️ Médico {medico_id} conectado vía WS")
+
+    try:
+        while True:
+            # El médico podría mandar "pong" o heartbeat
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        print(f"❌ Médico {medico_id} desconectado")
+        if medico_id in active_medicos:
+            del active_medicos[medico_id]
