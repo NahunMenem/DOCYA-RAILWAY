@@ -1091,3 +1091,25 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
         print(f"❌ Médico {medico_id} desconectado")
         if medico_id in active_medicos:
             del active_medicos[medico_id]
+
+from pydantic import BaseModel
+
+class FcmTokenIn(BaseModel):
+    fcm_token: str
+
+@app.post("/medicos/{medico_id}/fcm_token")
+def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos
+        SET fcm_token = %s, updated_at = NOW()
+        WHERE id = %s
+        RETURNING id
+    """, (data.fcm_token, medico_id))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+    return {"ok": True, "medico_id": medico_id, "fcm_token": data.fcm_token}
