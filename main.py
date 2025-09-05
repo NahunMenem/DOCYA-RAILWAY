@@ -1115,28 +1115,47 @@ def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
     return {"ok": True, "medico_id": medico_id, "fcm_token": data.fcm_token}
 
 
-import requests
+import requests, json, os
+from google.oauth2 import service_account
+import google.auth.transport.requests
 
-FCM_SERVER_KEY = os.getenv("FCM_SERVER_KEY")  # 🔑 agregalo en tu Railway/Render como variable de entorno
+# 🔑 Guardá todo el JSON de la cuenta de servicio en Railway como:
+# GOOGLE_APPLICATION_CREDENTIALS_JSON={...}
+service_account_info = json.loads(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"))
+credentials = service_account.Credentials.from_service_account_info(
+    service_account_info,
+    scopes=["https://www.googleapis.com/auth/firebase.messaging"]
+)
+
+def get_access_token():
+    """Genera un token OAuth2 válido para llamar a FCM V1"""
+    request = google.auth.transport.requests.Request()
+    credentials.refresh(request)
+    return credentials.token
 
 def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
     """
-    Envía una notificación push a un dispositivo específico usando FCM.
+    Envía una notificación push usando FCM V1
     """
+    project_id = service_account_info["project_id"]
+    url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+
     headers = {
-        "Authorization": f"key={FCM_SERVER_KEY}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "to": fcm_token,
-        "notification": {
-            "title": titulo,
-            "body": cuerpo,
-            "sound": "default"
-        },
-        "data": data
+        "Authorization": f"Bearer {get_access_token()}",
+        "Content-Type": "application/json; UTF-8",
     }
 
-    r = requests.post("https://fcm.googleapis.com/fcm/send", headers=headers, json=payload)
+    payload = {
+        "message": {
+            "token": fcm_token,
+            "notification": {
+                "title": titulo,
+                "body": cuerpo
+            },
+            "data": data
+        }
+    }
+
+    r = requests.post(url, headers=headers, json=payload)
     print("📤 Push enviado:", r.status_code, r.text)
     return r.json()
