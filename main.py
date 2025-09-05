@@ -678,6 +678,29 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         except Exception as e:
             print(f"⚠️ No se pudo notificar al médico {medico_id}: {e}")
 
+    # 🔔 Notificar al médico por Push (FCM)
+    cur.execute("SELECT fcm_token FROM medicos WHERE id = %s", (medico_id,))
+    row = cur.fetchone()
+    if row and row[0]:
+        try:
+            enviar_push(
+                row[0],  # fcm_token
+                "📢 Nueva consulta disponible",
+                f"Paciente solicita atención: {data.motivo}",
+                {
+                    "tipo": "consulta_nueva",
+                    "consulta_id": str(consulta_id),
+                    "paciente_uuid": str(data.paciente_uuid),
+                    "direccion": data.direccion,
+                    "lat": str(data.lat),
+                    "lng": str(data.lng),
+                    "creado_en": str(creado_en)
+                }
+            )
+            print(f"📩 Push notification enviada al médico {medico_id}")
+        except Exception as e:
+            print(f"⚠️ Error enviando push notification al médico {medico_id}: {e}")
+
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -1159,3 +1182,32 @@ def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
     r = requests.post(url, headers=headers, json=payload)
     print("📤 Push enviado:", r.status_code, r.text)
     return r.json()
+
+
+#test eliominar depues notificaciones 
+@app.post("/test_push/{medico_id}")
+def test_push(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT fcm_token FROM medicos WHERE id = %s", (medico_id,))
+    row = cur.fetchone()
+
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="Este médico no tiene un fcm_token registrado")
+
+    fcm_token = row[0]
+
+    try:
+        enviar_push(
+            fcm_token,
+            "📢 Notificación de prueba",
+            "Esto es una notificación de prueba de DocYa",
+            {
+                "tipo": "test_push",
+                "mensaje": "Hola doctor 👨‍⚕️, esta es una notificación de prueba",
+                "medico_id": str(medico_id)
+            }
+        )
+        return {"ok": True, "mensaje": "Notificación de prueba enviada"}
+    except Exception as e:
+        print(f"⚠️ Error enviando test push: {e}")
+        raise HTTPException(status_code=500, detail="Error enviando push")
