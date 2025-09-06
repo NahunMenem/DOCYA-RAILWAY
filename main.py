@@ -442,6 +442,11 @@ class RegisterMedicoIn(BaseModel):
     telefono: str | None = None
     provincia: str | None = None
     localidad: str | None = None
+    dni: str | None = None
+    foto_dni_frente: str | None = None   # URL o base64
+    foto_dni_dorso: str | None = None
+    selfie_dni: str | None = None        # Selfie con DNI en mano
+
 
 @app.post("/auth/register_medico")
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
@@ -463,9 +468,10 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         cur.execute("""
             INSERT INTO medicos (
                 full_name, email, password_hash,
-                matricula, especialidad, telefono, provincia, localidad
+                matricula, especialidad, telefono, provincia, localidad,
+                dni, foto_dni_frente, foto_dni_dorso, selfie_dni, validado
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
             RETURNING id, full_name
         """, (
             data.full_name.strip(),
@@ -475,7 +481,11 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             data.especialidad,
             data.telefono,
             data.provincia,
-            data.localidad
+            data.localidad,
+            data.dni,
+            data.foto_dni_frente,
+            data.foto_dni_dorso,
+            data.selfie_dni
         ))
         medico_id, full_name = cur.fetchone()
         db.commit()
@@ -484,6 +494,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         print("❌ ERROR en register_medico:", e)
         raise HTTPException(status_code=500, detail="Error interno en registro")
 
+    # ⚠️ IMPORTANTE: aunque devolvemos token, el médico no podrá loguearse hasta que se valide
     token = create_access_token({
         "sub": str(medico_id),
         "email": data.email.lower(),
@@ -495,7 +506,8 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         "token_type": "bearer",
         "medico": {
             "id": str(medico_id),
-            "full_name": full_name
+            "full_name": full_name,
+            "validado": False
         }
     }
 
@@ -508,7 +520,11 @@ class LoginMedicoIn(BaseModel):
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute(
-        "SELECT id, full_name, password_hash FROM medicos WHERE email=%s",
+        """
+        SELECT id, full_name, password_hash, validado
+        FROM medicos
+        WHERE email=%s
+        """,
         (data.email.lower(),)
     )
     row = cur.fetchone()
@@ -516,10 +532,18 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     if not row:
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
 
-    medico_id, full_name, password_hash = row
+    medico_id, full_name, password_hash, validado = row
 
+    # Verificar contraseña
     if not password_hash or not pwd_context.verify(data.password, password_hash):
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
+
+    # Verificar validación manual
+    if not validado:
+        raise HTTPException(
+            status_code=403,
+            detail="Tu cuenta aún no fue validada. Te avisaremos cuando esté habilitada."
+        )
 
     token = create_access_token({
         "sub": str(medico_id),
@@ -532,9 +556,31 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         "token_type": "bearer",
         "medico": {
             "id": str(medico_id),
-            "full_name": full_name
+            "full_name": full_name,
+            "validado": True
         }
     }
+
+
+
+
+@app.post("/medicos/{medico_id}/validar")
+def validar_medico(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos
+        SET validado = TRUE, updated_at = NOW()
+        WHERE id = %s
+        RETURNING id, full_name
+    """, (medico_id,))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+    return {"ok": True, "medico_id": row[0], "nombre": row[1]}
+
 
 #MANDA EL MEDICO SU UBICACION TODO MEL TIEMPO MIENTRAS ESTE DISPONIBLE
 #MANDA EL MEDICO SU UBICACION TODO EL TIEMPO MIENTRAS ESTE DISPONIBLE
