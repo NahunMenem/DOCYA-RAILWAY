@@ -443,9 +443,11 @@ class RegisterMedicoIn(BaseModel):
     provincia: str | None = None
     localidad: str | None = None
     dni: str | None = None
-    foto_dni_frente: str | None = None   # URL o base64
+    foto_perfil: str | None = None       # 👈 URL en Cloudinary
+    foto_dni_frente: str | None = None
     foto_dni_dorso: str | None = None
-    selfie_dni: str | None = None        # Selfie con DNI en mano
+    selfie_dni: str | None = None
+
 
 
 @app.post("/auth/register_medico")
@@ -469,9 +471,9 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             INSERT INTO medicos (
                 full_name, email, password_hash,
                 matricula, especialidad, telefono, provincia, localidad,
-                dni, foto_dni_frente, foto_dni_dorso, selfie_dni, validado
+                dni, foto_perfil, foto_dni_frente, foto_dni_dorso, selfie_dni, validado
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
             RETURNING id, full_name
         """, (
             data.full_name.strip(),
@@ -483,6 +485,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             data.provincia,
             data.localidad,
             data.dni,
+            data.foto_perfil,
             data.foto_dni_frente,
             data.foto_dni_dorso,
             data.selfie_dni
