@@ -955,7 +955,7 @@ def obtener_paciente(user_id: int, db=Depends(get_db)):
 def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT id, full_name, email, especialidad, telefono
+        SELECT id, full_name, email, especialidad, telefono, alias_cbu
         FROM medicos
         WHERE id = %s
     """, (medico_id,))
@@ -969,7 +969,9 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "email": row[2],
         "especialidad": row[3],
         "telefono": row[4],
+        "alias_cbu": row[5],
     }
+
 
 @app.get("/consultas/{consulta_id}")
 def obtener_consulta(consulta_id: int, db=Depends(get_db)):
@@ -1321,3 +1323,26 @@ def aceptar_consulta(consulta_id: int, data: AceptarConsultaIn, db=Depends(get_d
         )
 
     return {"ok": True, "consulta_id": row[0], "estado": "aceptada"}
+
+
+from pydantic import BaseModel
+
+class AliasIn(BaseModel):
+    alias: str
+
+@app.patch("/medicos/{medico_id}/alias")
+def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos
+        SET alias_cbu = %s, updated_at = NOW()
+        WHERE id = %s
+        RETURNING id, alias_cbu
+    """, (data.alias, medico_id))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+    return {"ok": True, "medico_id": medico_id, "alias": row[1]}
