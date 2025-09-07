@@ -659,7 +659,42 @@ def alias_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool, db
         raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {"ok": True, "medico_id": medico_id, "lat": lat, "lng": lng, "disponible": disponible}
 
+# ====================================================
+# 🔄 ALIAS DE COMPATIBILIDAD (para no romper el frontend)
+# ====================================================
+
+# --- Obtener perfil alias ---
 @app.get("/medicos/{medico_id}")
 def alias_obtener_medico(medico_id: int, db=Depends(get_db)):
     return obtener_medico(medico_id, db)
+
+# --- FCM Token alias ---
+@app.post("/medicos/{medico_id}/fcm_token")
+def alias_fcm(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
+    return actualizar_fcm_token(medico_id, data, db)
+
+# --- Stats alias ---
+@app.get("/medicos/{medico_id}/stats")
+def alias_stats(medico_id: int, db=Depends(get_db)):
+    return medico_stats(medico_id, db)
+
+# --- Ubicación alias ---
+@app.post("/medico/{medico_id}/ubicacion")
+def alias_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos
+        SET latitud=%s, longitud=%s, disponible=%s, updated_at=NOW()
+        WHERE id=%s RETURNING id
+    """, (lat, lng, disponible, medico_id))
+    row = cur.fetchone(); db.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+    return {
+        "ok": True,
+        "medico_id": medico_id,
+        "lat": lat,
+        "lng": lng,
+        "disponible": disponible
+    }
 
