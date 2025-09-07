@@ -584,20 +584,31 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
 # Diccionario para conexiones activas de médicos
 active_medicos: Dict[int, WebSocket] = {}
 
+import asyncio
+
 # --- WebSocket de médicos ---
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
     active_medicos[medico_id] = websocket
+    print(f"✅ WebSocket abierto para médico {medico_id}")
     try:
         while True:
-            data = await websocket.receive_text()
-            if data == '{"tipo":"ping"}':
-                print(f"❤️ Ping recibido de médico {medico_id}")
+            # Espera mensajes, pero con timeout para no cortar la conexión si no hay nada
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                if data == '{"tipo":"ping"}':
+                    print(f"❤️ Ping recibido de médico {medico_id}")
+            except asyncio.TimeoutError:
+                # 👇 Cada 30s sin mensajes, seguimos manteniendo el WS abierto
+                # Podés enviar un ping desde el server si querés:
+                # await websocket.send_json({"tipo": "ping"})
+                continue
     except WebSocketDisconnect:
         if medico_id in active_medicos:
             del active_medicos[medico_id]
             print(f"❌ WebSocket cerrado para médico {medico_id}")
+
 
 # --- Función para enviar notificaciones push ---
 def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
