@@ -545,10 +545,19 @@ class MedicoAccion(BaseModel): medico_id: int
 @app.post("/consultas/{consulta_id}/aceptar")
 def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE consultas SET estado='aceptada', medico_id=%s WHERE id=%s AND estado='pendiente' RETURNING id", (data.medico_id, consulta_id))
-    row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    return {"ok": True, "consulta_id": row[0], "estado": "aceptada"}
+    cur.execute("""
+        UPDATE consultas
+        SET estado='aceptada', medico_id=%s
+        WHERE id=%s
+        RETURNING id, estado
+    """, (data.medico_id, consulta_id))
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    return {"ok": True, "consulta_id": row[0], "estado": row[1]}
 
 @app.post("/consultas/{consulta_id}/rechazar")
 def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
