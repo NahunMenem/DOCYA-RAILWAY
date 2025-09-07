@@ -12,3 +12,4 @@ bcrypt==4.0.1
 passlib[bcrypt]==1.7.4
 sib-api-v3-sdk==7.6.0
 websockets
+cloudinary==1.41.0   # 👈 agregado
