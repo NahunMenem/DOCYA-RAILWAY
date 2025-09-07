@@ -358,26 +358,6 @@ class SolicitarConsultaIn(BaseModel):
     lat: float
     lng: float
 
-@app.get("/direccion/mia/{paciente_uuid}")
-def direccion_mia(paciente_uuid: str, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        SELECT id, full_name, email, provincia, localidad, direccion
-        FROM users
-        WHERE id=%s
-    """, (paciente_uuid,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Paciente no encontrado")
-    return {
-        "id": row[0],
-        "full_name": row[1],
-        "email": row[2],
-        "provincia": row[3],
-        "localidad": row[4],
-        "direccion": row[5]
-    }
-
 
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
@@ -643,6 +623,38 @@ def test_push(medico_id: int, db=Depends(get_db)):
 # ====================================================
 # 🧑‍🤝‍🧑 PACIENTES
 # ====================================================
+@app.get("/direccion/mia/{user_id}")
+def obtener_direccion(user_id: UUID, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, user_id, direccion, lat, lng, piso, depto, indicaciones, telefono_contacto,
+               fecha_creacion, fecha_actualizacion
+        FROM direcciones
+        WHERE user_id = %s
+        LIMIT 1
+    """, (str(user_id),))
+    direccion = cur.fetchone()
+
+    if not direccion:
+        raise HTTPException(status_code=404, detail="No se encontró dirección para este usuario")
+
+    result = {
+        "id": direccion[0],
+        "user_id": direccion[1],
+        "direccion": direccion[2],
+        "lat": direccion[3],
+        "lng": direccion[4],
+        "piso": direccion[5],
+        "depto": direccion[6],
+        "indicaciones": direccion[7],
+        "telefono_contacto": direccion[8],
+        "fecha_creacion": direccion[9],
+        "fecha_actualizacion": direccion[10],
+    }
+
+    print(f"📍 Dirección devuelta: {result}")  # 👈 Log en Railway
+
+    return result
 @app.get("/pacientes/{user_id}")
 def obtener_paciente(user_id: int, db=Depends(get_db)):
     cur = db.cursor()
