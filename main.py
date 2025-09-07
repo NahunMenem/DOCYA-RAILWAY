@@ -321,11 +321,25 @@ def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_d
 @app.get("/auth/medico/{medico_id}/stats")
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT COUNT(*) FROM consultas WHERE medico_id=%s AND estado='aceptada' AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)", (medico_id,))
-    consultas = cur.fetchone()[0]
-    cur.execute("SELECT COUNT(*)*24000 FROM consultas WHERE medico_id=%s AND estado='aceptada' AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)", (medico_id,))
+
+    cur.execute("""
+        SELECT COUNT(*) 
+        FROM consultas
+        WHERE medico_id=%s AND estado='aceptada'
+          AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)
+    """, (medico_id,))
+    consultas = cur.fetchone()[0] or 0  # 👈 siempre int
+
+    cur.execute("""
+        SELECT COUNT(*)*24000
+        FROM consultas
+        WHERE medico_id=%s AND estado='aceptada'
+          AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)
+    """, (medico_id,))
     ganancias = cur.fetchone()[0] or 0
-    return {"consultas": consultas, "ganancias": ganancias}
+
+    return {"consultas": int(consultas), "ganancias": int(ganancias)}
+
 
 class FcmTokenIn(BaseModel): fcm_token: str
 @app.post("/auth/medico/{medico_id}/fcm_token")
