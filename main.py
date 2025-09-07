@@ -150,23 +150,46 @@ def register(data: RegisterIn, db=Depends(get_db)):
         ))
         user_id, full_name, role = cur.fetchone()
         db.commit()
-    except:
+    except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail="Error interno en registro")
+        raise HTTPException(status_code=500, detail=f"Error interno en registro: {e}")
 
     token = create_access_token({"sub": str(user_id), "email": data.email.lower(), "role": role})
-    return {"access_token": token, "token_type": "bearer", "user": {"id": str(user_id), "full_name": full_name}}
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": user_id,              # 👈 ahora devuelve int
+            "full_name": full_name
+        }
+    }
+
 
 
 @app.post("/auth/login", response_model=AuthResponse)
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, full_name, password_hash, role FROM users WHERE email=%s", (data.email.lower(),))
+    cur.execute(
+        "SELECT id, full_name, password_hash, role FROM users WHERE email=%s",
+        (data.email.lower(),)
+    )
     row = cur.fetchone()
     if not row or not pwd_context.verify(data.password, row[2]):
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
-    token = create_access_token({"sub": str(row[0]), "email": data.email.lower(), "role": row[3]})
-    return {"access_token": token, "token_type": "bearer", "user": {"id": str(row[0]), "full_name": row[1]}}
+
+    token = create_access_token(
+        {"sub": str(row[0]), "email": data.email.lower(), "role": row[3]}
+    )
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {
+            "id": row[0],          # 👈 ahora devuelve int
+            "full_name": row[1]
+        }
+    }
+
 
 
 @app.post("/auth/google", response_model=AuthResponse)
@@ -256,9 +279,21 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     ))
     medico_id, full_name = cur.fetchone()
     db.commit()
-    token = create_access_token({"sub": str(medico_id), "email": data.email.lower(), "role": "medico"})
-    return {"access_token": token, "token_type": "bearer",
-            "medico": {"id": str(medico_id), "full_name": full_name, "validado": False}}
+
+    token = create_access_token({
+        "sub": str(medico_id), "email": data.email.lower(), "role": "medico"
+    })
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "medico": {
+            "id": medico_id,           # 👈 ahora devuelve int
+            "full_name": full_name,
+            "validado": False
+        }
+    }
+
 
 class LoginMedicoIn(BaseModel):
     email: EmailStr
@@ -267,15 +302,30 @@ class LoginMedicoIn(BaseModel):
 @app.post("/auth/login_medico")
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, full_name, password_hash, validado FROM medicos WHERE email=%s", (data.email.lower(),))
+    cur.execute(
+        "SELECT id, full_name, password_hash, validado FROM medicos WHERE email=%s",
+        (data.email.lower(),)
+    )
     row = cur.fetchone()
     if not row or not pwd_context.verify(data.password, row[2]):
         raise HTTPException(status_code=400, detail="Credenciales inválidas")
     if not row[3]:
         raise HTTPException(status_code=403, detail="Cuenta aún no validada")
-    token = create_access_token({"sub": str(row[0]), "email": data.email.lower(), "role": "medico"})
-    return {"access_token": token, "token_type": "bearer",
-            "medico": {"id": str(row[0]), "full_name": row[1], "validado": True}}
+
+    token = create_access_token(
+        {"sub": str(row[0]), "email": data.email.lower(), "role": "medico"}
+    )
+
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "medico": {
+            "id": row[0],        # 👈 ahora devuelve int
+            "full_name": row[1],
+            "validado": True
+        }
+    }
+
 
 @app.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
