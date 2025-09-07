@@ -343,7 +343,6 @@ def enviar_correo_bienvenida(destinatario: str, nombre: str, password: str):
 
 
 # GUARDAMOS LA DIRECCION DE CADA PACIENTE -------------------------------------------
-from fastapi import HTTPException, Depends
 from pydantic import BaseModel
 from uuid import UUID
 
@@ -774,7 +773,6 @@ def debug_consulta(consulta_id: int, db=Depends(get_db)):
     cur.execute("SELECT id, paciente_uuid, paciente_uuid FROM consultas WHERE id = %s", (consulta_id,))
     return cur.fetchone()
 
-from fastapi import HTTPException
 
 @app.get("/consultas/mias/{medico_id}")
 def consultas_mias(medico_id: int, db=Depends(get_db)):
