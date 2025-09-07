@@ -666,6 +666,11 @@ def alias_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
     return actualizar_disponibilidad(medico_id, disponible, db)
 
 # --- Ubicación alias ---
+class UbicacionIn(BaseModel):
+    lat: float
+    lng: float
+    disponible: bool
+
 @app.post("/medico/{medico_id}/ubicacion")
 def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
     cur = db.cursor()
