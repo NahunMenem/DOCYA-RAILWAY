@@ -358,6 +358,27 @@ class SolicitarConsultaIn(BaseModel):
     lat: float
     lng: float
 
+@app.get("/direccion/mia/{paciente_uuid}")
+def direccion_mia(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, email, provincia, localidad, direccion
+        FROM users
+        WHERE id=%s
+    """, (paciente_uuid,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    return {
+        "id": row[0],
+        "full_name": row[1],
+        "email": row[2],
+        "provincia": row[3],
+        "localidad": row[4],
+        "direccion": row[5]
+    }
+
+
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
