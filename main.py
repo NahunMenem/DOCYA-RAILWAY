@@ -10,7 +10,7 @@ import requests
 from datetime import datetime, timedelta, date
 from typing import Optional, Dict
 from uuid import UUID
-
+from zoneinfo import ZoneInfo
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect
@@ -52,9 +52,12 @@ def get_db():
 
 def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES):
     to_encode = payload.copy()
-    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    expire = now_argentina() + timedelta(minutes=expires_minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
+
+def now_argentina():
+    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
 
 # Configuración Cloudinary
 cloudinary.config(
@@ -146,7 +149,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.email.lower(), data.full_name.strip(), password_hash,
             data.dni, data.telefono, data.pais, data.provincia, data.localidad,
             data.fecha_nacimiento, data.acepto_condiciones,
-            datetime.utcnow() if data.acepto_condiciones else None, "v1.0"
+            now_argentina() if data.acepto_condiciones else None, "v1.0"
         ))
         user_id, full_name, role = cur.fetchone()
         db.commit()
