@@ -30,6 +30,16 @@ from google.oauth2 import service_account
 
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
+from zoneinfo import ZoneInfo
+
+def format_datetime_arg(dt):
+    if not dt:
+        return None
+    # Convertir a Argentina
+    dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    # Formato DD/MM/YYYY HH:MM
+    return dt.strftime("%d/%m/%Y %H:%M")
+
 
 load_dotenv()
 
@@ -149,7 +159,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.email.lower(), data.full_name.strip(), password_hash,
             data.dni, data.telefono, data.pais, data.provincia, data.localidad,
             data.fecha_nacimiento, data.acepto_condiciones,
-            now_argentina() if data.acepto_condiciones else None, "v1.0"
+            datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")) if data.acepto_condiciones else None, "v1.0"
         ))
         user_id, full_name, role = cur.fetchone()
         db.commit()
@@ -496,7 +506,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "motivo": data.motivo,
         "direccion": data.direccion,
         "estado": "pendiente",
-        "creado_en": creado_en
+        "creado_en": format_datetime_arg(creado_en)  # 👈
     }
 
 #historial consultas medico 
@@ -519,7 +529,7 @@ def historial_medico(medico_id: int, db=Depends(get_db)):
             "estado": r[1],
             "motivo": r[2],
             "direccion": r[3],
-            "creado_en": r[4],
+            "creado_en": format_datetime_arg(r[4]),   # 👈
             "paciente_nombre": r[5]
         }
         for r in rows
@@ -632,13 +642,27 @@ def finalizar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db))
 def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id,c.estado,c.motivo,c.direccion,c.creado_en,m.full_name,m.especialidad
-        FROM consultas c LEFT JOIN medicos m ON c.medico_id=m.id
-        WHERE c.paciente_uuid=%s ORDER BY c.creado_en DESC
+        SELECT c.id, c.estado, c.motivo, c.direccion, c.creado_en, m.full_name, m.especialidad
+        FROM consultas c 
+        LEFT JOIN medicos m ON c.medico_id = m.id
+        WHERE c.paciente_uuid = %s 
+        ORDER BY c.creado_en DESC
     """, (paciente_uuid,))
     rows = cur.fetchall()
-    return [{"id": r[0], "estado": r[1], "motivo": r[2], "direccion": r[3],
-             "creado_en": r[4], "medico":{"nombre": r[5], "especialidad": r[6]}} for r in rows]
+    return [
+        {
+            "id": r[0],
+            "estado": r[1],
+            "motivo": r[2],
+            "direccion": r[3],
+            "creado_en": format_datetime_arg(r[4]),  # 👈 convertido a Argentina y formateado
+            "medico": {
+                "nombre": r[5],
+                "especialidad": r[6]
+            }
+        }
+        for r in rows
+    ]
 
 # --- Certificados ---
 class CertificadoIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
@@ -853,7 +877,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "direccion": row[5],
         "lat": row[6],
         "lng": row[7],
-        "creado_en": row[8],
+        "creado_en": format_datetime_arg(row[8]),   # 👈
         "medico_nombre": row[9],
         "medico_matricula": row[10],
     }
