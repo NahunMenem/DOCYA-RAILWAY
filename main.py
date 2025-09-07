@@ -623,6 +623,60 @@ def test_push(medico_id: int, db=Depends(get_db)):
 # ====================================================
 # 🧑‍🤝‍🧑 PACIENTES
 # ====================================================
+
+@app.get("/pacientes/{user_id}")
+def obtener_paciente(user_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT id, full_name, email FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    return {"id": row[0], "full_name": row[1], "email": row[2]}
+
+
+# ====================================================
+# 🧭 ENDPOINTS RESTAURADOS (compatibilidad con back viejo)
+# ====================================================
+
+from uuid import UUID
+
+# ---------- DIRECCIONES ----------
+class DireccionIn(BaseModel):
+    user_id: UUID
+    direccion: str
+    lat: float
+    lng: float
+    piso: str | None = None
+    depto: str | None = None
+    indicaciones: str | None = None
+    telefono_contacto: str
+
+@app.post("/direccion/guardar")
+def guardar_direccion(data: DireccionIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT id FROM users WHERE id=%s", (str(data.user_id),))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    cur.execute("""
+        INSERT INTO direcciones (user_id, direccion, lat, lng, piso, depto, indicaciones, telefono_contacto, fecha_actualizacion)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s, CURRENT_TIMESTAMP)
+        ON CONFLICT (user_id) DO UPDATE SET
+            direccion = EXCLUDED.direccion,
+            lat = EXCLUDED.lat,
+            lng = EXCLUDED.lng,
+            piso = EXCLUDED.piso,
+            depto = EXCLUDED.depto,
+            indicaciones = EXCLUDED.indicaciones,
+            telefono_contacto = EXCLUDED.telefono_contacto,
+            fecha_actualizacion = CURRENT_TIMESTAMP
+    """, (
+        str(data.user_id), data.direccion, data.lat, data.lng,
+        data.piso, data.depto, data.indicaciones, data.telefono_contacto
+    ))
+    db.commit()
+    return {"mensaje": "Dirección guardada correctamente"}
+
 @app.get("/direccion/mia/{user_id}")
 def obtener_direccion(user_id: UUID, db=Depends(get_db)):
     cur = db.cursor()
@@ -634,11 +688,9 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
         LIMIT 1
     """, (str(user_id),))
     direccion = cur.fetchone()
-
     if not direccion:
         raise HTTPException(status_code=404, detail="No se encontró dirección para este usuario")
-
-    result = {
+    return {
         "id": direccion[0],
         "user_id": direccion[1],
         "direccion": direccion[2],
@@ -652,25 +704,60 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
         "fecha_actualizacion": direccion[10],
     }
 
-    print(f"📍 Dirección devuelta: {result}")  # 👈 Log en Railway
+# ---------- USUARIOS ----------
+@app.get("/usuarios/{user_id}")
+def alias_usuario(user_id: str, db=Depends(get_db)):
+    return obtener_paciente(user_id, db)
 
-    return result
-
-@app.get("/pacientes/{user_id}")
-def obtener_paciente(user_id: int, db=Depends(get_db)):
+# ---------- CONSULTAS DETALLE ----------
+@app.get("/consultas/{consulta_id}")
+def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, full_name, email FROM users WHERE id=%s", (user_id,))
+    cur.execute("""
+        SELECT c.id, c.paciente_uuid, c.medico_id, c.estado, c.motivo, c.direccion, 
+               c.lat, c.lng, c.creado_en,
+               m.full_name, m.matricula
+        FROM consultas c
+        LEFT JOIN medicos m ON c.medico_id = m.id
+        WHERE c.id = %s
+    """, (consulta_id,))
     row = cur.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="Paciente no encontrado")
-    return {"id": row[0], "full_name": row[1], "email": row[2]}
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+    return {
+        "id": row[0],
+        "paciente_uuid": row[1],
+        "medico_id": row[2],
+        "estado": row[3],
+        "motivo": row[4],
+        "direccion": row[5],
+        "lat": row[6],
+        "lng": row[7],
+        "creado_en": row[8],
+        "medico_nombre": row[9],
+        "medico_matricula": row[10],
+    }
+
+# ---------- UBICACIÓN MÉDICO ----------
+class UbicacionMedicoIn(BaseModel):
+    lat: float
+    lng: float
+    disponible: bool
+
+@app.post("/medico/{medico_id}/ubicacion")
+def actualizar_ubicacion(medico_id: int, data: UbicacionMedicoIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos 
+        SET latitud = %s, longitud = %s, disponible = %s, updated_at = NOW()
+        WHERE id = %s
+    """, (data.lat, data.lng, data.disponible, medico_id))
+    db.commit()
+    return {"status": "ok"}
 
 # ====================================================
 # 🔄 ALIAS DE COMPATIBILIDAD (para no romper el frontend)
 # ====================================================
-@app.get("/usuarios/{user_id}")
-def alias_usuario(user_id: str, db=Depends(get_db)):
-    return obtener_paciente(user_id, db)
 
 # --- Obtener perfil alias ---
 @app.get("/medicos/{medico_id}")
