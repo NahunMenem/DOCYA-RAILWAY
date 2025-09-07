@@ -13,7 +13,7 @@ from uuid import UUID
 
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
-    File, UploadFile, WebSocket, WebSocketDisconnect, APIRouter
+    File, UploadFile, WebSocket, WebSocketDisconnect
 )
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -89,7 +89,7 @@ app.add_middleware(
 )
 
 # ====================================================
-# 🔑 AUTENTICACIÓN (PACIENTES / USUARIOS)
+# 🔑 AUTENTICACIÓN (PACIENTES)
 # ====================================================
 class RegisterIn(BaseModel):
     email: EmailStr
@@ -212,13 +212,10 @@ def auth_google(data: GoogleIn, db=Depends(get_db)):
     token = create_access_token({"sub": str(user_id), "email": email, "role": role})
     return {"access_token": token, "token_type": "bearer", "user": {"id": str(user_id), "full_name": full_name}}
 
-
 # ====================================================
-# 👨‍⚕️ MÉDICOS (ROUTER)
+# 👨‍⚕️ MÉDICOS (Rutas originales bajo /auth)
 # ====================================================
-router = APIRouter(prefix="/medicos", tags=["Medicos"])
 
-# --- Registro médico ---
 class RegisterMedicoIn(BaseModel):
     full_name: str
     email: EmailStr
@@ -234,7 +231,7 @@ class RegisterMedicoIn(BaseModel):
     foto_dni_dorso: Optional[str] = None
     selfie_dni: Optional[str] = None
 
-@router.post("/register")
+@app.post("/auth/register_medico")
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id FROM medicos WHERE email=%s", (data.email.lower(),))
@@ -260,14 +257,14 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     medico_id, full_name = cur.fetchone()
     db.commit()
     token = create_access_token({"sub": str(medico_id), "email": data.email.lower(), "role": "medico"})
-    return {"access_token": token, "token_type": "bearer", "medico": {"id": str(medico_id), "full_name": full_name, "validado": False}}
+    return {"access_token": token, "token_type": "bearer",
+            "medico": {"id": str(medico_id), "full_name": full_name, "validado": False}}
 
-# --- Login médico ---
 class LoginMedicoIn(BaseModel):
     email: EmailStr
     password: str
 
-@router.post("/login")
+@app.post("/auth/login_medico")
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id, full_name, password_hash, validado FROM medicos WHERE email=%s", (data.email.lower(),))
@@ -277,10 +274,10 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     if not row[3]:
         raise HTTPException(status_code=403, detail="Cuenta aún no validada")
     token = create_access_token({"sub": str(row[0]), "email": data.email.lower(), "role": "medico"})
-    return {"access_token": token, "token_type": "bearer", "medico": {"id": str(row[0]), "full_name": row[1], "validado": True}}
+    return {"access_token": token, "token_type": "bearer",
+            "medico": {"id": str(row[0]), "full_name": row[1], "validado": True}}
 
-# --- Validar médico ---
-@router.post("/{medico_id}/validar")
+@app.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("UPDATE medicos SET validado=TRUE, updated_at=NOW() WHERE id=%s RETURNING id, full_name", (medico_id,))
@@ -288,32 +285,32 @@ def validar_medico(medico_id: int, db=Depends(get_db)):
     if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {"ok": True, "medico_id": row[0], "nombre": row[1]}
 
-# --- Foto perfil ---
-@router.post("/{medico_id}/foto")
+@app.post("/auth/medico/{medico_id}/foto")
 def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get_db)):
     try:
-        upload_result = cloudinary.uploader.upload(file.file, folder="docya/medicos", public_id=f"medico_{medico_id}", overwrite=True)
+        upload_result = cloudinary.uploader.upload(file.file, folder="docya/medicos",
+                                                   public_id=f"medico_{medico_id}", overwrite=True)
         foto_url = upload_result["secure_url"]
         cur = db.cursor()
-        cur.execute("UPDATE medicos SET foto_perfil=%s, updated_at=NOW() WHERE id=%s RETURNING id,foto_perfil", (foto_url, medico_id))
+        cur.execute("UPDATE medicos SET foto_perfil=%s, updated_at=NOW() WHERE id=%s RETURNING id,foto_perfil",
+                    (foto_url, medico_id))
         row = cur.fetchone(); db.commit()
         if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
         return {"ok": True, "medico_id": row[0], "foto_url": row[1]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error subiendo foto: {e}")
 
-# --- Alias ---
 class AliasIn(BaseModel): alias: str
-@router.patch("/{medico_id}/alias")
+@app.patch("/auth/medico/{medico_id}/alias")
 def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE medicos SET alias_cbu=%s, updated_at=NOW() WHERE id=%s RETURNING id,alias_cbu", (data.alias, medico_id))
+    cur.execute("UPDATE medicos SET alias_cbu=%s, updated_at=NOW() WHERE id=%s RETURNING id,alias_cbu",
+                (data.alias, medico_id))
     row = cur.fetchone(); db.commit()
     if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {"ok": True, "medico_id": medico_id, "alias": row[1]}
 
-# --- Disponibilidad ---
-@router.post("/{medico_id}/disponibilidad")
+@app.post("/auth/medico/{medico_id}/disponibilidad")
 def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("UPDATE medicos SET disponible=%s WHERE id=%s RETURNING id,disponible", (disponible, medico_id))
@@ -321,8 +318,7 @@ def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_d
     if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {"ok": True, "medico_id": medico_id, "disponible": row["disponible"]}
 
-# --- Stats ---
-@router.get("/{medico_id}/stats")
+@app.get("/auth/medico/{medico_id}/stats")
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT COUNT(*) FROM consultas WHERE medico_id=%s AND estado='aceptada' AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)", (medico_id,))
@@ -331,38 +327,27 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     ganancias = cur.fetchone()[0] or 0
     return {"consultas": consultas, "ganancias": ganancias}
 
-# --- FCM Token ---
 class FcmTokenIn(BaseModel): fcm_token: str
-@router.post("/{medico_id}/fcm_token")
+@app.post("/auth/medico/{medico_id}/fcm_token")
 def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE medicos SET fcm_token=%s, updated_at=NOW() WHERE id=%s RETURNING id", (data.fcm_token, medico_id))
+    cur.execute("UPDATE medicos SET fcm_token=%s, updated_at=NOW() WHERE id=%s RETURNING id",
+                (data.fcm_token, medico_id))
     row = cur.fetchone(); db.commit()
     if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {"ok": True, "medico_id": medico_id, "fcm_token": data.fcm_token}
 
-# --- Obtener médico ---
-@router.get("/{medico_id}")
+@app.get("/auth/medico/{medico_id}")
 def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id, full_name, email, especialidad, telefono, alias_cbu, matricula, foto_perfil FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
     if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
-    return {"id": row[0], "full_name": row[1], "email": row[2], "especialidad": row[3], "telefono": row[4], "alias_cbu": row[5], "matricula": row[6], "foto_perfil": row[7]}
+    return {"id": row[0], "full_name": row[1], "email": row[2], "especialidad": row[3], "telefono": row[4],
+            "alias_cbu": row[5], "matricula": row[6], "foto_perfil": row[7]}
 
 # ====================================================
-# 🧑‍🤝‍🧑 PACIENTES
-# ====================================================
-@app.get("/pacientes/{user_id}")
-def obtener_paciente(user_id: int, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("SELECT id, full_name, email FROM users WHERE id=%s", (user_id,))
-    row = cur.fetchone()
-    if not row: raise HTTPException(status_code=404, detail="Paciente no encontrado")
-    return {"id": row[0], "full_name": row[1], "email": row[2]}
-
-# ====================================================
-# 📋 CONSULTAS
+# 📋 CONSULTAS (todas las rutas originales)
 # ====================================================
 
 # --- Modelo para solicitar consulta ---
@@ -405,7 +390,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # Notificar al médico conectado por WS
+    # Notificar al médico por WS
     if medico_id in active_medicos:
         try:
             await active_medicos[medico_id].send_json({
@@ -420,7 +405,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 "creado_en": str(creado_en)
             })
         except Exception as e:
-            print(f"⚠️ No se pudo notificar por WS: {e}")
+            print(f"⚠️ WS error: {e}")
 
     # Notificar push
     cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
@@ -432,18 +417,14 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 "consulta_id": str(consulta_id)
             })
         except Exception as e:
-            print(f"⚠️ Error enviando push: {e}")
+            print(f"⚠️ Error push: {e}")
 
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
-        "medico": {
-            "id": medico_id,
-            "nombre": medico_nombre,
-            "lat": medico_lat,
-            "lng": medico_lng,
-            "distancia_km": round(distancia, 2)
-        },
+        "medico": {"id": medico_id, "nombre": medico_nombre,
+                   "lat": medico_lat, "lng": medico_lng,
+                   "distancia_km": round(distancia, 2)},
         "motivo": data.motivo,
         "direccion": data.direccion,
         "estado": "pendiente",
@@ -461,9 +442,10 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
         ORDER BY creado_en DESC
     """, (medico_id,))
     rows = cur.fetchall()
-    return [{"id": r[0], "paciente_uuid": r[1], "estado": r[2], "motivo": r[3], "direccion": r[4], "creado_en": r[5]} for r in rows]
+    return [{"id": r[0], "paciente_uuid": r[1], "estado": r[2],
+             "motivo": r[3], "direccion": r[4], "creado_en": r[5]} for r in rows]
 
-# --- Consulta asignada al médico ---
+# --- Consulta asignada ---
 @app.get("/consultas/asignadas/{medico_id}")
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
@@ -486,12 +468,13 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         a = math.sin(dlat/2)**2 + math.cos(math.radians(med_lat))*math.cos(math.radians(lat))*math.sin(dlon/2)**2
         distancia = 6371*2*math.atan2(math.sqrt(a), math.sqrt(1-a))
         tiempo = (distancia/40)*60
-    return {"id": consulta_id, "paciente_uuid": str(paciente_uuid), "paciente_nombre": paciente_nombre,
-            "motivo": motivo, "direccion": direccion, "lat": lat, "lng": lng, "estado": estado,
+    return {"id": consulta_id, "paciente_uuid": str(paciente_uuid),
+            "paciente_nombre": paciente_nombre, "motivo": motivo,
+            "direccion": direccion, "lat": lat, "lng": lng, "estado": estado,
             "distancia_km": round(distancia,2) if distancia else None,
             "tiempo_estimado_min": round(tiempo) if tiempo else None}
 
-# --- Aceptar/Rechazar/Encamino/Llego/Finalizar ---
+# --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
 class MedicoAccion(BaseModel): medico_id: int
 
 @app.post("/consultas/{consulta_id}/aceptar")
@@ -534,7 +517,7 @@ def finalizar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db))
     if not row: raise HTTPException(status_code=404, detail="Consulta no encontrada")
     return {"ok": True, "consulta_id": row[0], "estado": "finalizada"}
 
-# --- Historial de consultas del paciente ---
+# --- Historial del paciente ---
 @app.get("/consultas/historial/{paciente_uuid}")
 def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
     cur = db.cursor()
@@ -544,15 +527,17 @@ def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
         WHERE c.paciente_uuid=%s ORDER BY c.creado_en DESC
     """, (paciente_uuid,))
     rows = cur.fetchall()
-    return [{"id": r[0], "estado": r[1], "motivo": r[2], "direccion": r[3], "creado_en": r[4], "medico":{"nombre": r[5], "especialidad": r[6]}} for r in rows]
+    return [{"id": r[0], "estado": r[1], "motivo": r[2], "direccion": r[3],
+             "creado_en": r[4], "medico":{"nombre": r[5], "especialidad": r[6]}} for r in rows]
 
-# --- Certificados, recetas, notas ---
+# --- Certificados ---
 class CertificadoIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
 @app.post("/consultas/{consulta_id}/certificado")
 def crear_certificado(consulta_id:int,data:CertificadoIn,db=Depends(get_db)):
     cur=db.cursor();cur.execute("INSERT INTO certificados (consulta_id,medico_id,paciente_uuid,contenido) VALUES (%s,%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid,data.contenido))
     row=cur.fetchone()[0];db.commit();return {"ok":True,"certificado_id":row}
 
+# --- Recetas ---
 class RecetaIn(BaseModel): medico_id:int; paciente_uuid:str; medicamentos:list[dict]
 @app.post("/consultas/{consulta_id}/receta")
 def crear_receta(consulta_id:int,data:RecetaIn,db=Depends(get_db)):
@@ -562,13 +547,14 @@ def crear_receta(consulta_id:int,data:RecetaIn,db=Depends(get_db)):
         cur.execute("INSERT INTO receta_items (receta_id,nombre,dosis,frecuencia,duracion) VALUES (%s,%s,%s,%s,%s)",(receta_id,m["nombre"],m["dosis"],m["frecuencia"],m["duracion"]))
     db.commit();return {"ok":True,"receta_id":receta_id}
 
+# --- Notas ---
 class NotaIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
 @app.post("/consultas/{consulta_id}/nota")
 def crear_nota(consulta_id:int,data:NotaIn,db=Depends(get_db)):
     cur=db.cursor();cur.execute("INSERT INTO notas_medicas (consulta_id,medico_id,paciente_uuid,contenido) VALUES (%s,%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid,data.contenido))
     nota_id=cur.fetchone()[0];db.commit();return {"ok":True,"nota_id":nota_id}
 
-# --- Ubicación actual del médico en una consulta ---
+# --- Ubicación actual del médico ---
 @app.get("/consultas/{consulta_id}/ubicacion_medico")
 def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
     cur=db.cursor();cur.execute("SELECT m.id,m.full_name,m.latitud,m.longitud,m.telefono FROM consultas c JOIN medicos m ON c.medico_id=m.id WHERE c.id=%s AND c.estado='aceptada'",(consulta_id,))
@@ -579,8 +565,11 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
 # ====================================================
 # 🔔 NOTIFICACIONES Y WS
 # ====================================================
+
+# Diccionario para conexiones activas de médicos
 active_medicos: Dict[int, WebSocket] = {}
 
+# --- WebSocket de médicos ---
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
@@ -589,29 +578,55 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
         while True:
             data = await websocket.receive_text()
             if data == '{"tipo":"ping"}':
-                print(f"❤️ Ping de médico {medico_id}")
+                print(f"❤️ Ping recibido de médico {medico_id}")
     except WebSocketDisconnect:
         if medico_id in active_medicos:
             del active_medicos[medico_id]
+            print(f"❌ WebSocket cerrado para médico {medico_id}")
 
+# --- Función para enviar notificaciones push ---
 def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
     project_id = service_account_info["project_id"]
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
-    headers = {"Authorization": f"Bearer {get_access_token()}", "Content-Type": "application/json; UTF-8"}
-    payload = {"message":{"token":fcm_token,"notification":{"title":titulo,"body":cuerpo},"data":data}}
-    r=requests.post(url,headers=headers,json=payload)
-    print("📤 Push:",r.status_code,r.text)
+    headers = {
+        "Authorization": f"Bearer {get_access_token()}",
+        "Content-Type": "application/json; UTF-8",
+    }
+    payload = {
+        "message": {
+            "token": fcm_token,
+            "notification": {"title": titulo, "body": cuerpo},
+            "data": data,
+        }
+    }
+    r = requests.post(url, headers=headers, json=payload)
+    print("📤 Push enviado:", r.status_code, r.text)
 
+# --- Endpoint para testear notificación push ---
 @app.post("/test_push/{medico_id}")
-def test_push(medico_id:int,db=Depends(get_db)):
-    cur=db.cursor();cur.execute("SELECT fcm_token FROM medicos WHERE id=%s",(medico_id,))
-    row=cur.fetchone()
-    if not row or not row[0]: raise HTTPException(status_code=404,detail="Médico sin fcm_token")
-    enviar_push(row[0],"📢 Notificación de prueba","Esto es una notificación de prueba",{"tipo":"test_push","medico_id":str(medico_id)})
-    return {"ok":True,"mensaje":"Notificación enviada"}
+def test_push(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
+    row = cur.fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=404, detail="Médico sin fcm_token registrado")
+    enviar_push(
+        row[0],
+        "📢 Notificación de prueba",
+        "Esto es una notificación de prueba",
+        {"tipo": "test_push", "medico_id": str(medico_id)},
+    )
+    return {"ok": True, "mensaje": "Notificación enviada"}
 
 
 # ====================================================
-# 🚀 INCLUIR ROUTERS
+# 🧑‍🤝‍🧑 PACIENTES
 # ====================================================
-app.include_router(router)
+@app.get("/pacientes/{user_id}")
+def obtener_paciente(user_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT id, full_name, email FROM users WHERE id=%s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    return {"id": row[0], "full_name": row[1], "email": row[2]}
