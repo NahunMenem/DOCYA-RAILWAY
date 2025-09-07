@@ -659,3 +659,7 @@ def alias_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool, db
         raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {"ok": True, "medico_id": medico_id, "lat": lat, "lng": lng, "disponible": disponible}
 
+@app.get("/medicos/{medico_id}")
+def alias_obtener_medico(medico_id: int, db=Depends(get_db)):
+    return obtener_medico(medico_id, db)
+
