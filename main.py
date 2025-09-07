@@ -1004,7 +1004,7 @@ def obtener_paciente(user_id: int, db=Depends(get_db)):
 def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT id, full_name, email, especialidad, telefono, alias_cbu
+        SELECT id, full_name, email, especialidad, telefono, alias_cbu, matricula, foto_perfil
         FROM medicos
         WHERE id = %s
     """, (medico_id,))
@@ -1019,6 +1019,8 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "especialidad": row[3],
         "telefono": row[4],
         "alias_cbu": row[5],
+        "matricula": row[6],
+        "foto_perfil": row[7],
     }
 
 
@@ -1076,6 +1078,49 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
     }
 class LlegoIn(BaseModel):
     medico_id: int
+
+from fastapi import File, UploadFile, HTTPException, Depends
+import cloudinary
+import cloudinary.uploader
+import os
+
+# Configuración desde variables de entorno
+cloudinary.config(
+    cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
+    api_key=os.getenv("CLOUDINARY_API_KEY"),
+    api_secret=os.getenv("CLOUDINARY_API_SECRET")
+)
+
+@app.post("/medicos/{medico_id}/foto")
+def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get_db)):
+    try:
+        # Subir a Cloudinary
+        upload_result = cloudinary.uploader.upload(
+            file.file,
+            folder="docya/medicos",
+            public_id=f"medico_{medico_id}",  # 👈 opcional: sobrescribe siempre la última
+            overwrite=True
+        )
+        foto_url = upload_result["secure_url"]
+
+        # Guardar en la base
+        cur = db.cursor()
+        cur.execute("""
+            UPDATE medicos
+            SET foto_perfil = %s, updated_at = NOW()
+            WHERE id = %s
+            RETURNING id, foto_perfil
+        """, (foto_url, medico_id))
+        row = cur.fetchone()
+        db.commit()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+        return {"ok": True, "medico_id": row[0], "foto_url": row[1]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error subiendo foto: {e}")
+
 
 @app.post("/consultas/{consulta_id}/llego")
 def medico_llego(consulta_id: int, data: LlegoIn, db=Depends(get_db)):
