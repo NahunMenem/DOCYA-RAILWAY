@@ -2,13 +2,13 @@ import os
 import jwt
 import psycopg2
 from datetime import datetime, timedelta
-from fastapi import FastAPI, HTTPException, Depends, Header, Query
-
+from fastapi import FastAPI, HTTPException, Depends, Header, Query, File, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 from dotenv import load_dotenv
-
+import cloudinary
+import cloudinary.uploader
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -1079,10 +1079,7 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
 class LlegoIn(BaseModel):
     medico_id: int
 
-from fastapi import File, UploadFile, HTTPException, Depends
-import cloudinary
-import cloudinary.uploader
-import os
+
 
 # Configuración desde variables de entorno
 cloudinary.config(
