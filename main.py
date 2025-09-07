@@ -655,6 +655,7 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
     print(f"📍 Dirección devuelta: {result}")  # 👈 Log en Railway
 
     return result
+
 @app.get("/pacientes/{user_id}")
 def obtener_paciente(user_id: int, db=Depends(get_db)):
     cur = db.cursor()
@@ -667,6 +668,9 @@ def obtener_paciente(user_id: int, db=Depends(get_db)):
 # ====================================================
 # 🔄 ALIAS DE COMPATIBILIDAD (para no romper el frontend)
 # ====================================================
+@app.get("/usuarios/{user_id}")
+def alias_usuario(user_id: str, db=Depends(get_db)):
+    return obtener_paciente(user_id, db)
 
 # --- Obtener perfil alias ---
 @app.get("/medicos/{medico_id}")
