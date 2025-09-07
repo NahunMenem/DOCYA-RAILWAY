@@ -667,21 +667,20 @@ def alias_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
 
 # --- Ubicación alias ---
 @app.post("/medico/{medico_id}/ubicacion")
-def alias_ubicacion(medico_id: int, lat: float, lng: float, disponible: bool, db=Depends(get_db)):
+def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         UPDATE medicos
         SET latitud=%s, longitud=%s, disponible=%s, updated_at=NOW()
         WHERE id=%s RETURNING id
-    """, (lat, lng, disponible, medico_id))
+    """, (data.lat, data.lng, data.disponible, medico_id))
     row = cur.fetchone(); db.commit()
     if not row:
         raise HTTPException(status_code=404, detail="Médico no encontrado")
     return {
         "ok": True,
         "medico_id": medico_id,
-        "lat": lat,
-        "lng": lng,
-        "disponible": disponible
+        "lat": data.lat,
+        "lng": data.lng,
+        "disponible": data.disponible
     }
-
