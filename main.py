@@ -543,21 +543,28 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
 class MedicoAccion(BaseModel): medico_id: int
 
 @app.post("/consultas/{consulta_id}/aceptar")
-def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
+def aceptar_consulta(consulta_id: int, medico_id: int, db=Depends(get_db)):
+    # marcar consulta como aceptada
     cur = db.cursor()
     cur.execute("""
         UPDATE consultas
-        SET estado='aceptada', medico_id=%s
-        WHERE id=%s
-        RETURNING id, estado
-    """, (data.medico_id, consulta_id))
+        SET estado = 'aceptada', medico_id = %s
+        WHERE id = %s AND estado = 'pendiente'
+        RETURNING id
+    """, (medico_id, consulta_id))
     row = cur.fetchone()
-    db.commit()
 
     if not row:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+        raise HTTPException(status_code=400, detail="Consulta no disponible")
 
-    return {"ok": True, "consulta_id": row[0], "estado": row[1]}
+    # marcar médico como ocupado
+    cur.execute("""
+        UPDATE medicos SET disponible = false WHERE id = %s
+    """, (medico_id,))
+    db.commit()
+
+    return {"ok": True, "consulta_id": consulta_id}
+
 
 @app.post("/consultas/{consulta_id}/rechazar")
 def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
