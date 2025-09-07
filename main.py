@@ -496,6 +496,32 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "creado_en": creado_en
     }
 
+#historial consultas medico 
+@app.get("/consultas/historial_medico/{medico_id}")
+def historial_medico(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id, c.estado, c.motivo, c.direccion, c.creado_en,
+               COALESCE(u.full_name, 'Paciente') as paciente_nombre
+        FROM consultas c
+        LEFT JOIN users u ON c.paciente_uuid = u.id
+        WHERE c.medico_id = %s
+        ORDER BY c.creado_en DESC
+    """, (medico_id,))
+    rows = cur.fetchall()
+
+    return [
+        {
+            "id": r[0],
+            "estado": r[1],
+            "motivo": r[2],
+            "direccion": r[3],
+            "creado_en": r[4],
+            "paciente_nombre": r[5]
+        }
+        for r in rows
+    ]
+
 # --- Consultas del médico ---
 @app.get("/consultas/mias/{medico_id}")
 def consultas_mias(medico_id: int, db=Depends(get_db)):
