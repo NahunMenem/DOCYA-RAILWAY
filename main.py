@@ -664,6 +664,39 @@ def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
         for r in rows
     ]
 
+@app.get("/pacientes/{paciente_uuid}/historia_clinica")
+def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id AS consulta_id,
+               c.creado_en AS fecha_consulta,
+               c.motivo,
+               c.estado,
+               m.full_name AS medico,
+               n.contenido AS historia_clinica,
+               n.creado_en AS fecha_nota
+        FROM consultas c
+        LEFT JOIN notas_medicas n ON c.id = n.consulta_id
+        LEFT JOIN medicos m ON c.medico_id = m.id
+        WHERE c.paciente_uuid = %s
+        ORDER BY c.creado_en DESC
+    """, (paciente_uuid,))
+    rows = cur.fetchall()
+
+    return [
+        {
+            "consulta_id": r[0],
+            "fecha_consulta": format_datetime_arg(r[1]),
+            "motivo": r[2],
+            "estado": r[3],
+            "medico": r[4],
+            "historia_clinica": r[5],
+            "fecha_nota": format_datetime_arg(r[6]) if r[6] else None
+        }
+        for r in rows
+    ]
+
+
 # --- Certificados ---
 class CertificadoIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
 @app.post("/consultas/{consulta_id}/certificado")
