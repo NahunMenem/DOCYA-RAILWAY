@@ -332,8 +332,10 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     return {
         "access_token": token,
         "token_type": "bearer",
+        "medico_id": row[0],        # 👈 agregado para Flutter
+        "full_name": row[1],        # 👈 agregado para Flutter
         "medico": {
-            "id": row[0],        # 👈 ahora devuelve int
+            "id": row[0],
             "full_name": row[1],
             "validado": True
         }
