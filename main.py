@@ -293,19 +293,98 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     medico_id, full_name = cur.fetchone()
     db.commit()
 
-    token = create_access_token({
-        "sub": str(medico_id), "email": data.email.lower(), "role": "medico"
-    })
+    # 👇 Enviar mail validación
+    try:
+        enviar_email_validacion(data.email.lower(), medico_id, full_name)
+    except Exception as e:
+        print("⚠️ Error enviando email validación:", e)
 
     return {
-        "access_token": token,
-        "token_type": "bearer",
-        "medico": {
-            "id": medico_id,           # 👈 ahora devuelve int
-            "full_name": full_name,
-            "validado": False
-        }
+        "mensaje": "Registro exitoso. Revisa tu correo para activar la cuenta.",
+        "medico_id": medico_id
     }
+
+
+
+@app.get("/auth/activar_medico")
+def activar_medico(token: str, db=Depends(get_db)):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        medico_id = int(payload.get("sub"))
+        cur = db.cursor()
+        cur.execute("UPDATE medicos SET validado=TRUE, updated_at=NOW() WHERE id=%s RETURNING id, full_name", (medico_id,))
+        row = cur.fetchone(); db.commit()
+        if not row:
+            raise HTTPException(status_code=404, detail="Médico no encontrado")
+        return {"ok": True, "mensaje": f"Cuenta activada correctamente. Bienvenido {row[1]}!"}
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="El enlace de activación expiró")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Token inválido: {e}")
+
+from sib_api_v3_sdk import SendSmtpEmail
+
+#envio de mensaje de validacion por correo medico
+from sib_api_v3_sdk import SendSmtpEmail
+
+def enviar_email_validacion(email: str, medico_id: int, full_name: str):
+    token = create_access_token(
+        {"sub": str(medico_id), "email": email, "tipo": "validacion"},
+        expires_minutes=60*24
+    )
+    link_activacion = f"https://docya.com.ar/activar_medico?token={token}"  # 👈 cambia al dominio real
+
+    # HTML corporativo
+    html_content = f"""
+    <div style="font-family: Arial, sans-serif; background-color:#f4f6f8; padding:30px; text-align:center;">
+      <div style="background:#fff; max-width:600px; margin:auto; padding:30px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+        
+        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
+             alt="DocYa" style="max-width:180px; margin-bottom:20px;">
+        
+        <h2 style="color:#16a34a; margin-bottom:10px;">¡Bienvenido al equipo DocYa, {full_name}!</h2>
+        <p style="color:#333; font-size:16px; line-height:1.5; margin-bottom:20px;">
+          Nos alegra que formes parte de nuestra red de profesionales de la salud.  
+          Para comenzar a atender pacientes y aprovechar todos los beneficios de nuestra plataforma, 
+          necesitamos confirmar tu correo electrónico.
+        </p>
+        
+        <a href="{link_activacion}" 
+           style="background-color:#16a34a; color:#fff; padding:14px 28px; text-decoration:none; 
+                  border-radius:6px; font-size:16px; font-weight:bold; display:inline-block; margin:20px 0;">
+          Activar mi cuenta
+        </a>
+        
+        <p style="font-size:14px; color:#555; margin-top:20px;">
+          Si no solicitaste este registro, simplemente ignora este correo.
+        </p>
+      </div>
+      
+      <div style="max-width:600px; margin:auto; margin-top:20px; color:#777; font-size:12px;">
+        <p>
+          © {datetime.now().year} DocYa. Todos los derechos reservados.<br>
+          Este es un mensaje automático, por favor no respondas a este correo.<br>
+          Contacto: <a href="mailto:soporte@docya.com.ar" style="color:#16a34a;">soporte@docya.com.ar</a>
+        </p>
+      </div>
+    </div>
+    """
+
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},
+        subject="Activa tu cuenta en DocYa",
+        html_content=html_content
+    )
+    api_instance.send_transac_email(email_data)
+
+
 
 
 class LoginMedicoIn(BaseModel):
