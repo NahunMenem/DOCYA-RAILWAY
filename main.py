@@ -660,10 +660,13 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
             "tiempo_estimado_min": round(tiempo) if tiempo else None}
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
-class MedicoAccion(BaseModel): medico_id: int
+class MedicoAccion(BaseModel):
+    medico_id: int
 
 @app.post("/consultas/{consulta_id}/aceptar")
-def aceptar_consulta(consulta_id: int, medico_id: int, db=Depends(get_db)):
+def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
+    medico_id = data.medico_id  # <- ahora lo extraemos del JSON
+
     # marcar consulta como aceptada
     cur = db.cursor()
     cur.execute("""
