@@ -325,8 +325,6 @@ def activar_medico(token: str, db=Depends(get_db)):
 from sib_api_v3_sdk import SendSmtpEmail
 
 #envio de mensaje de validacion por correo medico
-from sib_api_v3_sdk import SendSmtpEmail
-
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from sib_api_v3_sdk import SendSmtpEmail
@@ -363,9 +361,11 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
 
     # Configuración Brevo API
     configuration = sib_api_v3_sdk.Configuration()
-    configuration.api_key['api-key'] = os.getenv(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)  # ⚠️ setea tu API key en entorno
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")  # 👈 lee la clave desde el entorno
 
-    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
 
     email_data = SendSmtpEmail(
         to=[{"email": email, "name": full_name}],
