@@ -363,7 +363,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
 
     # Configuración Brevo API
     configuration = sib_api_v3_sdk.Configuration()
-    configuration.api_key['api-key'] = os.getenv("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")  # ⚠️ setea tu API key en entorno
+    configuration.api_key['api-key'] = os.getenv(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)  # ⚠️ setea tu API key en entorno
 
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
