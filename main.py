@@ -329,24 +329,23 @@ from sib_api_v3_sdk import SendSmtpEmail
 
 import smtplib
 from email.mime.text import MIMEText
+from datetime import datetime
 
 def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     token = create_access_token(
         {"sub": str(medico_id), "email": email, "tipo": "validacion"},
         expires_minutes=60*24
     )
-    link_activacion = f"https://docya.com.ar/activar_medico?token={token}"  # 👈 cambia al dominio real
+    link_activacion = f"https://docya.com.ar/auth/activar_medico?token={token}"
 
-    # HTML corporativo
+    # Contenido HTML corporativo
     html_content = f"""
     <div style="font-family: Arial, sans-serif; background-color:#f4f6f8; padding:30px; text-align:center;">
       <div style="background:#fff; max-width:600px; margin:auto; padding:30px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
         <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
              alt="DocYa" style="max-width:180px; margin-bottom:20px;">
-        <h2 style="color:#16a34a; margin-bottom:10px;">¡Bienvenido al equipo DocYa, {full_name}!</h2>
-        <p style="color:#333; font-size:16px; line-height:1.5; margin-bottom:20px;">
-          Para comenzar a atender pacientes necesitamos confirmar tu correo electrónico.
-        </p>
+        <h2 style="color:#16a34a;">¡Bienvenido al equipo DocYa, {full_name}!</h2>
+        <p style="color:#333; font-size:16px;">Confirma tu correo electrónico para activar tu cuenta.</p>
         <a href="{link_activacion}" 
            style="background-color:#16a34a; color:#fff; padding:14px 28px; text-decoration:none; 
                   border-radius:6px; font-size:16px; font-weight:bold; display:inline-block; margin:20px 0;">
@@ -360,24 +359,25 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     </div>
     """
 
-    # --- Configuración Gmail ---
-    remitente = "nahundeveloper@gmail.com"   # 👈 poné tu Gmail real
-    password = "ojzhmcjmxorwjrmz"       # 👈 tu contraseña de aplicación
-    asunto = "Activa tu cuenta en DocYa"
+    # Configuración SMTP Brevo
+    smtp_server = "smtp-relay.brevo.com"
+    smtp_port = 587
+    smtp_user = "95af08001@smtp-brevo.com"
+    smtp_password = "K05rUBSyVWqEwkIl6"
 
     msg = MIMEText(html_content, "html")
-    msg["Subject"] = asunto
-    msg["From"] = remitente
+    msg["Subject"] = "Activa tu cuenta en DocYa"
+    msg["From"] = "soporte@docya.com.ar"
     msg["To"] = email
 
     try:
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(remitente, password)
-            server.sendmail(remitente, [email], msg.as_string())
-        print(f"✅ Correo de validación enviado a {email}")
+        with smtplib.SMTP(smtp_server, smtp_port) as server:
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            server.sendmail("soporte@docya.com.ar", [email], msg.as_string())
+        print(f"✅ Correo enviado a {email}")
     except Exception as e:
-        print("⚠️ Error enviando email validación:", e)
-
+        print("⚠️ Error enviando email con Brevo SMTP:", e)
 
 
 class LoginMedicoIn(BaseModel):
