@@ -327,6 +327,9 @@ from sib_api_v3_sdk import SendSmtpEmail
 #envio de mensaje de validacion por correo medico
 from sib_api_v3_sdk import SendSmtpEmail
 
+import smtplib
+from email.mime.text import MIMEText
+
 def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     token = create_access_token(
         {"sub": str(medico_id), "email": email, "tipo": "validacion"},
@@ -338,52 +341,42 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     html_content = f"""
     <div style="font-family: Arial, sans-serif; background-color:#f4f6f8; padding:30px; text-align:center;">
       <div style="background:#fff; max-width:600px; margin:auto; padding:30px; border-radius:10px; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-        
         <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
              alt="DocYa" style="max-width:180px; margin-bottom:20px;">
-        
         <h2 style="color:#16a34a; margin-bottom:10px;">¡Bienvenido al equipo DocYa, {full_name}!</h2>
         <p style="color:#333; font-size:16px; line-height:1.5; margin-bottom:20px;">
-          Nos alegra que formes parte de nuestra red de profesionales de la salud.  
-          Para comenzar a atender pacientes y aprovechar todos los beneficios de nuestra plataforma, 
-          necesitamos confirmar tu correo electrónico.
+          Para comenzar a atender pacientes necesitamos confirmar tu correo electrónico.
         </p>
-        
         <a href="{link_activacion}" 
            style="background-color:#16a34a; color:#fff; padding:14px 28px; text-decoration:none; 
                   border-radius:6px; font-size:16px; font-weight:bold; display:inline-block; margin:20px 0;">
           Activar mi cuenta
         </a>
-        
-        <p style="font-size:14px; color:#555; margin-top:20px;">
-          Si no solicitaste este registro, simplemente ignora este correo.
-        </p>
+        <p style="font-size:14px; color:#555;">Si no solicitaste este registro, ignora este correo.</p>
       </div>
-      
       <div style="max-width:600px; margin:auto; margin-top:20px; color:#777; font-size:12px;">
-        <p>
-          © {datetime.now().year} DocYa. Todos los derechos reservados.<br>
-          Este es un mensaje automático, por favor no respondas a este correo.<br>
-          Contacto: <a href="mailto:soporte@docya.com.ar" style="color:#16a34a;">soporte@docya.com.ar</a>
-        </p>
+        © {datetime.now().year} DocYa. Todos los derechos reservados.
       </div>
     </div>
     """
 
-    configuration = sib_api_v3_sdk.Configuration()
-    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
-    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
-        sib_api_v3_sdk.ApiClient(configuration)
-    )
+    # --- Configuración Gmail ---
+    remitente = "nahundeveloper@gmail.com"   # 👈 poné tu Gmail real
+    password = "ojzhmcjmxorwjrmz"       # 👈 tu contraseña de aplicación
+    asunto = "Activa tu cuenta en DocYa"
 
-    email_data = SendSmtpEmail(
-        to=[{"email": email, "name": full_name}],
-        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},
-        subject="Activa tu cuenta en DocYa",
-        html_content=html_content
-    )
-    api_instance.send_transac_email(email_data)
+    msg = MIMEText(html_content, "html")
+    msg["Subject"] = asunto
+    msg["From"] = remitente
+    msg["To"] = email
 
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(remitente, password)
+            server.sendmail(remitente, [email], msg.as_string())
+        print(f"✅ Correo de validación enviado a {email}")
+    except Exception as e:
+        print("⚠️ Error enviando email validación:", e)
 
 
 
@@ -419,7 +412,6 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
             "validado": True
         }
     }
-
 
 @app.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
