@@ -327,9 +327,11 @@ from sib_api_v3_sdk import SendSmtpEmail
 #envio de mensaje de validacion por correo medico
 from sib_api_v3_sdk import SendSmtpEmail
 
-import smtplib
-from email.mime.text import MIMEText
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
+from sib_api_v3_sdk import SendSmtpEmail
 from datetime import datetime
+import os
 
 def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     token = create_access_token(
@@ -359,25 +361,24 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     </div>
     """
 
-    # Configuración SMTP Brevo
-    smtp_server = "smtp-relay.brevo.com"
-    smtp_port = 587
-    smtp_user = "95af08001@smtp-brevo.com"
-    smtp_password = "K05rUBSyVWqEwkIl6"
+    # Configuración Brevo API
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("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")  # ⚠️ setea tu API key en entorno
 
-    msg = MIMEText(html_content, "html")
-    msg["Subject"] = "Activa tu cuenta en DocYa"
-    msg["From"] = "soporte@docya.com.ar"
-    msg["To"] = email
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},
+        subject="Activa tu cuenta en DocYa",
+        html_content=html_content
+    )
 
     try:
-        with smtplib.SMTP(smtp_server, smtp_port) as server:
-            server.starttls()
-            server.login(smtp_user, smtp_password)
-            server.sendmail("soporte@docya.com.ar", [email], msg.as_string())
+        api_instance.send_transac_email(email_data)
         print(f"✅ Correo enviado a {email}")
-    except Exception as e:
-        print("⚠️ Error enviando email con Brevo SMTP:", e)
+    except ApiException as e:
+        print(f"⚠️ Error enviando email con Brevo API: {e}")
 
 
 class LoginMedicoIn(BaseModel):
