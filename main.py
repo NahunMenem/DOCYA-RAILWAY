@@ -384,7 +384,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
 
     email_data = SendSmtpEmail(
         to=[{"email": email, "name": full_name}],
-        sender={"email": "no-reply@docya.com.ar", "name": "DocYa"},
+        sender={"email": "nahundeveloper@gmail.com", "name": "DocYa"},
         subject="Activa tu cuenta en DocYa",
         html_content=html_content
     )
