@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Credencial DocYa</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    .credencial {
+      width: 280px;
+      height: 420px;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      text-align: center;
+      padding: 20px;
+      position: relative;
+    }
+    .logo {
+      margin-bottom: 15px;
+    }
+    .logo img {
+      width: 120px; /* Logo grande centrado */
+    }
+    .foto {
+      width: 120px;
+      height: 120px;
+      border-radius: 50%;
+      overflow: hidden;
+      margin: 15px auto;
+      border: 4px solid #1bb5a6;
+    }
+    .foto img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .nombre {
+      font-size: 20px;
+      font-weight: bold;
+      margin-top: 10px;
+    }
+    .cargo {
+      font-size: 18px;
+      color: #1bb5a6;
+      margin: 5px 0 20px 0;
+    }
+    .qr {
+      margin: 10px auto;
+    }
+    .qr img {
+      width: 90px; /* tamaño del QR */
+      height: 90px;
+    }
+    .id-bar {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      width: 100%;
+      background: #1bb5a6;
+      color: #fff;
+      font-weight: bold;
+      padding: 12px 0;
+      border-radius: 0 0 10px 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="credencial">
+    <div class="logo">
+      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" alt="Logo DocYa">
+    </div>
+    <div class="foto">
+      <img src="https://randomuser.me/api/portraits/men/32.jpg" alt="Foto del médico">
+    </div>
+    <div class="nombre">Dr. Juan Pérez</div>
+    <div class="cargo">MÉDICO</div>
+
+    <!-- QR centrado -->
+    <div class="qr">
+      <img src="https://api.qrserver.com/v1/create-qr-code/?size=150x150&data=https://docya.com.ar/medico/12345678" alt="QR Médico">
+    </div>
+
+    <div class="id-bar">ID 12345678</div>
+  </div>
+</body>
+</html>

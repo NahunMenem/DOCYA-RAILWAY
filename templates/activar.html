@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Activación de cuenta - DocYa</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+    body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f4f6f8;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 100vh;
+        color: #344e41;
+    }
+    .card {
+        background: #fff;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        padding: 40px 30px;
+        max-width: 420px;
+        text-align: center;
+        width: 100%;
+    }
+    .logo {
+        max-width: 160px;
+        margin-bottom: 20px;
+    }
+    h2 {
+        margin: 15px 0;
+        color: #009688; /* Verde DocYa */
+        font-size: 22px;
+    }
+    p {
+        font-size: 15px;
+        margin: 10px 0 20px;
+        line-height: 1.5;
+    }
+    .btn {
+        background-color: #009688; /* Verde DocYa */
+        color: #fff;
+        padding: 14px 24px;
+        border-radius: 8px;
+        text-decoration: none;
+        font-weight: bold;
+        display: inline-block;
+        margin-top: 10px;
+        transition: background-color 0.2s;
+    }
+    .btn:hover {
+        background-color: #00796b; /* Verde DocYa más oscuro */
+    }
+    .error {
+        color: #b91c1c;
+    }
+    .footer {
+        margin-top: 25px;
+        font-size: 12px;
+        color: #777;
+    }
+    </style>
+
+</head>
+<body>
+  <div class="card" id="content">
+    <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png"
+         alt="DocYa" class="logo">
+    <h2 id="status-title">Activando cuenta...</h2>
+    <p id="status-message">Por favor, espera un momento.</p>
+    <a href="https://docya.com.ar/login" class="btn" id="go-login" style="display:none;">
+      Ir al login
+    </a>
+    <div class="footer">
+      © 2025 DocYa · Atención médica a domicilio
+    </div>
+  </div>
+
+  <script>
+    // Obtener parámetros de la URL (ej: ?status=ok&nombre=Juan)
+    const params = new URLSearchParams(window.location.search);
+    const status = params.get("status");
+    const nombre = params.get("nombre") || "";
+
+    const title = document.getElementById("status-title");
+    const message = document.getElementById("status-message");
+    const btn = document.getElementById("go-login");
+
+    if (status === "ok") {
+      title.textContent = "¡Cuenta activada con éxito!";
+      message.textContent = `Bienvenido ${nombre}, ya podés iniciar sesión en DocYa.`;
+      btn.style.display = "inline-block";
+    } else if (status === "expirado") {
+      title.innerHTML = "⚠️ Link expirado";
+      message.innerHTML = "El enlace de activación ha vencido. Solicitá un nuevo correo de activación.";
+    } else if (status === "invalido") {
+      title.innerHTML = "❌ Link inválido";
+      message.innerHTML = "El enlace no es válido. Revisá tu correo o pedí uno nuevo.";
+    } else if (status === "error") {
+      title.innerHTML = "❌ Error en la activación";
+      message.innerHTML = "No pudimos activar tu cuenta. Contactá soporte si el problema persiste.";
+    }
+  </script>
+</body>
+</html>

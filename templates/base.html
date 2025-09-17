@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}DocYa{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="icon" href="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" />
+
+  <!-- AOS Animations -->
+  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
+  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      AOS.init({ duration: 1000, once: true });
+    });
+  </script>
+
+  <style>
+    .gradient-bg {
+      background: linear-gradient(135deg, #3498DB 0%, #5DADE2 100%);
+    }
+  </style>
+</head>
+<body class="bg-gray-50 text-gray-800 font-sans">
+
+  <!-- Navbar -->
+  <header class="bg-white shadow fixed w-full z-50">
+    <div class="container mx-auto px-6 py-4 flex items-center justify-between">
+      <a href="/" class="flex items-center space-x-3">
+        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa" class="h-10">
+        <span class="text-xl font-bold text-blue-600">DocYa</span>
+      </a>
+      <nav class="space-x-6 hidden md:flex">
+        <a href="/#pacientes" class="hover:text-blue-600 font-medium">Pacientes</a>
+        <a href="/medicos" class="hover:text-blue-600 font-medium">Médicos</a>
+        <a href="/#contacto" class="hover:text-blue-600 font-medium">Contacto</a>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <main class="pt-24">
+    {% block content %}{% endblock %}
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-gray-900 text-gray-400 py-6 text-center mt-12">
+    <p>&copy; 2025 DocYa. Todos los derechos reservados.</p>
+  </footer>
+</body>
+</html>

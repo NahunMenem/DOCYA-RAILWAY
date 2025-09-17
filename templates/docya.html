@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+
+{% block title %}DocYa - Salud a tu puerta{% endblock %}
+
+{% block content %}
+
+<!-- Hero -->
+<section class="gradient-bg text-white text-center py-40 px-6">
+  <h1 class="text-4xl md:text-6xl font-extrabold mb-6 drop-shadow-lg" data-aos="fade-down">
+    La salud a tu puerta
+  </h1>
+  <p class="text-lg md:text-xl max-w-2xl mx-auto mb-10" data-aos="fade-up">
+    Atención médica y de enfermería a domicilio en minutos.  
+    Conecta con profesionales cercanos y paga desde la app.
+  </p>
+  <div class="flex justify-center space-x-4" data-aos="zoom-in">
+    <a href="#pacientes" class="bg-white text-blue-600 px-8 py-3 rounded-full font-semibold shadow-lg hover:bg-gray-100 transition">
+      Soy Paciente
+    </a>
+    <a href="/medicos" class="bg-gray-900 text-white px-8 py-3 rounded-full font-semibold shadow hover:bg-gray-800 transition">
+      Soy Médico
+    </a>
+  </div>
+</section>
+
+<!-- Pacientes -->
+<section id="pacientes" class="py-24 bg-gray-100">
+  <div class="container mx-auto px-6 text-center" data-aos="fade-up">
+    <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" 
+         alt="Pacientes DocYa" class="h-16 mx-auto mb-6">
+    <h2 class="text-3xl font-bold text-blue-600 mb-4">Para Pacientes</h2>
+    <p class="max-w-2xl mx-auto text-gray-600 mb-10 leading-relaxed">
+      Pide un médico a domicilio en minutos. Seguimiento en tiempo real, pago seguro desde la app y acceso a tu historia clínica digital.  
+      Olvídate de largas esperas en guardias y consultorios.
+    </p>
+    <a href="#" class="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold shadow hover:bg-blue-700 transition">
+      Descargar App
+    </a>
+  </div>
+</section>
+
+<!-- Médicos -->
+<section id="medicos" class="py-24 bg-white">
+  <div class="container mx-auto px-6 text-center" data-aos="fade-up">
+    <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/DOCYAPRO_BLANCO_eerxi3.png" 
+         alt="Médicos DocYa" class="h-16 mx-auto mb-6 bg-blue-600 p-3 rounded-xl shadow">
+    <h2 class="text-3xl font-bold text-blue-600 mb-4">Para Médicos</h2>
+    <p class="max-w-2xl mx-auto text-gray-600 mb-10 leading-relaxed">
+      Gana más en menos tiempo. Elige tus horarios y zonas de trabajo.  
+      Recibe pagos semanales y aumenta tu reputación con la valoración de pacientes.  
+      Céntrate en lo importante: brindar atención médica de calidad.
+    </p>
+    <a href="/medicos" class="bg-gray-900 text-white px-8 py-3 rounded-full font-semibold shadow hover:bg-gray-800 transition">
+      Registrarme como Médico
+    </a>
+  </div>
+</section>
+
+<!-- Contacto -->
+<section id="contacto" class="gradient-bg text-white py-16">
+  <div class="container mx-auto px-6 text-center" data-aos="fade-up">
+    <h3 class="text-2xl font-bold mb-4">Contacto</h3>
+    <p>Email: contacto@docya.com.ar | WhatsApp: +54 9 11 1234 5678</p>
+    <p class="text-sm mt-4 opacity-80">DocYa no reemplaza emergencias. Ante una urgencia, llama al 911.</p>
+  </div>
+</section>
+
+{% endblock %}

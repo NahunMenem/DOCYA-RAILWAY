@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}Médicos Registrados | DocYa{% endblock %}
+
+{% block content %}
+<div class="container mx-auto px-6 py-12">
+  <h1 class="text-3xl font-bold text-blue-600 mb-8 text-center">Médicos Registrados</h1>
+
+  {% if medicos %}
+    <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+      {% for m in medicos %}
+        <div class="bg-white rounded-xl shadow-lg p-6 hover:shadow-2xl transition">
+          <h2 class="text-xl font-semibold text-gray-800 mb-2">{{ m.nombre }} {{ m.apellido }}</h2>
+          <p class="text-sm text-gray-500 mb-2">Matrícula: {{ m.matricula }}</p>
+          <p class="mb-2">
+            {% if m.profesion == 'Medico' %}
+              <span class="bg-blue-100 text-blue-700 px-2 py-1 rounded text-sm">Médico</span>
+            {% else %}
+              <span class="bg-green-100 text-green-700 px-2 py-1 rounded text-sm">Enfermero</span>
+            {% endif %}
+          </p>
+          <ul class="text-gray-600 text-sm space-y-1 mb-4">
+            <li><strong>DNI:</strong> {{ m.dni }}</li>
+            <li><strong>Teléfono:</strong> {{ m.telefono }}</li>
+            <li><strong>Email:</strong> {{ m.email }}</li>
+            <li><strong>CBU/Alias:</strong> {{ m.cbu_alias }}</li>
+            <li><strong>Dirección:</strong> {{ m.direccion }}</li>
+          </ul>
+
+          <!-- Estrellas -->
+          <div class="flex items-center">
+            {% set estrellas_llenas = m.puntuacion|int %}
+            {% set media_estrella = 1 if (m.puntuacion - estrellas_llenas) >= 0.5 else 0 %}
+            {% set estrellas_vacias = 5 - estrellas_llenas - media_estrella %}
+
+            {% for i in range(estrellas_llenas) %}
+              ⭐
+            {% endfor %}
+            {% if media_estrella %} ⭐ {% endif %}
+            {% for i in range(estrellas_vacias) %}
+              ☆
+            {% endfor %}
+            <span class="ml-2 text-sm text-gray-500">({{ m.puntuacion|round(1) }})</span>
+          </div>
+        </div>
+      {% endfor %}
+    </div>
+  {% else %}
+    <p class="text-center text-gray-600">No hay médicos registrados aún.</p>
+  {% endif %}
+</div>
+{% endblock %}
