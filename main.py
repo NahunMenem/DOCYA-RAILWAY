@@ -1082,3 +1082,7 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         "lng": data.lng,
         "disponible": data.disponible
     }
+#pagina web 
+@app.route("/")
+def home():
+    return render_template("docya.html")
