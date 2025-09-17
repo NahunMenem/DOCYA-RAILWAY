@@ -56,13 +56,44 @@
   </div>
 </section>
 
-<!-- Contacto -->
-<section id="contacto" class="gradient-bg text-white py-16">
-  <div class="container mx-auto px-6 text-center" data-aos="fade-up">
-    <h3 class="text-2xl font-bold mb-4">Contacto</h3>
-    <p>Email: contacto@docya.com.ar | WhatsApp: +54 9 11 1234 5678</p>
-    <p class="text-sm mt-4 opacity-80">DocYa no reemplaza emergencias. Ante una urgencia, llama al 911.</p>
+<!-- Contacto con Formulario -->
+<section id="contacto" class="gradient-bg py-16">
+  <div class="container mx-auto px-6 max-w-2xl" data-aos="fade-up">
+    <h3 class="text-2xl font-bold text-center text-white mb-8">Contacto</h3>
+
+    {% if request.query_params.get("enviado") == "1" %}
+      <div class="bg-green-100 text-green-700 p-4 rounded-lg mb-6 text-center">
+        ✅ Tu mensaje fue enviado con éxito. Nos pondremos en contacto pronto.
+      </div>
+    {% endif %}
+
+    <form action="/contacto" method="post" class="bg-white rounded-xl shadow-lg p-8 space-y-4">
+      <div>
+        <label for="nombre" class="block text-sm font-semibold text-gray-700">Nombre</label>
+        <input type="text" id="nombre" name="nombre" required
+               class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+      </div>
+      <div>
+        <label for="email" class="block text-sm font-semibold text-gray-700">Email</label>
+        <input type="email" id="email" name="email" required
+               class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400">
+      </div>
+      <div>
+        <label for="mensaje" class="block text-sm font-semibold text-gray-700">Mensaje</label>
+        <textarea id="mensaje" name="mensaje" rows="4" required
+                  class="w-full border rounded-lg px-4 py-3 focus:outline-none focus:ring-2 focus:ring-blue-400"></textarea>
+      </div>
+      <button type="submit"
+              class="w-full bg-blue-600 text-white px-6 py-3 rounded-full font-semibold shadow hover:bg-blue-700 transition">
+        Enviar mensaje
+      </button>
+    </form>
+
+    <p class="text-xs text-white mt-6 opacity-80 text-center">
+      DocYa no reemplaza emergencias. Ante una urgencia, llama al 911.
+    </p>
   </div>
 </section>
 
 {% endblock %}
+
