@@ -5,48 +5,36 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{% block title %}DocYa{% endblock %}</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  <link rel="icon" href="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" />
-
-  <!-- AOS Animations -->
-  <link href="https://unpkg.com/aos@2.3.1/dist/aos.css" rel="stylesheet">
-  <script src="https://unpkg.com/aos@2.3.1/dist/aos.js"></script>
-  <script>
-    document.addEventListener("DOMContentLoaded", () => {
-      AOS.init({ duration: 1000, once: true });
-    });
-  </script>
-
-  <style>
-    .gradient-bg {
-      background: linear-gradient(135deg, #3498DB 0%, #5DADE2 100%);
-    }
-  </style>
 </head>
-<body class="bg-gray-50 text-gray-800 font-sans">
+<body class="font-sans bg-gray-50 text-gray-800">
 
   <!-- Navbar -->
-  <header class="bg-white shadow fixed w-full z-50">
-    <div class="container mx-auto px-6 py-4 flex items-center justify-between">
-      <a href="/" class="flex items-center space-x-3">
-        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa" class="h-10">
+  <header class="bg-white shadow sticky top-0 z-50">
+    <div class="container mx-auto flex items-center justify-between px-6 py-4">
+      <a href="/" class="flex items-center space-x-2">
+        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo" class="h-8">
+        <span class="font-bold text-xl text-blue-600">DocYa</span>
       </a>
-      <nav class="space-x-6 hidden md:flex">
-        <a href="/#pacientes" class="hover:text-blue-600 font-medium">Pacientes</a>
-        <a href="/medicos" class="hover:text-blue-600 font-medium">Médicos</a>
-        <a href="/#contacto" class="hover:text-blue-600 font-medium">Contacto</a>
+      <nav class="space-x-6">
+        <a href="/pacientes" class="hover:text-blue-600">Pacientes</a>
+        <a href="/medicos" class="hover:text-blue-600">Médicos</a>
+        <a href="#contacto" class="hover:text-blue-600">Contacto</a>
       </nav>
     </div>
   </header>
 
   <!-- Main -->
-  <main class="pt-24">
+  <main>
     {% block content %}{% endblock %}
   </main>
 
   <!-- Footer -->
-  <footer class="bg-gray-900 text-gray-400 py-6 text-center mt-12">
-    <p>&copy; 2025 DocYa. Todos los derechos reservados.</p>
+  <footer class="bg-gray-900 text-gray-300 text-center py-6 mt-12">
+    <p class="text-sm">© 2025 DocYa. Todos los derechos reservados.</p>
+    <p class="text-xs mt-2 opacity-70">DocYa no reemplaza emergencias. Ante una urgencia, llama al 911.</p>
   </footer>
+
 </body>
 </html>
+
 
