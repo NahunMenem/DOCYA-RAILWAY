@@ -55,6 +55,12 @@
     </a>
   </div>
 </section>
+{% if request.query_params.get("enviado") == "1" %}
+  <div class="bg-green-100 text-green-700 p-4 rounded-lg max-w-xl mx-auto mt-6 text-center">
+    ✅ Tu mensaje fue enviado con éxito. Nos pondremos en contacto pronto.
+  </div>
+{% endif %}
+
 
 <!-- Contacto con Formulario -->
 <section id="contacto" class="gradient-bg py-16">
@@ -96,4 +102,5 @@
 </section>
 
 {% endblock %}
+
 
