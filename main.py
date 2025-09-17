@@ -1107,3 +1107,44 @@ async def pacientes_page(request: Request):
 async def medicos_page(request: Request):
     return templates.TemplateResponse("medicos.html", {"request": request})
 
+from fastapi import Form
+from fastapi.responses import RedirectResponse
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
+from sib_api_v3_sdk import SendSmtpEmail
+
+@app.post("/contacto")
+async def contacto(
+    nombre: str = Form(...),
+    email: str = Form(...),
+    mensaje: str = Form(...)
+):
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+
+    email_data = SendSmtpEmail(
+        to=[{"email": "nahundeveloper@gmail.com", "name": "DocYa Admin"}],  # 👈 tu correo destino
+        sender={"email": email, "name": nombre},  # el remitente será quien llena el form
+        subject=f"📩 Nuevo mensaje desde el sitio DocYa",
+        html_content=f"""
+        <h2>Nuevo mensaje desde el sitio DocYa</h2>
+        <p><strong>Nombre:</strong> {nombre}</p>
+        <p><strong>Email:</strong> {email}</p>
+        <p><strong>Mensaje:</strong></p>
+        <p>{mensaje}</p>
+        """
+    )
+
+    try:
+        api_instance.send_transac_email(email_data)
+        print(f"✅ Mensaje enviado desde {email}")
+    except ApiException as e:
+        print(f"⚠️ Error enviando email con Brevo API: {e}")
+
+    # Redirigimos de nuevo a la home con mensaje de éxito
+    return RedirectResponse(url="/?enviado=1", status_code=303)
+
