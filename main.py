@@ -1083,6 +1083,27 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         "disponible": data.disponible
     }
 #pagina web 
-@app.route("/")
-def home():
-    return render_template("docya.html")
+# ====================================================
+# 🌐 PÁGINAS WEB (Landing con Jinja2 Templates)
+# ====================================================
+from fastapi import Request
+from fastapi.responses import HTMLResponse
+from fastapi.templating import Jinja2Templates
+
+templates = Jinja2Templates(directory="templates")
+
+# Home (landing principal)
+@app.get("/", response_class=HTMLResponse)
+async def home(request: Request):
+    return templates.TemplateResponse("docya.html", {"request": request})
+
+# Landing para pacientes
+@app.get("/pacientes", response_class=HTMLResponse)
+async def pacientes_page(request: Request):
+    return templates.TemplateResponse("pacientes.html", {"request": request})
+
+# Landing para médicos
+@app.get("/medicos", response_class=HTMLResponse)
+async def medicos_page(request: Request):
+    return templates.TemplateResponse("medicos.html", {"request": request})
+
