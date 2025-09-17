@@ -1,57 +1,33 @@
 {% extends "base.html" %}
 
-{% block title %}Trabaja con DocYa - Médicos{% endblock %}
+{% block title %}DocYa - Para Médicos{% endblock %}
 
 {% block content %}
-<!-- Hero -->
-<section class="gradient-bg text-white text-center py-40 px-6">
-  <h1 class="text-4xl md:text-6xl font-extrabold mb-6 drop-shadow-lg" data-aos="fade-down">
-    Únete a DocYa como Médico
-  </h1>
-  <p class="text-lg md:text-xl max-w-2xl mx-auto mb-10" data-aos="fade-up">
-    Gana más, trabaja en tus propios horarios y sé parte de la app que revoluciona la atención médica a domicilio.
+<section class="py-24 bg-gray-50 text-center px-6">
+  <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/DOCYAPRO_BLANCO_eerxi3.png" 
+       class="h-16 mx-auto mb-6 bg-blue-600 p-3 rounded-xl shadow" alt="Médicos DocYa">
+  <h2 class="text-3xl font-bold text-blue-600 mb-4">Para Médicos</h2>
+  <p class="max-w-2xl mx-auto text-gray-600 mb-10">
+    Únete a la red DocYa y atiende pacientes cerca de ti.  
+    Gana más en menos tiempo, con horarios flexibles y sin burocracia.  
+    Recibe pagos semanales y aumenta tu reputación con valoraciones de pacientes.
   </p>
-  <a href="#registro" class="bg-white text-blue-600 px-8 py-3 rounded-full font-semibold shadow-lg hover:bg-gray-100 transition">
-    Quiero Registrarme
-  </a>
-</section>
-
-<!-- Beneficios -->
-<section class="py-24 bg-white">
-  <div class="container mx-auto px-6 text-center">
-    <h2 class="text-3xl font-bold text-blue-600 mb-12" data-aos="fade-up">Beneficios de trabajar con DocYa</h2>
-    <div class="grid md:grid-cols-3 gap-8">
-      <div class="p-6 bg-gray-100 rounded-xl shadow hover:shadow-lg transition" data-aos="fade-up">
-        <h3 class="font-bold text-lg mb-3 text-blue-600">Gana más sin guardias eternas</h3>
-        <p>En lugar de desgastantes turnos de 24 horas, en DocYa puedes generar los mismos ingresos 
-  atendiendo solo unas consultas a domicilio y eligiendo tus propios horarios.</p>
-      </div>
-      <div class="p-6 bg-gray-100 rounded-xl shadow hover:shadow-lg transition" data-aos="fade-up" data-aos-delay="100">
-        <h3 class="font-bold text-lg mb-3 text-blue-600">Flexibilidad total</h3>
-        <p>Elige tus días, horarios y zonas. Tú decides cuándo estar disponible.</p>
-      </div>
-      <div class="p-6 bg-gray-100 rounded-xl shadow hover:shadow-lg transition" data-aos="fade-up" data-aos-delay="200">
-        <h3 class="font-bold text-lg mb-3 text-blue-600">Crecimiento profesional</h3>
-        <p>Construye tu reputación con la puntuación de pacientes y recibe más consultas.</p>
-      </div>
+  <div class="grid md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+      <h3 class="font-bold text-lg mb-3 text-blue-600">Gana más sin guardias eternas</h3>
+      <p>Deja atrás turnos de 24 horas. Con DocYa puedes generar ingresos equivalentes en pocas consultas.</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+      <h3 class="font-bold text-lg mb-3 text-blue-600">Flexibilidad total</h3>
+      <p>Elige tus horarios y zonas de atención. Tú decides cuándo estar disponible.</p>
+    </div>
+    <div class="bg-white p-6 rounded-lg shadow text-center">
+      <h3 class="font-bold text-lg mb-3 text-blue-600">Reputación profesional</h3>
+      <p>Cada consulta mejora tu puntuación y te permite acceder a más pacientes.</p>
     </div>
   </div>
-</section>
-
-<!-- Call to Action -->
-<section id="registro" class="py-24 bg-gray-100">
-  <div class="container mx-auto px-6 text-center" data-aos="fade-up">
-    <h2 class="text-2xl font-bold text-blue-600 mb-6">Regístrate ahora y comienza a ganar más</h2>
-    <p class="max-w-xl mx-auto text-gray-600 mb-8">
-      En menos de 5 minutos puedes completar tu registro y estar listo para recibir consultas en tu zona.
-    </p>
-    <a href="https://forms.gle/XXXXXX" target="_blank"
-       class="bg-blue-600 text-white px-8 py-3 rounded-full font-semibold shadow hover:bg-blue-700 transition">
-      Completar Registro
-    </a>
-  </div>
+  <a href="#" class="mt-10 inline-block bg-gray-900 text-white px-8 py-3 rounded-full font-semibold shadow hover:bg-gray-800 transition">
+    Registrarme como Médico
+  </a>
 </section>
 {% endblock %}
-
-
-
