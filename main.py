@@ -342,15 +342,47 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     )
     link_activacion = f"https://docya.com.ar/auth/activar_medico?token={token}"
 
-    # Colores corporativos DocYa
-    color_principal = "#00A8A8"   # turquesa
-    color_fondo = "#1A1A1A"
-    color_texto = "#EAEAEA"
-    color_secundario = "#B0B0B0"
-
-    html_content = f""" ... """  # tu HTML aquí
-
-    # 👉 NO returns aquí
+    # HTML seguro y compatible con correos
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Activación DocYa</title>
+    </head>
+    <body style="margin:0; padding:0; background-color:#F4F6F8; font-family: Arial, sans-serif;">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F4F6F8" style="padding:20px 0;">
+        <tr>
+          <td align="center">
+            <table border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+              <tr>
+                <td align="center" style="padding:30px 20px;">
+                  <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" alt="DocYa" style="max-width:180px; margin-bottom:20px;">
+                  <h2 style="color:#00A8A8; font-size:22px; margin:0 0 15px;">¡Bienvenido al equipo DocYa, {full_name}!</h2>
+                  <p style="color:#333333; font-size:15px; line-height:1.5; margin:0 0 25px;">
+                    Gracias por unirte a nuestra red de profesionales de la salud.<br>
+                    Antes de comenzar, confirma tu correo electrónico para activar tu cuenta.
+                  </p>
+                  <a href="{link_activacion}" target="_blank"
+                     style="background-color:#00A8A8; color:#ffffff; padding:14px 28px; text-decoration:none; 
+                            border-radius:6px; font-size:15px; font-weight:bold; display:inline-block;">
+                    ✅ Activar mi cuenta
+                  </a>
+                  <p style="color:#777777; font-size:12px; margin-top:30px;">
+                    Si no solicitaste este registro, por favor ignora este correo.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <p style="color:#999999; font-size:11px; margin-top:20px;">
+              © {datetime.now().year} DocYa · Atención médica a domicilio con confianza.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+    """
 
     # Configuración Brevo API
     configuration = sib_api_v3_sdk.Configuration()
@@ -362,7 +394,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
 
     email_data = SendSmtpEmail(
         to=[{"email": email, "name": full_name}],
-        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},  # mejor usar tu dominio
+        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},  # 👈 mejor usar dominio verificado
         subject="Activa tu cuenta en DocYa",
         html_content=html_content
     )
@@ -372,6 +404,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
         print(f"✅ Correo enviado a {email}")
     except ApiException as e:
         print(f"⚠️ Error enviando email con Brevo API: {e}")
+
 
 
 
