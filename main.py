@@ -343,40 +343,41 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     link_activacion = f"https://docya.com.ar/auth/activar_medico?token={token}"
 
     # Contenido HTML profesional con colores DocYa
-    html_content = f"""
-    <div style="font-family: 'Arial', sans-serif; background-color:#f4f6f8; padding:40px; text-align:center;">
+        html_content = f"""
+    <div style="font-family: 'Arial', sans-serif; background-color:#DAD7CD; padding:40px; text-align:center;">
       <div style="background:#fff; max-width:600px; margin:auto; padding:40px 30px; 
-                  border-radius:12px; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+                  border-radius:16px; box-shadow:0 6px 18px rgba(0,0,0,0.1);">
         
         <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
              alt="DocYa" style="max-width:180px; margin-bottom:25px;">
-        
-        <h2 style="color:#16a34a; margin-bottom:15px; font-size:24px;">
+    
+        <h2 style="color:#3A5A40; margin-bottom:15px; font-size:26px; font-weight:bold;">
           ¡Bienvenido al equipo DocYa, {full_name}!
         </h2>
         
-        <p style="color:#344e41; font-size:16px; line-height:1.5; margin-bottom:30px;">
-          Gracias por unirte a nuestra red de profesionales.  
+        <p style="color:#344E41; font-size:16px; line-height:1.6; margin-bottom:30px;">
+          Gracias por unirte a nuestra red de profesionales de la salud.  
           Antes de comenzar, confirma tu correo electrónico para activar tu cuenta.
         </p>
-
+    
         <a href="{link_activacion}" 
-           style="background-color:#16a34a; color:#fff; padding:14px 32px; text-decoration:none; 
-                  border-radius:8px; font-size:16px; font-weight:bold; display:inline-block; 
-                  box-shadow:0 2px 6px rgba(22,163,74,0.3);">
+           style="background-color:#588157; color:#fff; padding:14px 36px; text-decoration:none; 
+                  border-radius:10px; font-size:16px; font-weight:bold; display:inline-block; 
+                  box-shadow:0 4px 10px rgba(88,129,87,0.35); transition:all 0.2s ease-in-out;">
           ✅ Activar mi cuenta
         </a>
-
-        <p style="font-size:13px; color:#555; margin-top:30px;">
+    
+        <p style="font-size:13px; color:#555; margin-top:35px;">
           Si no solicitaste este registro, por favor ignora este correo.
         </p>
       </div>
-
+    
       <div style="max-width:600px; margin:auto; margin-top:25px; color:#777; font-size:12px;">
         © {datetime.now().year} DocYa · Atención médica a domicilio con confianza.
       </div>
     </div>
     """
+
 
     # Configuración Brevo API
     configuration = sib_api_v3_sdk.Configuration()
