@@ -343,46 +343,36 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
     link_activacion = f"https://docya.com.ar/auth/activar_medico?token={token}"
 
     # Colores corporativos DocYa
-    color_principal = "#00A8A8"   # turquesa del logo
-    color_fondo = "#1A1A1A"       # fondo oscuro premium
-    color_texto = "#EAEAEA"       # texto claro
-    color_secundario = "#B0B0B0"  # gris suave
+    color_principal = "#00A8A8"   # turquesa
+    color_fondo = "#1A1A1A"
+    color_texto = "#EAEAEA"
+    color_secundario = "#B0B0B0"
 
-    html_content = f"""
-    <div style="font-family: 'Arial', sans-serif; background-color:{color_fondo}; padding:40px; text-align:center;">
-      <div style="background:#2A2A2A; max-width:600px; margin:auto; padding:40px 30px; 
-                  border-radius:16px; box-shadow:0 6px 18px rgba(0,0,0,0.5);">
-        
-        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
-             alt="DocYa" style="max-width:180px; margin-bottom:25px; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.6));">
-    
-        <h2 style="color:{color_principal}; margin-bottom:15px; font-size:26px; font-weight:bold;">
-          ¡Bienvenido al equipo DocYa, {full_name}!
-        </h2>
-        
-        <p style="color:{color_texto}; font-size:16px; line-height:1.6; margin-bottom:30px;">
-          Gracias por unirte a nuestra red de profesionales de la salud.  
-          Antes de comenzar, confirma tu correo electrónico para activar tu cuenta.
-        </p>
-    
-        <a href="{link_activacion}" 
-           style="background-color:{color_principal}; color:#fff; padding:14px 36px; text-decoration:none; 
-                  border-radius:10px; font-size:16px; font-weight:bold; display:inline-block; 
-                  box-shadow:0 4px 10px rgba(0,168,168,0.4); transition:all 0.2s ease-in-out;">
-          ✅ Activar mi cuenta
-        </a>
-    
-        <p style="font-size:13px; color:{color_secundario}; margin-top:35px;">
-          Si no solicitaste este registro, por favor ignora este correo.
-        </p>
-      </div>
-    
-      <div style="max-width:600px; margin:auto; margin-top:25px; color:{color_secundario}; font-size:12px;">
-        © {datetime.now().year} DocYa · Atención médica a domicilio con confianza.
-      </div>
-    </div>
-    """
-    return html_content
+    html_content = f""" ... """  # tu HTML aquí
+
+    # 👉 NO returns aquí
+
+    # Configuración Brevo API
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},  # mejor usar tu dominio
+        subject="Activa tu cuenta en DocYa",
+        html_content=html_content
+    )
+
+    try:
+        api_instance.send_transac_email(email_data)
+        print(f"✅ Correo enviado a {email}")
+    except ApiException as e:
+        print(f"⚠️ Error enviando email con Brevo API: {e}")
+
 
 
 
