@@ -13,8 +13,9 @@ from uuid import UUID
 from zoneinfo import ZoneInfo
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
-    File, UploadFile, WebSocket, WebSocketDisconnect
+    File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
+
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
