@@ -306,8 +306,10 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
 
 
 
-@app.get("/auth/activar_medico")
-def activar_medico(token: str, db=Depends(get_db)):
+from fastapi.responses import HTMLResponse
+
+@app.get("/auth/activar_medico", response_class=HTMLResponse)
+def activar_medico(token: str, request: Request, db=Depends(get_db)):
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
         medico_id = int(payload.get("sub"))
@@ -316,11 +318,12 @@ def activar_medico(token: str, db=Depends(get_db)):
         row = cur.fetchone(); db.commit()
         if not row:
             raise HTTPException(status_code=404, detail="Médico no encontrado")
-        return {"ok": True, "mensaje": f"Cuenta activada correctamente. Bienvenido {row[1]}!"}
+        return templates.TemplateResponse("activar_medico.html", {"request": request, "nombre": row[1]})
     except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=400, detail="El enlace de activación expiró")
+        return HTMLResponse("<h1>⚠️ El enlace de activación expiró</h1>", status_code=400)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Token inválido: {e}")
+        return HTMLResponse(f"<h1>⚠️ Token inválido</h1><p>{e}</p>", status_code=400)
+
 
 from sib_api_v3_sdk import SendSmtpEmail
 
