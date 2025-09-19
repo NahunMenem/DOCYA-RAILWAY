@@ -853,42 +853,6 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 import os
 
-@app.post("/consultas/{consulta_id}/certificado/pdf")
-async def generar_certificado_pdf(consulta_id: int):
-    # 1. Buscar certificado en DB
-    certificado = db_session.query(Certificado).filter_by(consulta_id=consulta_id).first()
-    if not certificado:
-        raise HTTPException(status_code=404, detail="Certificado no encontrado")
-
-    # 2. Crear PDF temporal
-    file_path = f"/tmp/certificado_{consulta_id}.pdf"
-    c = canvas.Canvas(file_path, pagesize=A4)
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(200, 800, "Certificado Médico")
-    c.line(100, 790, 500, 790)
-
-    c.setFont("Helvetica", 12)
-    c.drawString(100, 750, f"Consulta ID: {consulta_id}")
-    c.drawString(100, 730, f"Paciente: {certificado.paciente_uuid}")
-    c.drawString(100, 710, "Contenido:")
-
-    # Texto largo del contenido (lo parte en líneas)
-    text = c.beginText(120, 690)
-    text.setFont("Helvetica", 12)
-    for line in certificado.contenido.split("\n"):
-        text.textLine(line)
-    c.drawText(text)
-
-    c.save()
-
-    # 3. Devolver el PDF
-    return FileResponse(
-        file_path,
-        media_type="application/pdf",
-        filename=f"certificado_{consulta_id}.pdf"
-    )
-
-
 
 @app.post("/consultas/{consulta_id}/certificado_pdf")
 async def generar_certificado_pdf(
