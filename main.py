@@ -842,6 +842,48 @@ from datetime import datetime
 import base64
 import io
 
+from fastapi.responses import FileResponse
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+import os
+
+@app.post("/consultas/{consulta_id}/certificado/pdf")
+async def generar_certificado_pdf(consulta_id: int, data: dict):
+    """
+    Genera un certificado médico en PDF con motivo + firma.
+    data = { "medico_id": 123, "paciente_uuid": "...", "contenido": "texto del certificado" }
+    """
+
+    # ⚡ Carpeta temporal para PDF
+    filename = f"certificado_{consulta_id}.pdf"
+    filepath = os.path.join("/tmp", filename)
+
+    # Crear PDF
+    c = canvas.Canvas(filepath, pagesize=A4)
+    width, height = A4
+
+    c.setFont("Helvetica-Bold", 18)
+    c.drawCentredString(width / 2, height - 80, "Certificado Médico")
+
+    c.setFont("Helvetica", 12)
+    c.drawString(100, height - 150, f"Consulta N° {consulta_id}")
+    c.drawString(100, height - 170, f"Paciente UUID: {data.get('paciente_uuid', '-')}")
+    c.drawString(100, height - 190, f"Médico ID: {data.get('medico_id', '-')}")
+    c.drawString(100, height - 220, "Detalle:")
+    text = c.beginText(120, height - 240)
+    text.setFont("Helvetica", 12)
+    text.textLines(data.get("contenido", ""))
+    c.drawText(text)
+
+    # Espacio para la firma
+    c.line(100, 150, 300, 150)
+    c.drawString(100, 135, "Firma del Médico")
+
+    c.save()
+
+    return FileResponse(filepath, filename=filename, media_type="application/pdf")
+
+
 @app.post("/consultas/{consulta_id}/certificado_pdf")
 async def generar_certificado_pdf(
     consulta_id: int,
