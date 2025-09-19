@@ -834,34 +834,70 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from fastapi.responses import FileResponse
 
-@app.get("/consultas/{consulta_id}/certificado_pdf")
-def certificado_pdf(consulta_id:int, db=Depends(get_db)):
-    cur=db.cursor()
-    cur.execute("""
-        SELECT c.contenido, m.full_name, m.matricula, u.full_name
-        FROM certificados c
-        JOIN medicos m ON c.medico_id=m.id
-        JOIN users u ON c.paciente_uuid=u.id
-        WHERE c.consulta_id=%s
-    """, (consulta_id,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+from fastapi import UploadFile, File, Form
+from fastapi.responses import JSONResponse
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import A4
+from datetime import datetime
+import base64
+import io
 
-    contenido, medico_nombre, matricula, paciente_nombre = row
+@app.post("/consultas/{consulta_id}/certificado_pdf")
+async def generar_certificado_pdf(
+    consulta_id: int,
+    medico_id: int = Form(...),
+    paciente_uuid: str = Form(...),
+    motivo: str = Form(...),
+    firma: UploadFile = File(...)
+):
+    try:
+        # ⏳ Leemos la firma
+        firma_bytes = await firma.read()
 
-    file_path=f"/tmp/certificado_{consulta_id}.pdf"
-    c = canvas.Canvas(file_path, pagesize=A4)
-    c.setFont("Helvetica", 14)
-    c.drawString(50, 800, "CERTIFICADO MÉDICO")
-    c.setFont("Helvetica", 12)
-    c.drawString(50, 760, f"Paciente: {paciente_nombre}")
-    c.drawString(50, 740, f"Motivo: {contenido}")
-    c.drawString(50, 700, f"Médico: {medico_nombre} - Matrícula {matricula}")
-    c.drawString(50, 660, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}")
-    c.save()
+        # 📄 Creamos PDF en memoria
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
 
-    return FileResponse(file_path, filename=f"certificado_{consulta_id}.pdf", media_type="application/pdf")
+        # Encabezado
+        c.setFont("Helvetica-Bold", 18)
+        c.drawCentredString(width / 2, height - 80, "CERTIFICADO MÉDICO")
+
+        # Datos del paciente
+        c.setFont("Helvetica", 12)
+        c.drawString(80, height - 150, f"Paciente: {paciente_uuid}")
+        c.drawString(80, height - 170, f"Motivo: {motivo}")
+        c.drawString(80, height - 190, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+
+        # Firma
+        firma_temp = io.BytesIO(firma_bytes)
+        c.drawImage(firma_temp, 80, 100, width=200, height=80, mask='auto')
+
+        c.setFont("Helvetica-Oblique", 10)
+        c.drawString(80, 90, "Firma del médico")
+
+        # Guardamos PDF
+        c.showPage()
+        c.save()
+
+        pdf_bytes = buffer.getvalue()
+        buffer.close()
+
+        # Retornamos en base64
+        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+
+        return JSONResponse(content={
+            "success": True,
+            "consulta_id": consulta_id,
+            "pdf_base64": pdf_base64
+        })
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "error": str(e)}
+        )
+
 
 
 
