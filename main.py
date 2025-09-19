@@ -847,41 +847,47 @@ from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 import os
 
+from fastapi.responses import FileResponse
+from fastapi import HTTPException
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+import os
+
 @app.post("/consultas/{consulta_id}/certificado/pdf")
-async def generar_certificado_pdf(consulta_id: int, data: dict):
-    """
-    Genera un certificado médico en PDF con motivo + firma.
-    data = { "medico_id": 123, "paciente_uuid": "...", "contenido": "texto del certificado" }
-    """
+async def generar_certificado_pdf(consulta_id: int):
+    # 1. Buscar certificado en DB
+    certificado = db_session.query(Certificado).filter_by(consulta_id=consulta_id).first()
+    if not certificado:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
 
-    # ⚡ Carpeta temporal para PDF
-    filename = f"certificado_{consulta_id}.pdf"
-    filepath = os.path.join("/tmp", filename)
-
-    # Crear PDF
-    c = canvas.Canvas(filepath, pagesize=A4)
-    width, height = A4
-
-    c.setFont("Helvetica-Bold", 18)
-    c.drawCentredString(width / 2, height - 80, "Certificado Médico")
+    # 2. Crear PDF temporal
+    file_path = f"/tmp/certificado_{consulta_id}.pdf"
+    c = canvas.Canvas(file_path, pagesize=A4)
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(200, 800, "Certificado Médico")
+    c.line(100, 790, 500, 790)
 
     c.setFont("Helvetica", 12)
-    c.drawString(100, height - 150, f"Consulta N° {consulta_id}")
-    c.drawString(100, height - 170, f"Paciente UUID: {data.get('paciente_uuid', '-')}")
-    c.drawString(100, height - 190, f"Médico ID: {data.get('medico_id', '-')}")
-    c.drawString(100, height - 220, "Detalle:")
-    text = c.beginText(120, height - 240)
-    text.setFont("Helvetica", 12)
-    text.textLines(data.get("contenido", ""))
-    c.drawText(text)
+    c.drawString(100, 750, f"Consulta ID: {consulta_id}")
+    c.drawString(100, 730, f"Paciente: {certificado.paciente_uuid}")
+    c.drawString(100, 710, "Contenido:")
 
-    # Espacio para la firma
-    c.line(100, 150, 300, 150)
-    c.drawString(100, 135, "Firma del Médico")
+    # Texto largo del contenido (lo parte en líneas)
+    text = c.beginText(120, 690)
+    text.setFont("Helvetica", 12)
+    for line in certificado.contenido.split("\n"):
+        text.textLine(line)
+    c.drawText(text)
 
     c.save()
 
-    return FileResponse(filepath, filename=filename, media_type="application/pdf")
+    # 3. Devolver el PDF
+    return FileResponse(
+        file_path,
+        media_type="application/pdf",
+        filename=f"certificado_{consulta_id}.pdf"
+    )
+
 
 
 @app.post("/consultas/{consulta_id}/certificado_pdf")
