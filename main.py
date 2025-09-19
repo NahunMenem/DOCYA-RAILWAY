@@ -830,31 +830,18 @@ class CertificadoIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
 def crear_certificado(consulta_id:int,data:CertificadoIn,db=Depends(get_db)):
     cur=db.cursor();cur.execute("INSERT INTO certificados (consulta_id,medico_id,paciente_uuid,contenido) VALUES (%s,%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid,data.contenido))
     row=cur.fetchone()[0];db.commit();return {"ok":True,"certificado_id":row}
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-from fastapi.responses import FileResponse
 
 from fastapi import UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
-from datetime import datetime
-import base64
+from reportlab.pdfgen import canvas
+import cloudinary.uploader
 import io
+from datetime import datetime
 
-from fastapi.responses import FileResponse
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-import os
-
-from fastapi.responses import FileResponse
-from fastapi import HTTPException
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-import os
-
-
-@app.post("/consultas/{consulta_id}/certificado/pdf")
+# ---------------------------
+# ✅ ENDPOINT PRINCIPAL
+# ---------------------------
 @app.post("/consultas/{consulta_id}/certificado_pdf")
 async def generar_certificado_pdf(
     consulta_id: int,
@@ -864,52 +851,80 @@ async def generar_certificado_pdf(
     firma: UploadFile = File(...)
 ):
     try:
-        # ⏳ Leemos la firma
+        # 🖊️ Guardar firma temporal en memoria
         firma_bytes = await firma.read()
 
-        # 📄 Creamos PDF en memoria
+        # 📄 Crear PDF en memoria
         buffer = io.BytesIO()
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        # Encabezado
+        # Título
         c.setFont("Helvetica-Bold", 18)
         c.drawCentredString(width / 2, height - 80, "CERTIFICADO MÉDICO")
 
-        # Datos del paciente
+        # Datos principales
         c.setFont("Helvetica", 12)
-        c.drawString(80, height - 150, f"Paciente: {paciente_uuid}")
-        c.drawString(80, height - 170, f"Motivo: {motivo}")
-        c.drawString(80, height - 190, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        c.drawString(50, height - 140, f"Consulta N°: {consulta_id}")
+        c.drawString(50, height - 160, f"Paciente UUID: {paciente_uuid}")
+        c.drawString(50, height - 180, f"Médico ID: {medico_id}")
+        c.drawString(50, height - 200, f"Motivo: {motivo}")
+        c.drawString(50, height - 220, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
         # Firma
-        firma_temp = io.BytesIO(firma_bytes)
-        c.drawImage(firma_temp, 80, 100, width=200, height=80, mask='auto')
+        firma_path = "/tmp/firma.png"
+        with open(firma_path, "wb") as f:
+            f.write(firma_bytes)
 
-        c.setFont("Helvetica-Oblique", 10)
-        c.drawString(80, 90, "Firma del médico")
+        c.drawImage(firma_path, 50, 100, width=200, height=80, mask="auto")
+        c.drawString(50, 90, "Firma del médico")
 
-        # Guardamos PDF
         c.showPage()
         c.save()
 
-        pdf_bytes = buffer.getvalue()
-        buffer.close()
+        buffer.seek(0)
 
-        # Retornamos en base64
-        pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
+        # ☁️ Subir a Cloudinary
+        result = cloudinary.uploader.upload(
+            buffer,
+            resource_type="raw",
+            folder="certificados",
+            public_id=f"certificado_{consulta_id}",
+            overwrite=True,
+            format="pdf"
+        )
 
-        return JSONResponse(content={
-            "success": True,
-            "consulta_id": consulta_id,
-            "pdf_base64": pdf_base64
-        })
+        url_pdf = result.get("secure_url")
+
+        return {"status": "ok", "consulta_id": consulta_id, "pdf_url": url_pdf}
 
     except Exception as e:
         return JSONResponse(
             status_code=500,
-            content={"success": False, "error": str(e)}
+            content={"error": str(e)},
         )
+
+# ---------------------------
+# ✅ ALIAS PARA COMPATIBILIDAD
+# ---------------------------
+@app.post("/consultas/{consulta_id}/certificado/pdf")
+async def generar_certificado_pdf_alias(
+    consulta_id: int,
+    medico_id: int = Form(...),
+    paciente_uuid: str = Form(...),
+    motivo: str = Form(...),
+    firma: UploadFile = File(...)
+):
+    return await generar_certificado_pdf(
+        consulta_id=consulta_id,
+        medico_id=medico_id,
+        paciente_uuid=paciente_uuid,
+        motivo=motivo,
+        firma=firma,
+    )
+
+
+
 
 
 
