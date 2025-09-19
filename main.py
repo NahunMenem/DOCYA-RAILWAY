@@ -854,6 +854,7 @@ from reportlab.pdfgen import canvas
 import os
 
 
+@app.post("/consultas/{consulta_id}/certificado/pdf")
 @app.post("/consultas/{consulta_id}/certificado_pdf")
 async def generar_certificado_pdf(
     consulta_id: int,
