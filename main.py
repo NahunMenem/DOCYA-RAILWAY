@@ -830,6 +830,40 @@ class CertificadoIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
 def crear_certificado(consulta_id:int,data:CertificadoIn,db=Depends(get_db)):
     cur=db.cursor();cur.execute("INSERT INTO certificados (consulta_id,medico_id,paciente_uuid,contenido) VALUES (%s,%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid,data.contenido))
     row=cur.fetchone()[0];db.commit();return {"ok":True,"certificado_id":row}
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from fastapi.responses import FileResponse
+
+@app.get("/consultas/{consulta_id}/certificado_pdf")
+def certificado_pdf(consulta_id:int, db=Depends(get_db)):
+    cur=db.cursor()
+    cur.execute("""
+        SELECT c.contenido, m.full_name, m.matricula, u.full_name
+        FROM certificados c
+        JOIN medicos m ON c.medico_id=m.id
+        JOIN users u ON c.paciente_uuid=u.id
+        WHERE c.consulta_id=%s
+    """, (consulta_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Certificado no encontrado")
+
+    contenido, medico_nombre, matricula, paciente_nombre = row
+
+    file_path=f"/tmp/certificado_{consulta_id}.pdf"
+    c = canvas.Canvas(file_path, pagesize=A4)
+    c.setFont("Helvetica", 14)
+    c.drawString(50, 800, "CERTIFICADO MÉDICO")
+    c.setFont("Helvetica", 12)
+    c.drawString(50, 760, f"Paciente: {paciente_nombre}")
+    c.drawString(50, 740, f"Motivo: {contenido}")
+    c.drawString(50, 700, f"Médico: {medico_nombre} - Matrícula {matricula}")
+    c.drawString(50, 660, f"Fecha: {datetime.now().strftime('%d/%m/%Y')}")
+    c.save()
+
+    return FileResponse(file_path, filename=f"certificado_{consulta_id}.pdf", media_type="application/pdf")
+
+
 
 # --- Recetas ---
 class RecetaIn(BaseModel): medico_id:int; paciente_uuid:str; medicamentos:list[dict]
