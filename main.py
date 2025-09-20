@@ -132,7 +132,12 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
-
+# --- Valoraciones ---
+class ValoracionIn(BaseModel):
+    paciente_uuid: str
+    medico_id: int
+    puntaje: int
+    comentario: Optional[str] = None
 
 @app.get("/health")
 def health():
@@ -1139,6 +1144,49 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "medico_nombre": row[9],
         "medico_matricula": row[10],
     }
+
+
+#valoraciones medicos -------------------------------------------------------------------------------
+@app.post("/consultas/{consulta_id}/valorar")
+def valorar_consulta(consulta_id: int, data: ValoracionIn, db=Depends(get_db)):
+    cur = db.cursor()
+    # validar que la consulta ya esté finalizada y pertenece al paciente
+    cur.execute("""
+        SELECT id FROM consultas 
+        WHERE id=%s AND paciente_uuid=%s AND estado='finalizada'
+    """, (consulta_id, data.paciente_uuid))
+    if not cur.fetchone():
+        raise HTTPException(status_code=400, detail="Consulta no finalizada o no corresponde al paciente")
+
+    cur.execute("""
+        INSERT INTO valoraciones (consulta_id, paciente_uuid, medico_id, puntaje, comentario)
+        VALUES (%s,%s,%s,%s,%s) RETURNING id
+    """, (consulta_id, data.paciente_uuid, data.medico_id, data.puntaje, data.comentario))
+    valoracion_id = cur.fetchone()[0]
+    db.commit()
+    return {"ok": True, "valoracion_id": valoracion_id}
+
+
+@app.get("/medicos/{medico_id}/valoraciones")
+def obtener_valoraciones(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT v.puntaje, v.comentario, v.creado_en, u.full_name as paciente
+        FROM valoraciones v
+        LEFT JOIN users u ON v.paciente_uuid = u.id
+        WHERE v.medico_id=%s
+        ORDER BY v.creado_en DESC
+    """, (medico_id,))
+    rows = cur.fetchall()
+    return [
+        {
+            "puntaje": r[0],
+            "comentario": r[1],
+            "fecha": format_datetime_arg(r[2]),
+            "paciente": r[3]
+        }
+        for r in rows
+    ]
 
 # ---------- UBICACIÓN MÉDICO ----------
 class UbicacionMedicoIn(BaseModel):
