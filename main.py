@@ -717,17 +717,28 @@ def iniciar_consulta(consulta_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
     consulta_id, estado = row
-    if estado != "en_domicilio":  # o "aceptada", depende tu flujo
+    if estado != "en_domicilio":
         cur.execute(
-            "UPDATE consultas SET estado='en_domicilio', inicio_atencion=NOW() WHERE id=%s RETURNING estado",
+            """
+            UPDATE consultas
+            SET estado = 'en_domicilio',
+                inicio_atencion = NOW()
+            WHERE id = %s
+            RETURNING estado, inicio_atencion
+            """,
             (consulta_id,)
         )
-        new_estado = cur.fetchone()[0]
+        new_estado, inicio = cur.fetchone()
         db.commit()
     else:
-        new_estado = estado
+        new_estado, inicio = estado, None
 
-    return {"msg": "Consulta iniciada", "consulta_id": consulta_id, "estado": new_estado}
+    return {
+        "msg": "Consulta iniciada",
+        "consulta_id": consulta_id,
+        "estado": new_estado,
+        "inicio_atencion": inicio
+    }
 
 class MedicoAccion(BaseModel):
     medico_id: int
@@ -783,12 +794,36 @@ def medico_llego(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     return {"ok": True, "consulta_id": row[0], "estado": "en_domicilio"}
 
 @app.post("/consultas/{consulta_id}/finalizar")
-def finalizar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
+def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE consultas SET estado='finalizada' WHERE id=%s AND medico_id=%s AND estado IN ('aceptada','en_domicilio') RETURNING id", (consulta_id, data.medico_id))
-    row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    return {"ok": True, "consulta_id": row[0], "estado": "finalizada"}
+    cur.execute("SELECT id, estado FROM consultas WHERE id=%s", (consulta_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    consulta_id, estado = row
+    if estado != "finalizada":
+        cur.execute(
+            """
+            UPDATE consultas
+            SET estado = 'finalizada',
+                fin_atencion = NOW()
+            WHERE id = %s
+            RETURNING estado, fin_atencion
+            """,
+            (consulta_id,)
+        )
+        new_estado, fin = cur.fetchone()
+        db.commit()
+    else:
+        new_estado, fin = estado, None
+
+    return {
+        "msg": "Consulta finalizada",
+        "consulta_id": consulta_id,
+        "estado": new_estado,
+        "fin_atencion": fin
+    }
 
 # --- Historial del paciente ---
 @app.get("/consultas/historial/{paciente_uuid}")
