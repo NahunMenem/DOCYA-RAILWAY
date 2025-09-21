@@ -708,6 +708,31 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
             "tiempo_estimado_min": round(tiempo) if tiempo else None}
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
+from fastapi import HTTPException, Depends
+from sqlalchemy.orm import Session
+from datetime import datetime
+
+# ⚠️ Ajustá "Consulta" y "get_db" según cómo lo importes en tu proyecto
+
+@app.post("/consultas/{consulta_id}/iniciar")
+async def iniciar_consulta(consulta_id: int, db: Session = Depends(get_db)):
+    consulta = db.query(Consulta).filter(Consulta.id == consulta_id).first()
+    if not consulta:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    if consulta.estado != "en_domicilio":  # o "aceptada" → depende de tu flujo
+        consulta.estado = "en_domicilio"
+        consulta.inicio_atencion = datetime.now()
+        db.commit()
+
+    return {
+        "msg": "Consulta iniciada",
+        "consulta_id": consulta.id,
+        "estado": consulta.estado,
+    }
+
+
+
 class MedicoAccion(BaseModel):
     medico_id: int
 
