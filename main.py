@@ -1010,10 +1010,24 @@ def crear_nota(consulta_id:int,data:NotaIn,db=Depends(get_db)):
 # --- Ubicación actual del médico ---
 @app.get("/consultas/{consulta_id}/ubicacion_medico")
 def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
-    cur=db.cursor();cur.execute("SELECT m.id,m.full_name,m.latitud,m.longitud,m.telefono FROM consultas c JOIN medicos m ON c.medico_id=m.id WHERE c.id=%s AND c.estado='aceptada'",(consulta_id,))
-    row=cur.fetchone()
-    if not row: raise HTTPException(status_code=404, detail="No se encontró ubicación")
-    return {"medico_id":row[0],"nombre":row[1],"lat":row[2],"lng":row[3],"telefono":row[4]}
+    cur = db.cursor()
+    cur.execute("""
+        SELECT m.id, m.full_name, m.latitud, m.longitud, m.telefono
+        FROM consultas c
+        JOIN medicos m ON c.medico_id = m.id
+        WHERE c.id = %s 
+          AND c.estado IN ('aceptada','en_camino','en_domicilio')
+    """, (consulta_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="No se encontró ubicación")
+    return {
+        "medico_id": row[0],
+        "nombre": row[1],
+        "lat": row[2],
+        "lng": row[3],
+        "telefono": row[4],
+    }
 
 # ====================================================
 # 🔔 NOTIFICACIONES Y WS
