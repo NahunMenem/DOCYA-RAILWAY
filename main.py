@@ -806,52 +806,47 @@ def medico_llego(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     return {"ok": True, "consulta_id": row[0], "estado": "en_domicilio"}
 
 @app.post("/consultas/{consulta_id}/finalizar")
-async def finalizar_consulta(consulta_id: int, db: Session = Depends(get_db)):
-    consulta = db.query(Consulta).get(consulta_id)
-    if not consulta:
+def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("SELECT id, medico_id FROM consultas WHERE id=%s", (consulta_id,))
+    row = cur.fetchone()
+    if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    consulta.estado = "finalizada"
+    consulta_id, medico_id = row
 
-    # 🔥 Liberar al médico cuando termina la consulta
-    if consulta.medico_id:
-        medico = db.query(Medico).get(consulta.medico_id)
-        if medico:
-            medico.disponible = True
-            db.add(medico)
+    # 🔹 Finalizar consulta
+    cur.execute(
+        """
+        UPDATE consultas
+        SET estado = 'finalizada',
+            fin_atencion = NOW()
+        WHERE id = %s
+        RETURNING estado, fin_atencion
+        """,
+        (consulta_id,)
+    )
+    new_estado, fin = cur.fetchone()
 
-    db.add(consulta)
+    # 🔹 Liberar médico para que vuelva a estar disponible
+    if medico_id:
+        cur.execute(
+            """
+            UPDATE medicos
+            SET disponible = TRUE
+            WHERE id = %s
+            """,
+            (medico_id,)
+        )
+
     db.commit()
-    db.refresh(consulta)
 
-    return {"status": "ok", "consulta_id": consulta.id}
-
-# --- Historial del paciente ---
-@app.get("/consultas/historial/{paciente_uuid}")
-def historial_consultas(paciente_uuid: str, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        SELECT c.id, c.estado, c.motivo, c.direccion, c.creado_en, m.full_name, m.especialidad
-        FROM consultas c 
-        LEFT JOIN medicos m ON c.medico_id = m.id
-        WHERE c.paciente_uuid = %s 
-        ORDER BY c.creado_en DESC
-    """, (paciente_uuid,))
-    rows = cur.fetchall()
-    return [
-        {
-            "id": r[0],
-            "estado": r[1],
-            "motivo": r[2],
-            "direccion": r[3],
-            "creado_en": format_datetime_arg(r[4]),  # 👈 convertido a Argentina y formateado
-            "medico": {
-                "nombre": r[5],
-                "especialidad": r[6]
-            }
-        }
-        for r in rows
-    ]
+    return {
+        "msg": "Consulta finalizada",
+        "consulta_id": consulta_id,
+        "estado": new_estado,
+        "fin_atencion": fin
+    }
 
 @app.get("/pacientes/{paciente_uuid}/historia_clinica")
 def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
