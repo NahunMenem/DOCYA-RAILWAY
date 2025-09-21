@@ -711,12 +711,12 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
 @app.post("/consultas/{consulta_id}/iniciar")
 def iniciar_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, estado FROM consultas WHERE id=%s", (consulta_id,))
+    cur.execute("SELECT id, estado, medico_id FROM consultas WHERE id=%s", (consulta_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    consulta_id, estado = row
+    consulta_id, estado, medico_id = row
     if estado != "en_domicilio":
         cur.execute(
             """
@@ -729,6 +729,18 @@ def iniciar_consulta(consulta_id: int, db=Depends(get_db)):
             (consulta_id,)
         )
         new_estado, inicio = cur.fetchone()
+
+        # 🔥 marcar al médico como ocupado
+        if medico_id:
+            cur.execute(
+                """
+                UPDATE medicos
+                SET disponible = FALSE
+                WHERE id = %s
+                """,
+                (medico_id,)
+            )
+
         db.commit()
     else:
         new_estado, inicio = estado, None
@@ -794,36 +806,25 @@ def medico_llego(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     return {"ok": True, "consulta_id": row[0], "estado": "en_domicilio"}
 
 @app.post("/consultas/{consulta_id}/finalizar")
-def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("SELECT id, estado FROM consultas WHERE id=%s", (consulta_id,))
-    row = cur.fetchone()
-    if not row:
+async def finalizar_consulta(consulta_id: int, db: Session = Depends(get_db)):
+    consulta = db.query(Consulta).get(consulta_id)
+    if not consulta:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    consulta_id, estado = row
-    if estado != "finalizada":
-        cur.execute(
-            """
-            UPDATE consultas
-            SET estado = 'finalizada',
-                fin_atencion = NOW()
-            WHERE id = %s
-            RETURNING estado, fin_atencion
-            """,
-            (consulta_id,)
-        )
-        new_estado, fin = cur.fetchone()
-        db.commit()
-    else:
-        new_estado, fin = estado, None
+    consulta.estado = "finalizada"
 
-    return {
-        "msg": "Consulta finalizada",
-        "consulta_id": consulta_id,
-        "estado": new_estado,
-        "fin_atencion": fin
-    }
+    # 🔥 Liberar al médico cuando termina la consulta
+    if consulta.medico_id:
+        medico = db.query(Medico).get(consulta.medico_id)
+        if medico:
+            medico.disponible = True
+            db.add(medico)
+
+    db.add(consulta)
+    db.commit()
+    db.refresh(consulta)
+
+    return {"status": "ok", "consulta_id": consulta.id}
 
 # --- Historial del paciente ---
 @app.get("/consultas/historial/{paciente_uuid}")
