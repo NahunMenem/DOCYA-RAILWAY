@@ -264,6 +264,7 @@ class RegisterMedicoIn(BaseModel):
     password: str
     matricula: str
     especialidad: str
+    tipo: str = "medico"   # 👈 nuevo campo
     telefono: Optional[str] = None
     provincia: Optional[str] = None
     localidad: Optional[str] = None
@@ -273,9 +274,12 @@ class RegisterMedicoIn(BaseModel):
     foto_dni_dorso: Optional[str] = None
     selfie_dni: Optional[str] = None
 
+
 @app.post("/auth/register_medico")
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
+
+    # Validar email y matrícula únicos
     cur.execute("SELECT id FROM medicos WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
@@ -284,19 +288,21 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
 
     password_hash = pwd_context.hash(data.password)
+
     cur.execute("""
         INSERT INTO medicos (
-            full_name,email,password_hash,matricula,especialidad,telefono,
+            full_name,email,password_hash,matricula,especialidad,tipo,telefono,
             provincia,localidad,dni,foto_perfil,foto_dni_frente,foto_dni_dorso,selfie_dni,validado
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
-        RETURNING id, full_name
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+        RETURNING id, full_name, tipo
     """, (
         data.full_name.strip(), data.email.lower(), password_hash,
-        data.matricula, data.especialidad, data.telefono,
+        data.matricula, data.especialidad, data.tipo, data.telefono,
         data.provincia, data.localidad, data.dni,
         data.foto_perfil, data.foto_dni_frente, data.foto_dni_dorso, data.selfie_dni
     ))
-    medico_id, full_name = cur.fetchone()
+
+    medico_id, full_name, tipo = cur.fetchone()
     db.commit()
 
     # 👇 Enviar mail validación
@@ -306,10 +312,10 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         print("⚠️ Error enviando email validación:", e)
 
     return {
-        "mensaje": "Registro exitoso. Revisa tu correo para activar la cuenta.",
-        "medico_id": medico_id
+        "mensaje": f"Registro exitoso como {tipo}. Revisa tu correo para activar la cuenta.",
+        "medico_id": medico_id,
+        "tipo": tipo
     }
-
 
 
 from fastapi.responses import HTMLResponse
@@ -444,7 +450,7 @@ class LoginMedicoIn(BaseModel):
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute(
-        "SELECT id, full_name, password_hash, validado FROM medicos WHERE email=%s",
+        "SELECT id, full_name, password_hash, validado, tipo FROM medicos WHERE email=%s",
         (data.email.lower(),)
     )
     row = cur.fetchone()
@@ -454,103 +460,165 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         raise HTTPException(status_code=403, detail="Cuenta aún no validada")
 
     token = create_access_token(
-        {"sub": str(row[0]), "email": data.email.lower(), "role": "medico"}
+        {"sub": str(row[0]), "email": data.email.lower(), "role": row[4]}  # 👈 role = tipo
     )
 
     return {
         "access_token": token,
         "token_type": "bearer",
-        "medico_id": row[0],        # 👈 agregado para Flutter
-        "full_name": row[1],        # 👈 agregado para Flutter
+        "medico_id": row[0],
+        "full_name": row[1],
+        "tipo": row[4],   # 👈 ahora llega al frontend
         "medico": {
             "id": row[0],
             "full_name": row[1],
-            "validado": True
+            "validado": True,
+            "tipo": row[4]
         }
     }
-
 @app.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE medicos SET validado=TRUE, updated_at=NOW() WHERE id=%s RETURNING id, full_name", (medico_id,))
+    cur.execute("""
+        UPDATE medicos 
+        SET validado=TRUE, updated_at=NOW() 
+        WHERE id=%s 
+        RETURNING id, full_name, tipo
+    """, (medico_id,))
     row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
-    return {"ok": True, "medico_id": row[0], "nombre": row[1]}
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+    return {"ok": True, "medico_id": row[0], "nombre": row[1], "tipo": row[2]}
+
 
 @app.post("/auth/medico/{medico_id}/foto")
 def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get_db)):
     try:
-        upload_result = cloudinary.uploader.upload(file.file, folder="docya/medicos",
-                                                   public_id=f"medico_{medico_id}", overwrite=True)
+        upload_result = cloudinary.uploader.upload(
+            file.file,
+            folder="docya/medicos",
+            public_id=f"medico_{medico_id}",
+            overwrite=True
+        )
         foto_url = upload_result["secure_url"]
         cur = db.cursor()
-        cur.execute("UPDATE medicos SET foto_perfil=%s, updated_at=NOW() WHERE id=%s RETURNING id,foto_perfil",
-                    (foto_url, medico_id))
+        cur.execute("""
+            UPDATE medicos 
+            SET foto_perfil=%s, updated_at=NOW() 
+            WHERE id=%s 
+            RETURNING id,foto_perfil
+        """, (foto_url, medico_id))
         row = cur.fetchone(); db.commit()
-        if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
+        if not row:
+            raise HTTPException(status_code=404, detail="Profesional no encontrado")
         return {"ok": True, "medico_id": row[0], "foto_url": row[1]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error subiendo foto: {e}")
 
-class AliasIn(BaseModel): alias: str
+
+class AliasIn(BaseModel):
+    alias: str
+
 @app.patch("/auth/medico/{medico_id}/alias")
 def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE medicos SET alias_cbu=%s, updated_at=NOW() WHERE id=%s RETURNING id,alias_cbu",
-                (data.alias, medico_id))
+    cur.execute("""
+        UPDATE medicos 
+        SET alias_cbu=%s, updated_at=NOW() 
+        WHERE id=%s 
+        RETURNING id,alias_cbu
+    """, (data.alias, medico_id))
     row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
     return {"ok": True, "medico_id": medico_id, "alias": row[1]}
+
 
 @app.post("/auth/medico/{medico_id}/disponibilidad")
 def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute("UPDATE medicos SET disponible=%s WHERE id=%s RETURNING id,disponible", (disponible, medico_id))
+    cur.execute("""
+        UPDATE medicos 
+        SET disponible=%s 
+        WHERE id=%s 
+        RETURNING id,disponible
+    """, (disponible, medico_id))
     row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
     return {"ok": True, "medico_id": medico_id, "disponible": row["disponible"]}
+
 
 @app.get("/auth/medico/{medico_id}/stats")
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
+    # consultas aceptadas este mes
     cur.execute("""
-        SELECT COUNT(*) 
+        SELECT COUNT(*)
         FROM consultas
         WHERE medico_id=%s AND estado='aceptada'
           AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)
     """, (medico_id,))
-    consultas = cur.fetchone()[0] or 0  # 👈 siempre int
+    consultas = cur.fetchone()[0] or 0
 
-    cur.execute("""
-        SELECT COUNT(*)*24000
-        FROM consultas
-        WHERE medico_id=%s AND estado='aceptada'
-          AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)
-    """, (medico_id,))
-    ganancias = cur.fetchone()[0] or 0
+    # traer tipo del profesional
+    cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+    tipo = row[0]
 
-    return {"consultas": int(consultas), "ganancias": int(ganancias)}
+    # definir tarifa según tipo
+    tarifa = 24000 if tipo == "medico" else 15000
+
+    ganancias = consultas * tarifa
+
+    return {"consultas": int(consultas), "ganancias": int(ganancias), "tipo": tipo}
 
 
-class FcmTokenIn(BaseModel): fcm_token: str
+class FcmTokenIn(BaseModel):
+    fcm_token: str
+
 @app.post("/auth/medico/{medico_id}/fcm_token")
 def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE medicos SET fcm_token=%s, updated_at=NOW() WHERE id=%s RETURNING id",
-                (data.fcm_token, medico_id))
+    cur.execute("""
+        UPDATE medicos 
+        SET fcm_token=%s, updated_at=NOW() 
+        WHERE id=%s 
+        RETURNING id
+    """, (data.fcm_token, medico_id))
     row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
     return {"ok": True, "medico_id": medico_id, "fcm_token": data.fcm_token}
+
 
 @app.get("/auth/medico/{medico_id}")
 def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, full_name, email, especialidad, telefono, alias_cbu, matricula, foto_perfil FROM medicos WHERE id=%s", (medico_id,))
+    cur.execute("""
+        SELECT id, full_name, email, especialidad, telefono, 
+               alias_cbu, matricula, foto_perfil, tipo
+        FROM medicos 
+        WHERE id=%s
+    """, (medico_id,))
     row = cur.fetchone()
-    if not row: raise HTTPException(status_code=404, detail="Médico no encontrado")
-    return {"id": row[0], "full_name": row[1], "email": row[2], "especialidad": row[3], "telefono": row[4],
-            "alias_cbu": row[5], "matricula": row[6], "foto_perfil": row[7]}
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+    return {
+        "id": row[0],
+        "full_name": row[1],
+        "email": row[2],
+        "especialidad": row[3],
+        "telefono": row[4],
+        "alias_cbu": row[5],
+        "matricula": row[6],
+        "foto_perfil": row[7],
+        "tipo": row[8]
+    }
+
 
 # ====================================================
 # 📋 CONSULTAS (todas las rutas originales)
