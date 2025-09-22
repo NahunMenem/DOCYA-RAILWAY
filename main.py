@@ -203,6 +203,7 @@ def activar_paciente(token: str, request: Request, db=Depends(get_db)):
         return HTMLResponse("<h1>⚠️ El enlace de activación expiró</h1>", status_code=400)
     except Exception as e:
         return HTMLResponse(f"<h1>⚠️ Token inválido</h1><p>{e}</p>", status_code=400)
+
         
 def enviar_email_validacion_paciente(email: str, user_id: int, full_name: str):
     token = create_access_token(
