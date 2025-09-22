@@ -554,15 +554,6 @@ def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_d
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
-    # consultas aceptadas este mes
-    cur.execute("""
-        SELECT COUNT(*)
-        FROM consultas
-        WHERE medico_id=%s AND estado='aceptada'
-          AND DATE_TRUNC('month',creado_en)=DATE_TRUNC('month',CURRENT_DATE)
-    """, (medico_id,))
-    consultas = cur.fetchone()[0] or 0
-
     # traer tipo del profesional
     cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
@@ -570,12 +561,25 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
     tipo = row[0]
 
+    # consultas finalizadas este mes
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM consultas
+        WHERE medico_id=%s AND estado='finalizada'
+          AND DATE_TRUNC('month', creado_en) = DATE_TRUNC('month', CURRENT_DATE)
+    """, (medico_id,))
+    consultas = cur.fetchone()[0] or 0
+
     # definir tarifa según tipo
     tarifa = 24000 if tipo == "medico" else 15000
 
     ganancias = consultas * tarifa
 
-    return {"consultas": int(consultas), "ganancias": int(ganancias), "tipo": tipo}
+    return {
+        "consultas": int(consultas),
+        "ganancias": int(ganancias),
+        "tipo": tipo
+    }
 
 
 class FcmTokenIn(BaseModel):
