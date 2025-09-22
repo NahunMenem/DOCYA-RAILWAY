@@ -631,14 +631,16 @@ class SolicitarConsultaIn(BaseModel):
     direccion: str
     lat: float
     lng: float
+    tipo: str = "medico"   # 👈 puede ser "medico" o "enfermero"
 
 
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
-    # Buscar médico más cercano disponible
+
+    # Buscar profesional más cercano disponible del tipo solicitado
     cur.execute("""
-        SELECT id, full_name, latitud, longitud,
+        SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
             cos(radians(%s)) * cos(radians(latitud)) *
             cos(radians(longitud) - radians(%s)) +
@@ -646,16 +648,17 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         )) AS distancia
         FROM medicos
         WHERE disponible = TRUE
+          AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
         ORDER BY distancia ASC
         LIMIT 1
-    """, (data.lat, data.lng, data.lat))
+    """, (data.lat, data.lng, data.lat, data.tipo))
     row = cur.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail="No hay médicos disponibles")
+        raise HTTPException(status_code=404, detail=f"No hay {data.tipo}s disponibles")
 
-    medico_id, medico_nombre, medico_lat, medico_lng, distancia = row
+    medico_id, medico_nombre, medico_lat, medico_lng, tipo, distancia = row
 
     cur.execute("""
         INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng)
@@ -665,7 +668,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # Notificar al médico por WS
+    # Notificación WS + Push (igual que antes)
     if medico_id in active_medicos:
         try:
             await active_medicos[medico_id].send_json({
@@ -682,7 +685,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         except Exception as e:
             print(f"⚠️ WS error: {e}")
 
-    # Notificar push
     cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
     if row and row[0]:
@@ -697,13 +699,18 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
-        "medico": {"id": medico_id, "nombre": medico_nombre,
-                   "lat": medico_lat, "lng": medico_lng,
-                   "distancia_km": round(distancia, 2)},
+        "profesional": {
+            "id": medico_id,
+            "nombre": medico_nombre,
+            "lat": medico_lat,
+            "lng": medico_lng,
+            "tipo": tipo,
+            "distancia_km": round(distancia, 2)
+        },
         "motivo": data.motivo,
         "direccion": data.direccion,
         "estado": "pendiente",
-        "creado_en": format_datetime_arg(creado_en)  # 👈
+        "creado_en": format_datetime_arg(creado_en)
     }
 
 #historial consultas medico 
