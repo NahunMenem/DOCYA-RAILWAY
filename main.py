@@ -192,7 +192,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
 def activar_paciente(token: str, request: Request, db=Depends(get_db)):
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
-        user_id = int(payload.get("sub"))
+        user_id = str(payload.get("sub"))  # 👈 lo dejamos como string/UUID
         cur = db.cursor()
         cur.execute("UPDATE users SET validado=TRUE WHERE id=%s RETURNING id, full_name", (user_id,))
         row = cur.fetchone(); db.commit()
