@@ -69,7 +69,9 @@
     <p class="text-lg text-white/80 max-w-2xl mx-auto mb-10">
       Buscamos <strong>médicos y enfermeros</strong> que quieran ser parte de la nueva forma de brindar atención domiciliaria en Argentina.
     </p>
-    <form id="registro-form" action="https://docya-railway-production.up.railway.app/auth/register_medico" method="POST" enctype="multipart/form-data" class="max-w-2xl mx-auto grid grid-cols-1 gap-6 bg-white/5 p-8 rounded-2xl shadow-lg text-left">
+    <form id="registro-form"
+      action="https://docya-railway-production.up.railway.app/auth/register_medico_form"
+      method="POST" enctype="multipart/form-data">
       <!-- Campos de texto e iconos -->
       <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="user" class="w-5 h-5 text-gray-500 mr-3"></i><input type="text" name="full_name" placeholder="Nombre completo" required class="flex-1 bg-transparent outline-none text-black"></div>
       <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="mail" class="w-5 h-5 text-gray-500 mr-3"></i><input type="email" name="email" placeholder="Correo electrónico" required class="flex-1 bg-transparent outline-none text-black"></div>
@@ -101,6 +103,16 @@
     </div>
   </div>
 
+  <!-- Modal de error -->
+  <div id="error-modal" class="fixed inset-0 hidden bg-black/70 flex items-center justify-center z-50">
+    <div class="bg-white rounded-2xl p-8 max-w-md text-center shadow-xl">
+      <i data-lucide="x-circle" class="w-12 h-12 text-red-500 mx-auto mb-4"></i>
+      <h3 class="text-xl font-bold text-gray-800 mb-2">Error en el registro</h3>
+      <p id="error-message" class="text-gray-600 mb-6">Hubo un problema. Verificá los datos e intentá nuevamente.</p>
+      <button onclick="closeErrorModal()" class="bg-red-500 hover:bg-red-600 text-white px-6 py-2 rounded-md font-semibold">Cerrar</button>
+    </div>
+  </div>
+
   <!-- Footer -->
   <footer class="bg-black/40 py-8 text-center text-white/60 text-sm">
     © 2025 DocYa. Todos los derechos reservados.
@@ -121,7 +133,7 @@
     fileHandler('file-input-dorso','file-name-dorso');
     fileHandler('file-input-selfie','file-name-selfie');
 
-    // Mostrar modal tras envío exitoso
+    // Manejo de envío
     document.getElementById('registro-form').addEventListener('submit', async function(e) {
       e.preventDefault();
       const form = e.target;
@@ -132,17 +144,26 @@
         if (res.ok) {
           document.getElementById('success-modal').classList.remove('hidden');
         } else {
-          alert('Error al registrar. Verificá los datos.');
+          const errData = await res.json().catch(() => ({}));
+          document.getElementById('error-message').textContent =
+            errData.detail || "Error al registrar. Verificá los datos.";
+          document.getElementById('error-modal').classList.remove('hidden');
         }
       } catch (err) {
-        alert('Error de conexión. Intenta de nuevo.');
+        document.getElementById('error-message').textContent =
+          "Error de conexión. Intenta de nuevo.";
+        document.getElementById('error-modal').classList.remove('hidden');
       }
     });
 
     function closeModal() {
       document.getElementById('success-modal').classList.add('hidden');
     }
+    function closeErrorModal() {
+      document.getElementById('error-modal').classList.add('hidden');
+    }
   </script>
 </body>
 </html>
+
 
