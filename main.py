@@ -135,7 +135,8 @@ class AuthResponse(BaseModel):
 # --- Valoraciones ---
 class ValoracionIn(BaseModel):
     paciente_uuid: str
-    medico_id: int
+    medico_id: Optional[int] = None
+    enfermero_id: Optional[int] = None
     puntaje: int
     comentario: Optional[str] = None
 
@@ -1288,10 +1289,12 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
 
 
 #valoraciones medicos -------------------------------------------------------------------------------
+from typing import Optional
+from pydantic import BaseModel
 @app.post("/consultas/{consulta_id}/valorar")
 def valorar_consulta(consulta_id: int, data: ValoracionIn, db=Depends(get_db)):
     cur = db.cursor()
-    # validar que la consulta ya esté finalizada y pertenece al paciente
+    # Validar que la consulta ya esté finalizada y pertenece al paciente
     cur.execute("""
         SELECT id FROM consultas 
         WHERE id=%s AND paciente_uuid=%s AND estado='finalizada'
@@ -1299,10 +1302,20 @@ def valorar_consulta(consulta_id: int, data: ValoracionIn, db=Depends(get_db)):
     if not cur.fetchone():
         raise HTTPException(status_code=400, detail="Consulta no finalizada o no corresponde al paciente")
 
-    cur.execute("""
-        INSERT INTO valoraciones (consulta_id, paciente_uuid, medico_id, puntaje, comentario)
-        VALUES (%s,%s,%s,%s,%s) RETURNING id
-    """, (consulta_id, data.paciente_uuid, data.medico_id, data.puntaje, data.comentario))
+    # Determinar si es médico o enfermero
+    if data.medico_id:
+        cur.execute("""
+            INSERT INTO valoraciones (consulta_id, paciente_uuid, medico_id, puntaje, comentario)
+            VALUES (%s,%s,%s,%s,%s) RETURNING id
+        """, (consulta_id, data.paciente_uuid, data.medico_id, data.puntaje, data.comentario))
+    elif data.enfermero_id:
+        cur.execute("""
+            INSERT INTO valoraciones (consulta_id, paciente_uuid, enfermero_id, puntaje, comentario)
+            VALUES (%s,%s,%s,%s,%s) RETURNING id
+        """, (consulta_id, data.paciente_uuid, data.enfermero_id, data.puntaje, data.comentario))
+    else:
+        raise HTTPException(status_code=400, detail="Debe indicar medico_id o enfermero_id")
+
     valoracion_id = cur.fetchone()[0]
     db.commit()
     return {"ok": True, "valoracion_id": valoracion_id}
