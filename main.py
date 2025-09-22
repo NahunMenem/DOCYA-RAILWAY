@@ -1590,54 +1590,101 @@ templates = Jinja2Templates(directory="templates")
 async def home(request: Request):
     return templates.TemplateResponse("docya.html", {"request": request})
 
-# Landing para pacientes
-@app.get("/pacientes", response_class=HTMLResponse)
-async def pacientes_page(request: Request):
-    return templates.TemplateResponse("pacientes.html", {"request": request})
+from fastapi import Form, File, UploadFile
 
-# Landing para médicos
-@app.get("/medicos", response_class=HTMLResponse)
-async def medicos_page(request: Request):
-    return templates.TemplateResponse("medicos.html", {"request": request})
+@app.post("/auth/register_medico_form")
+async def register_medico_form(
+    full_name: str = Form(...),
+    email: EmailStr = Form(...),
+    password: str = Form(...),
+    matricula: str = Form(...),
+    especialidad: str = Form(...),
+    tipo: str = Form("medico"),   # medico | enfermero
+    telefono: Optional[str] = Form(None),
+    provincia: Optional[str] = Form(None),
+    localidad: Optional[str] = Form(None),
+    dni: Optional[str] = Form(None),
 
-from fastapi import Form
-from fastapi.responses import RedirectResponse
-import sib_api_v3_sdk
-from sib_api_v3_sdk.rest import ApiException
-from sib_api_v3_sdk import SendSmtpEmail
+    # Archivos opcionales
+    foto_perfil: UploadFile = File(None),
+    foto_dni_frente: UploadFile = File(None),
+    foto_dni_dorso: UploadFile = File(None),
+    selfie_dni: UploadFile = File(None),
 
-@app.post("/contacto")
-async def contacto(
-    nombre: str = Form(...),
-    email: str = Form(...),
-    mensaje: str = Form(...)
+    db = Depends(get_db),
 ):
-    configuration = sib_api_v3_sdk.Configuration()
-    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+    cur = db.cursor()
 
-    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
-        sib_api_v3_sdk.ApiClient(configuration)
-    )
+    # Validar email/matrícula únicos
+    cur.execute("SELECT 1 FROM medicos WHERE email=%s", (email.lower(),))
+    if cur.fetchone():
+        raise HTTPException(status_code=409, detail="El email ya está registrado")
 
-    email_data = SendSmtpEmail(
-        to=[{"email": "nahundeveloper@gmail.com", "name": "DocYa Admin"}],  # 👈 tu correo destino
-        sender={"email": email, "name": nombre},  # el remitente será quien llena el form
-        subject=f"📩 Nuevo mensaje desde el sitio DocYa",
-        html_content=f"""
-        <h2>Nuevo mensaje desde el sitio DocYa</h2>
-        <p><strong>Nombre:</strong> {nombre}</p>
-        <p><strong>Email:</strong> {email}</p>
-        <p><strong>Mensaje:</strong></p>
-        <p>{mensaje}</p>
-        """
-    )
+    cur.execute("SELECT 1 FROM medicos WHERE matricula=%s", (matricula,))
+    if cur.fetchone():
+        raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
 
+    password_hash = pwd_context.hash(password)
+
+    # Insertar base
+    cur.execute("""
+        INSERT INTO medicos (
+            full_name, email, password_hash, matricula, especialidad, tipo,
+            telefono, provincia, localidad, dni, validado
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+        RETURNING id
+    """, (
+        full_name.strip(), email.lower(), password_hash, matricula, especialidad, tipo,
+        telefono, provincia, localidad, dni
+    ))
+    medico_id = cur.fetchone()[0]
+
+    # Subida a Cloudinary
+    def _upload(upl: UploadFile, public_id: str):
+        if upl and upl.filename:
+            res = cloudinary.uploader.upload(
+                upl.file,
+                folder="docya/profesionales",
+                public_id=public_id,
+                overwrite=True,
+                resource_type="image"
+            )
+            return res["secure_url"]
+        return None
+
+    foto_perfil_url = _upload(foto_perfil, f"medico_{medico_id}_perfil")
+    dni_frente_url  = _upload(foto_dni_frente, f"medico_{medico_id}_dni_frente")
+    dni_dorso_url   = _upload(foto_dni_dorso, f"medico_{medico_id}_dni_dorso")
+    selfie_dni_url  = _upload(selfie_dni, f"medico_{medico_id}_selfie_dni")
+
+    # Update con las URLs
+    cur.execute("""
+        UPDATE medicos SET
+            foto_perfil=%s,
+            foto_dni_frente=%s,
+            foto_dni_dorso=%s,
+            selfie_dni=%s,
+            updated_at=NOW()
+        WHERE id=%s
+    """, (foto_perfil_url, dni_frente_url, dni_dorso_url, selfie_dni_url, medico_id))
+
+    db.commit()
+
+    # Mandar mail de validación
     try:
-        api_instance.send_transac_email(email_data)
-        print(f"✅ Mensaje enviado desde {email}")
-    except ApiException as e:
-        print(f"⚠️ Error enviando email con Brevo API: {e}")
+        enviar_email_validacion(email.lower(), medico_id, full_name)
+    except Exception as e:
+        print("⚠️ Error enviando email validación:", e)
 
-    # Redirigimos de nuevo a la home con mensaje de éxito
-    return RedirectResponse(url="/?enviado=1", status_code=303)
-
+    return {
+        "ok": True,
+        "mensaje": f"Registro exitoso como {tipo}. Revisá tu correo para activar la cuenta.",
+        "medico_id": medico_id,
+        "tipo": tipo,
+        "archivos": {
+            "foto_perfil": foto_perfil_url,
+            "dni_frente": dni_frente_url,
+            "dni_dorso": dni_dorso_url,
+            "selfie_dni": selfie_dni_url
+        }
+    }
