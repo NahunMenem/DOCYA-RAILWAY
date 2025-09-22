@@ -847,14 +847,31 @@ def historial_medico(medico_id: int, db=Depends(get_db)):
 def consultas_mias(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT id, paciente_uuid, estado, motivo, direccion, creado_en
-        FROM consultas
-        WHERE medico_id=%s AND estado IN ('pendiente','aceptada')
-        ORDER BY creado_en DESC
+        SELECT c.id,
+               c.paciente_uuid,
+               COALESCE(u.full_name, 'Paciente') AS paciente_nombre,
+               COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
+               c.estado, c.motivo, c.direccion, c.creado_en
+        FROM consultas c
+        LEFT JOIN users u ON c.paciente_uuid = u.id
+        WHERE c.medico_id = %s
+          AND c.estado IN ('pendiente','aceptada')
+        ORDER BY c.creado_en DESC
     """, (medico_id,))
     rows = cur.fetchall()
-    return [{"id": r[0], "paciente_uuid": r[1], "estado": r[2],
-             "motivo": r[3], "direccion": r[4], "creado_en": r[5]} for r in rows]
+    return [
+        {
+            "id": r[0],
+            "paciente_uuid": str(r[1]),
+            "paciente_nombre": r[2],
+            "paciente_telefono": r[3],
+            "estado": r[4],
+            "motivo": r[5],
+            "direccion": r[6],
+            "creado_en": format_datetime_arg(r[7])
+        }
+        for r in rows
+    ]
 
 # --- Consulta asignada ---
 @app.get("/consultas/asignadas/{medico_id}")
