@@ -861,29 +861,53 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id,c.paciente_uuid,COALESCE(u.full_name,'Paciente') as paciente_nombre,
-               c.motivo,c.direccion,c.lat,c.lng,c.estado,m.latitud,m.longitud
+        SELECT c.id,
+               c.paciente_uuid,
+               COALESCE(u.full_name, 'Paciente') AS paciente_nombre,
+               COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
+               c.motivo, c.direccion, c.lat, c.lng, c.estado,
+               m.latitud, m.longitud
         FROM consultas c
-        JOIN medicos m ON c.medico_id=m.id
-        LEFT JOIN users u ON c.paciente_uuid=u.id
-        WHERE c.medico_id=%s AND c.estado='pendiente'
-        ORDER BY c.creado_en DESC LIMIT 1
+        JOIN medicos m ON c.medico_id = m.id
+        LEFT JOIN users u ON c.paciente_uuid = u.id
+        WHERE c.medico_id = %s
+          AND c.estado = 'pendiente'
+        ORDER BY c.creado_en DESC
+        LIMIT 1
     """, (medico_id,))
     row = cur.fetchone()
-    if not row: return {"consulta": None}
+    if not row:
+        return {"consulta": None}
 
-    consulta_id, paciente_uuid, paciente_nombre, motivo, direccion, lat, lng, estado, med_lat, med_lng = row
-    distancia = None; tiempo = None
+    (consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
+     motivo, direccion, lat, lng, estado, med_lat, med_lng) = row
+
+    distancia = None
+    tiempo = None
     if med_lat and med_lng and lat and lng:
-        dlat = math.radians(lat-med_lat); dlon = math.radians(lng-med_lng)
-        a = math.sin(dlat/2)**2 + math.cos(math.radians(med_lat))*math.cos(math.radians(lat))*math.sin(dlon/2)**2
-        distancia = 6371*2*math.atan2(math.sqrt(a), math.sqrt(1-a))
-        tiempo = (distancia/40)*60
-    return {"id": consulta_id, "paciente_uuid": str(paciente_uuid),
-            "paciente_nombre": paciente_nombre, "motivo": motivo,
-            "direccion": direccion, "lat": lat, "lng": lng, "estado": estado,
-            "distancia_km": round(distancia,2) if distancia else None,
-            "tiempo_estimado_min": round(tiempo) if tiempo else None}
+        dlat = math.radians(lat - med_lat)
+        dlon = math.radians(lng - med_lng)
+        a = (math.sin(dlat/2)**2 +
+             math.cos(math.radians(med_lat)) *
+             math.cos(math.radians(lat)) *
+             math.sin(dlon/2)**2)
+        distancia = 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+        tiempo = (distancia / 40) * 60  # 🚗 promedio 40km/h
+
+    return {
+        "id": consulta_id,
+        "paciente_uuid": str(paciente_uuid),
+        "paciente_nombre": paciente_nombre,
+        "paciente_telefono": paciente_telefono,
+        "motivo": motivo,
+        "direccion": direccion,
+        "lat": lat,
+        "lng": lng,
+        "estado": estado,
+        "distancia_km": round(distancia, 2) if distancia else None,
+        "tiempo_estimado_min": round(tiempo) if tiempo else None
+    }
+
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
 @app.post("/consultas/{consulta_id}/iniciar")
