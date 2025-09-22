@@ -15,7 +15,7 @@ from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
-
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
@@ -409,7 +409,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     }
 
 
-from fastapi.responses import HTMLResponse
+
 
 @app.get("/auth/activar_medico", response_class=HTMLResponse)
 def activar_medico(token: str, request: Request, db=Depends(get_db)):
