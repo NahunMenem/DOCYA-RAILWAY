@@ -145,7 +145,7 @@ def health():
     return {"ok": True, "service": "docya-auth"}
 
 
-@app.post("/auth/register", response_model=AuthResponse)
+@app.post("/auth/register")
 def register(data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
@@ -158,31 +158,120 @@ def register(data: RegisterIn, db=Depends(get_db)):
             INSERT INTO users (
                 email, full_name, password_hash,
                 dni, telefono, pais, provincia, localidad, fecha_nacimiento,
-                acepto_condiciones, fecha_aceptacion, version_texto
+                acepto_condiciones, fecha_aceptacion, version_texto, validado
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            RETURNING id, full_name, role
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+            RETURNING id, full_name
         """, (
             data.email.lower(), data.full_name.strip(), password_hash,
             data.dni, data.telefono, data.pais, data.provincia, data.localidad,
             data.fecha_nacimiento, data.acepto_condiciones,
-            datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")) if data.acepto_condiciones else None, "v1.0"
+            datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")) if data.acepto_condiciones else None,
+            "v1.0"
         ))
-        user_id, full_name, role = cur.fetchone()
+        user_id, full_name = cur.fetchone()
         db.commit()
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error interno en registro: {e}")
 
-    token = create_access_token({"sub": str(user_id), "email": data.email.lower(), "role": role})
+    # 👇 Enviar mail de activación
+    try:
+        enviar_email_validacion_paciente(data.email.lower(), user_id, full_name)
+    except Exception as e:
+        print("⚠️ Error enviando email validación paciente:", e)
+
     return {
-        "access_token": token,
-        "token_type": "bearer",
-        "user": {
-            "id": user_id,              # 👈 ahora devuelve int
-            "full_name": full_name
-        }
+        "mensaje": "Registro exitoso. Revisa tu correo para activar la cuenta.",
+        "user_id": user_id,
+        "full_name": full_name
     }
+
+# --- Activación paciente ---
+@app.get("/auth/activar_paciente", response_class=HTMLResponse)
+def activar_paciente(token: str, request: Request, db=Depends(get_db)):
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+        user_id = int(payload.get("sub"))
+        cur = db.cursor()
+        cur.execute("UPDATE users SET validado=TRUE WHERE id=%s RETURNING id, full_name", (user_id,))
+        row = cur.fetchone(); db.commit()
+        if not row:
+            raise HTTPException(status_code=404, detail="Paciente no encontrado")
+        return templates.TemplateResponse("activar_paciente.html", {"request": request, "nombre": row[1]})
+    except jwt.ExpiredSignatureError:
+        return HTMLResponse("<h1>⚠️ El enlace de activación expiró</h1>", status_code=400)
+    except Exception as e:
+        return HTMLResponse(f"<h1>⚠️ Token inválido</h1><p>{e}</p>", status_code=400)
+        
+def enviar_email_validacion_paciente(email: str, user_id: int, full_name: str):
+    token = create_access_token(
+        {"sub": str(user_id), "email": email, "tipo": "validacion_paciente"},
+        expires_minutes=60*24
+    )
+    link_activacion = f"https://docya.com.ar/auth/activar_paciente?token={token}"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Activación DocYa</title>
+    </head>
+    <body style="margin:0; padding:0; background-color:#F4F6F8; font-family: Arial, sans-serif;">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F4F6F8" style="padding:20px 0;">
+        <tr>
+          <td align="center">
+            <table border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+              <tr>
+                <td align="center" style="padding:30px 20px;">
+                  <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" alt="DocYa" style="max-width:180px; margin-bottom:20px;">
+                  <h2 style="color:#00A8A8; font-size:22px; margin:0 0 15px;">¡Bienvenido a DocYa, {full_name}!</h2>
+                  <p style="color:#333333; font-size:15px; line-height:1.5; margin:0 0 25px;">
+                    Gracias por registrarte en nuestra aplicación de salud a domicilio.<br>
+                    Antes de comenzar, confirma tu correo electrónico para activar tu cuenta de paciente.
+                  </p>
+                  <a href="{link_activacion}" target="_blank"
+                     style="background-color:#00A8A8; color:#ffffff; padding:14px 28px; text-decoration:none; 
+                            border-radius:6px; font-size:15px; font-weight:bold; display:inline-block;">
+                    ✅ Activar mi cuenta
+                  </a>
+                  <p style="color:#777777; font-size:12px; margin-top:30px;">
+                    Si no solicitaste este registro, por favor ignora este correo.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <p style="color:#999999; font-size:11px; margin-top:20px;">
+              © {datetime.now().year} DocYa · Atención médica a domicilio con confianza.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+    """
+
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},
+        subject="Activa tu cuenta en DocYa",
+        html_content=html_content
+    )
+
+    try:
+        api_instance.send_transac_email(email_data)
+        print(f"✅ Correo enviado a {email}")
+    except ApiException as e:
+        print(f"⚠️ Error enviando email con Brevo API: {e}")
+
 
 
 
