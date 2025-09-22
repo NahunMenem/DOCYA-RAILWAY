@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Cuenta activada - DocYa</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+</head>
+<body class="bg-[#DAD7CD] flex items-center justify-center min-h-screen font-sans">
+
+  <div class="bg-white p-10 rounded-3xl shadow-2xl text-center max-w-lg animate-fadeIn border-t-8 border-[#3A5A40]">
+    <!-- Logo -->
+    <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
+         alt="DocYa" class="mx-auto w-44 mb-8 drop-shadow-md">
+
+    <!-- Título -->
+    <h1 class="text-3xl font-extrabold text-[#3A5A40] mb-4">
+      🎉 ¡Tu cuenta de paciente está activada!
+    </h1>
+
+    <!-- Mensaje principal -->
+    <p class="text-[#344E41] text-lg leading-relaxed mb-6">
+      Bienvenido a <span class="font-semibold text-[#588157]">DocYa</span>.  
+      Gracias por registrarte en nuestra app de atención médica a domicilio.  
+      Ahora ya podés ingresar y solicitar consultas médicas o de enfermería desde la comodidad de tu casa.
+    </p>
+
+    <!-- Nota secundaria -->
+    <p class="mt-6 text-sm text-[#3A5A40]">
+      Si necesitás ayuda, podés contactarnos en  
+      <a href="mailto:soporte@docya.com.ar" class="text-[#588157] hover:underline">soporte@docya.com.ar</a>
+    </p>
+  </div>
+
+  <style>
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(15px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .animate-fadeIn {
+      animation: fadeIn 0.8s ease-in-out;
+    }
+  </style>
+
+</body>
+</html>
