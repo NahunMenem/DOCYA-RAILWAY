@@ -693,6 +693,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             enviar_push(row[0], "📢 Nueva consulta", f"{data.motivo}", {
                 "tipo": "consulta_nueva",
                 "consulta_id": str(consulta_id)
+                "medico_id": str(medico_id),   # 👈 agregado
+                "profesional_tipo": tipo       # 👈 opcional, para diferenciar
             })
         except Exception as e:
             print(f"⚠️ Error push: {e}")
