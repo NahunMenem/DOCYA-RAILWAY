@@ -1115,23 +1115,38 @@ import asyncio
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
     active_medicos[medico_id] = websocket
-    print(f"✅ WebSocket abierto para médico {medico_id}")
+
+    # 🔎 Traer tipo del profesional (medico / enfermero)
+    conn = None
+    tipo = "desconocido"
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        cur = conn.cursor()
+        cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
+        row = cur.fetchone()
+        if row:
+            tipo = row[0]
+    except Exception as e:
+        print(f"⚠️ No se pudo obtener tipo del profesional {medico_id}: {e}")
+    finally:
+        if conn:
+            conn.close()
+
+    print(f"✅ WebSocket abierto para {tipo} {medico_id}")
+
     try:
         while True:
-            # Espera mensajes, pero con timeout para no cortar la conexión si no hay nada
             try:
                 data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
                 if data == '{"tipo":"ping"}':
-                    print(f"❤️ Ping recibido de médico {medico_id}")
+                    print(f"❤️ Ping recibido de {tipo} {medico_id}")
             except asyncio.TimeoutError:
-                # 👇 Cada 30s sin mensajes, seguimos manteniendo el WS abierto
-                # Podés enviar un ping desde el server si querés:
-                # await websocket.send_json({"tipo": "ping"})
                 continue
     except WebSocketDisconnect:
         if medico_id in active_medicos:
             del active_medicos[medico_id]
-            print(f"❌ WebSocket cerrado para médico {medico_id}")
+            print(f"❌ WebSocket cerrado para {tipo} {medico_id}")
+
 
 
 # --- Función para enviar notificaciones push ---
