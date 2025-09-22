@@ -663,41 +663,45 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail=f"No hay {data.tipo}s disponibles")
 
-    medico_id, medico_nombre, medico_lat, medico_lng, tipo, distancia = row
+    profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
+    # Insertar consulta vinculada al profesional encontrado (médico o enfermero)
     cur.execute("""
         INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng)
         VALUES (%s,%s,'pendiente',%s,%s,%s,%s)
         RETURNING id, creado_en
-    """, (str(data.paciente_uuid), medico_id, data.motivo, data.direccion, data.lat, data.lng))
+    """, (str(data.paciente_uuid), profesional_id, data.motivo, data.direccion, data.lat, data.lng))
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # Notificación WS + Push (igual que antes)
-    if medico_id in active_medicos:
+    # 🔔 Notificación WS en tiempo real
+    if profesional_id in active_medicos:
         try:
-            await active_medicos[medico_id].send_json({
+            await active_medicos[profesional_id].send_json({
                 "tipo": "consulta_nueva",
                 "consulta_id": consulta_id,
                 "paciente_uuid": str(data.paciente_uuid),
+                "paciente_nombre": None,  # opcional, si querés enviar nombre
                 "motivo": data.motivo,
                 "direccion": data.direccion,
                 "lat": data.lat,
                 "lng": data.lng,
                 "distancia_km": round(distancia, 2),
+                "profesional_tipo": tipo,
                 "creado_en": str(creado_en)
             })
         except Exception as e:
             print(f"⚠️ WS error: {e}")
 
-    cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
+    # 🔔 Push notification
+    cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
     row = cur.fetchone()
     if row and row[0]:
         try:
             enviar_push(row[0], "📢 Nueva consulta", f"{data.motivo}", {
                 "tipo": "consulta_nueva",
                 "consulta_id": str(consulta_id),
-                "medico_id": str(medico_id),
+                "medico_id": str(profesional_id),   # 👈 genérico, puede ser médico o enfermero
                 "profesional_tipo": tipo
             })
         except Exception as e:
@@ -707,10 +711,10 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
         "profesional": {
-            "id": medico_id,
-            "nombre": medico_nombre,
-            "lat": medico_lat,
-            "lng": medico_lng,
+            "id": profesional_id,
+            "nombre": profesional_nombre,
+            "lat": profesional_lat,
+            "lng": profesional_lng,
             "tipo": tipo,
             "distancia_km": round(distancia, 2)
         },
