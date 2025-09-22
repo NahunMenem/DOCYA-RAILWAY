@@ -71,25 +71,135 @@
     </p>
     <form id="registro-form"
       action="https://docya-railway-production.up.railway.app/auth/register_medico_form"
-      method="POST" enctype="multipart/form-data">
-      <!-- Campos de texto e iconos -->
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="user" class="w-5 h-5 text-gray-500 mr-3"></i><input type="text" name="full_name" placeholder="Nombre completo" required class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="mail" class="w-5 h-5 text-gray-500 mr-3"></i><input type="email" name="email" placeholder="Correo electrónico" required class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="lock" class="w-5 h-5 text-gray-500 mr-3"></i><input type="password" name="password" placeholder="Contraseña" required class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="id-card" class="w-5 h-5 text-gray-500 mr-3"></i><input type="text" name="matricula" placeholder="Matrícula" required class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="stethoscope" class="w-5 h-5 text-gray-500 mr-3"></i><input type="text" name="especialidad" placeholder="Especialidad" required class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="phone" class="w-5 h-5 text-gray-500 mr-3"></i><input type="text" name="telefono" placeholder="Teléfono" class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="file-text" class="w-5 h-5 text-gray-500 mr-3"></i><input type="text" name="dni" placeholder="DNI" class="flex-1 bg-transparent outline-none text-black"></div>
-      <div class="flex items-center bg-white rounded-md p-3"><i data-lucide="users" class="w-5 h-5 text-gray-500 mr-3"></i><select name="tipo" class="flex-1 bg-transparent outline-none text-black"><option value="medico">Médico</option><option value="enfermero">Enfermero</option></select></div>
-      <!-- Archivos estilizados -->
-      <div class="space-y-4">
-        <div><label class="block text-sm font-semibold text-white/80 mb-1">Foto de perfil</label><div class="flex items-center bg-white rounded-md p-3 relative"><i data-lucide="image" class="w-5 h-5 text-gray-500 mr-3"></i><span id="file-name-perfil" class="flex-1 text-black">Ningún archivo seleccionado</span><button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md ml-3">Seleccionar</button><input type="file" name="foto_perfil" id="file-input-perfil" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer"></div></div>
-        <div><label class="block text-sm font-semibold text-white/80 mb-1">DNI Frente</label><div class="flex items-center bg-white rounded-md p-3 relative"><i data-lucide="image" class="w-5 h-5 text-gray-500 mr-3"></i><span id="file-name-frente" class="flex-1 text-black">Ningún archivo seleccionado</span><button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md ml-3">Seleccionar</button><input type="file" name="foto_dni_frente" id="file-input-frente" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer"></div></div>
-        <div><label class="block text-sm font-semibold text-white/80 mb-1">DNI Dorso</label><div class="flex items-center bg-white rounded-md p-3 relative"><i data-lucide="image" class="w-5 h-5 text-gray-500 mr-3"></i><span id="file-name-dorso" class="flex-1 text-black">Ningún archivo seleccionado</span><button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md ml-3">Seleccionar</button><input type="file" name="foto_dni_dorso" id="file-input-dorso" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer"></div></div>
-        <div><label class="block text-sm font-semibold text-white/80 mb-1">Selfie con DNI</label><div class="flex items-center bg-white rounded-md p-3 relative"><i data-lucide="camera" class="w-5 h-5 text-gray-500 mr-3"></i><span id="file-name-selfie" class="flex-1 text-black">Ningún archivo seleccionado</span><button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md ml-3">Seleccionar</button><input type="file" name="selfie_dni" id="file-input-selfie" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer"></div></div>
+      method="POST" enctype="multipart/form-data" class="space-y-4 max-w-lg mx-auto">
+
+      <!-- Nombre completo -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="user" class="w-5 h-5"></i>
+        </div>
+        <input type="text" name="full_name" placeholder="Nombre completo" required
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
       </div>
+    
+      <!-- Correo electrónico -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="mail" class="w-5 h-5"></i>
+        </div>
+        <input type="email" name="email" placeholder="Correo electrónico" required
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
+      </div>
+    
+      <!-- Contraseña -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="lock" class="w-5 h-5"></i>
+        </div>
+        <input type="password" name="password" placeholder="Contraseña" required
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
+      </div>
+    
+      <!-- Matrícula -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="id-card" class="w-5 h-5"></i>
+        </div>
+        <input type="text" name="matricula" placeholder="Matrícula" required
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
+      </div>
+    
+      <!-- Especialidad -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="stethoscope" class="w-5 h-5"></i>
+        </div>
+        <input type="text" name="especialidad" placeholder="Especialidad" required
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
+      </div>
+    
+      <!-- Teléfono -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="phone" class="w-5 h-5"></i>
+        </div>
+        <input type="text" name="telefono" placeholder="Teléfono"
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
+      </div>
+    
+      <!-- DNI -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="file-text" class="w-5 h-5"></i>
+        </div>
+        <input type="text" name="dni" placeholder="DNI"
+               class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]" />
+      </div>
+    
+      <!-- Tipo -->
+      <div class="flex items-center bg-white rounded-md shadow-sm">
+        <div class="p-3 text-gray-500 bg-gray-100 rounded-l-md">
+          <i data-lucide="users" class="w-5 h-5"></i>
+        </div>
+        <select name="tipo"
+                class="flex-1 py-2 px-3 text-gray-800 placeholder-gray-400 rounded-r-md focus:outline-none focus:ring-2 focus:ring-[#14B8A6]">
+          <option value="medico">Médico</option>
+          <option value="enfermero">Enfermero</option>
+        </select>
+      </div>
+    
+      <!-- Archivos -->
+      <div class="space-y-4">
+        <div>
+          <label class="block text-sm font-semibold text-white/80 mb-1">Foto de perfil</label>
+          <div class="flex items-center bg-white rounded-md shadow-sm relative">
+            <i data-lucide="image" class="w-5 h-5 text-gray-500 ml-3 mr-3"></i>
+            <span id="file-name-perfil" class="flex-1 text-gray-600">Ningún archivo seleccionado</span>
+            <button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md mr-3">Seleccionar</button>
+            <input type="file" name="foto_perfil" id="file-input-perfil" accept="image/*"
+                   class="absolute inset-0 opacity-0 cursor-pointer" />
+          </div>
+        </div>
+    
+        <div>
+          <label class="block text-sm font-semibold text-white/80 mb-1">DNI Frente</label>
+          <div class="flex items-center bg-white rounded-md shadow-sm relative">
+            <i data-lucide="image" class="w-5 h-5 text-gray-500 ml-3 mr-3"></i>
+            <span id="file-name-frente" class="flex-1 text-gray-600">Ningún archivo seleccionado</span>
+            <button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md mr-3">Seleccionar</button>
+            <input type="file" name="foto_dni_frente" id="file-input-frente" accept="image/*"
+                   class="absolute inset-0 opacity-0 cursor-pointer" />
+          </div>
+        </div>
+    
+        <div>
+          <label class="block text-sm font-semibold text-white/80 mb-1">DNI Dorso</label>
+          <div class="flex items-center bg-white rounded-md shadow-sm relative">
+            <i data-lucide="image" class="w-5 h-5 text-gray-500 ml-3 mr-3"></i>
+            <span id="file-name-dorso" class="flex-1 text-gray-600">Ningún archivo seleccionado</span>
+            <button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md mr-3">Seleccionar</button>
+            <input type="file" name="foto_dni_dorso" id="file-input-dorso" accept="image/*"
+                   class="absolute inset-0 opacity-0 cursor-pointer" />
+          </div>
+        </div>
+    
+        <div>
+          <label class="block text-sm font-semibold text-white/80 mb-1">Selfie con DNI</label>
+          <div class="flex items-center bg-white rounded-md shadow-sm relative">
+            <i data-lucide="camera" class="w-5 h-5 text-gray-500 ml-3 mr-3"></i>
+            <span id="file-name-selfie" class="flex-1 text-gray-600">Ningún archivo seleccionado</span>
+            <button type="button" class="bg-[#14B8A6] text-white text-sm px-3 py-1 rounded-md mr-3">Seleccionar</button>
+            <input type="file" name="selfie_dni" id="file-input-selfie" accept="image/*"
+                   class="absolute inset-0 opacity-0 cursor-pointer" />
+          </div>
+        </div>
+      </div>
+    
       <!-- Submit -->
-      <button type="submit" class="bg-[#14B8A6] hover:bg-[#0f9e8c] text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition">Registrarme</button>
+      <button type="submit"
+              class="w-full bg-[#14B8A6] hover:bg-[#0f9e8c] text-white font-semibold py-3 rounded-xl shadow-lg transition">
+        Registrarme
+      </button>
     </form>
   </section>
 
@@ -165,5 +275,6 @@
   </script>
 </body>
 </html>
+
 
 
