@@ -1,83 +1,151 @@
-{% extends "base.html" %}
-{% block title %}DocYa - Salud a tu puerta{% endblock %}
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DocYa – Profesionales</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+<body class="bg-gradient-to-br from-[#0F2027] via-[#203A43] to-[#2C5364] text-white font-sans">
+  <!-- Header -->
+  <header class="p-6 flex items-center justify-between max-w-7xl mx-auto">
+    <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/DOCYAPRO_BLANCO_eerxi3.png" alt="DocYa Logo" class="h-12">
+    <nav class="space-x-6 text-white/80 font-medium hidden md:block">
+      <a href="#beneficios" class="hover:text-teal-400">Beneficios</a>
+      <a href="#como-funciona" class="hover:text-teal-400">Cómo funciona</a>
+      <a href="#registro" class="hover:text-teal-400 font-semibold">Registrate</a>
+    </nav>
+  </header>
 
-{% block content %}
-<!-- Hero -->
-<section class="bg-gray-50 py-20">
-  <div class="container mx-auto grid md:grid-cols-2 gap-12 items-center px-6">
-    <!-- Texto -->
-    <div>
-      <h1 class="text-5xl font-extrabold leading-tight text-gray-900 mb-6">
-        Tu médico a domicilio <span class="text-teal-600">en minutos</span>
-      </h1>
-      <p class="text-lg text-gray-600 mb-8">
-        Conecta con médicos y enfermeros cercanos, sin guardias eternas ni demoras.
-      </p>
-      <div class="flex space-x-4">
-        <a href="/pacientes" class="bg-teal-600 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-teal-700 transition">
-          Solicitar consulta
-        </a>
-        <a href="#funciona" class="border border-teal-600 text-teal-600 px-6 py-3 rounded-lg font-semibold hover:bg-teal-50 transition">
-          ▶ Ver cómo funciona
-        </a>
+  <!-- Hero -->
+  <section class="text-center py-20 px-6 md:py-24">
+    <h1 class="text-4xl md:text-6xl font-extrabold mb-6 text-white leading-tight">
+      Tu médico a domicilio <span class="text-[#14B8A6]">en minutos</span>
+    </h1>
+    <p class="text-lg md:text-xl text-white/80 max-w-2xl mx-auto mb-8">
+      La app que conecta <strong>médicos y enfermeros</strong> con pacientes gracias a la <strong>geolocalización en tiempo real</strong>.
+    </p>
+    <a href="#registro" class="bg-[#14B8A6] hover:bg-[#0f9e8c] text-white font-semibold px-8 py-4 rounded-xl shadow-lg transition text-lg">Registrate como profesional</a>
+  </section>
+
+  <!-- Screenshots -->
+  <section class="py-20 px-6 bg-white/5 backdrop-blur-lg rounded-2xl max-w-6xl mx-auto">
+    <h2 class="text-3xl font-bold text-center mb-12">Conocé la experiencia DocYa</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
+      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1758578808/d21613e5-633d-40a4-a730-496338e88d3c_qe4rpt.png" alt="Pantalla de app" class="rounded-2xl shadow-xl border border-white/10">
+      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1758578807/dadbbff7-a018-4d2d-8f03-794330987761_gti0ch.png" alt="Pantalla app paciente" class="rounded-2xl shadow-xl border border-white/10">
+      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1758578807/00d65528-80c4-413a-ab50-07d272ecd696_ynn3y0.png" alt="Consulta entrante" class="rounded-2xl shadow-xl border border-white/10">
+      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1758578807/12a44871-f748-427f-bc62-b5fea33e9a1e_a94mih.png" alt="Historia clínica y recetas" class="rounded-2xl shadow-xl border border-white/10">
+    </div>
+  </section>
+
+  <!-- Beneficios -->
+  <section id="beneficios" class="py-24 px-6 max-w-6xl mx-auto">
+    <h2 class="text-3xl font-bold text-center mb-12">Beneficios de ser parte</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-10">
+      <div class="bg-white/5 rounded-2xl p-8 shadow-lg hover:bg-white/10 transition">
+        <h3 class="text-2xl font-semibold mb-3 text-[#14B8A6]">Ingresos semanales</h3>
+        <p class="text-white/80">Cada consulta paga <strong>$30.000 ARS</strong>, con acreditación semanal. Ganá más en menos tiempo.</p>
+      </div>
+      <div class="bg-white/5 rounded-2xl p-8 shadow-lg hover:bg-white/10 transition">
+        <h3 class="text-2xl font-semibold mb-3 text-[#14B8A6]">Flexibilidad total</h3>
+        <p class="text-white/80">Vos decidís cuándo y dónde estar disponible. No más horarios fijos ni trámites complicados.</p>
+      </div>
+      <div class="bg-white/5 rounded-2xl p-8 shadow-lg hover:bg-white/10 transition">
+        <h3 class="text-2xl font-semibold mb-3 text-[#14B8A6]">Reputación profesional</h3>
+        <p class="text-white/80">Los pacientes califican tu atención. Mientras más estrellas tengas, más consultas recibís.</p>
+      </div>
+      <div class="bg-white/5 rounded-2xl p-8 shadow-lg hover:bg-white/10 transition">
+        <h3 class="text-2xl font-semibold mb-3 text-[#14B8A6]">Herramientas digitales</h3>
+        <p class="text-white/80">Emití recetas, certificados médicos y registrá historias clínicas directamente desde la app.</p>
       </div>
     </div>
-    <!-- Imagen -->
-    <div>
-      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1758203469/Gemini_Generated_Image_47qanh47qanh47qa_o4uqjd.png" 
-           alt="Médico DocYa" class="rounded-xl shadow-lg">
-    </div>
-  </div>
-</section>
+  </section>
 
-<!-- Cómo funciona -->
-<section id="funciona" class="py-24 bg-white">
-  <div class="container mx-auto px-6 text-center">
-    <h2 class="text-3xl font-bold text-teal-600 mb-12">Cómo funciona DocYa</h2>
-    <div class="grid md:grid-cols-3 gap-10">
-      <div class="p-6 bg-gray-50 rounded-lg shadow">
-        <h3 class="font-bold text-lg mb-3">1. Solicita tu médico</h3>
-        <p>Abre la app y pide atención en tu domicilio en minutos.</p>
+  <!-- Registro -->
+  <section id="registro" class="py-24 px-6 text-center">
+    <h2 class="text-3xl font-bold mb-6">Sumate a DocYa</h2>
+    <p class="text-lg text-white/80 max-w-2xl mx-auto mb-10">
+      Sé parte de la revolución en la atención médica domiciliaria en Argentina. Registrate ahora y empezá a atender pacientes con flexibilidad y respaldo.
+    </p>
+    <form action="https://docya-railway-production.up.railway.app/auth/register_medico" method="POST" enctype="multipart/form-data" class="max-w-2xl mx-auto grid grid-cols-1 gap-6 bg-white/5 p-8 rounded-2xl shadow-lg text-left">
+      <!-- Nombre -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="user" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="text" name="full_name" placeholder="Nombre completo" required class="flex-1 bg-transparent outline-none text-black">
       </div>
-      <div class="p-6 bg-gray-50 rounded-lg shadow">
-        <h3 class="font-bold text-lg mb-3">2. Síguelo en tiempo real</h3>
-        <p>Ve al profesional camino a tu casa en el mapa, como en Uber.</p>
+      <!-- Email -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="mail" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="email" name="email" placeholder="Correo electrónico" required class="flex-1 bg-transparent outline-none text-black">
       </div>
-      <div class="p-6 bg-gray-50 rounded-lg shadow">
-        <h3 class="font-bold text-lg mb-3">3. Paga y guarda tu historial</h3>
-        <p>Realiza el pago desde la app y accede a tu historia clínica digital.</p>
+      <!-- Password -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="lock" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="password" name="password" placeholder="Contraseña" required class="flex-1 bg-transparent outline-none text-black">
       </div>
-    </div>
-  </div>
-</section>
-
-<!-- Contacto -->
-<section id="contacto" class="bg-teal-600 py-20 text-white">
-  <div class="container mx-auto max-w-xl px-6">
-    <h3 class="text-2xl font-bold mb-6 text-center">Contacto</h3>
-    {% if request.query_params.get("enviado") == "1" %}
-      <div class="bg-green-100 text-green-700 p-4 rounded-lg mb-6 text-center">
-        ✅ Tu mensaje fue enviado con éxito.
+      <!-- Matrícula -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="id-card" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="text" name="matricula" placeholder="Matrícula" required class="flex-1 bg-transparent outline-none text-black">
       </div>
-    {% endif %}
-    <form action="/contacto" method="post" class="bg-white text-gray-700 rounded-xl shadow-lg p-8 space-y-4">
-      <div>
-        <label for="nombre" class="block text-sm font-semibold">Nombre</label>
-        <input type="text" id="nombre" name="nombre" required class="w-full border rounded-lg px-4 py-3">
+      <!-- Especialidad -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="stethoscope" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="text" name="especialidad" placeholder="Especialidad" required class="flex-1 bg-transparent outline-none text-black">
       </div>
-      <div>
-        <label for="email" class="block text-sm font-semibold">Email</label>
-        <input type="email" id="email" name="email" required class="w-full border rounded-lg px-4 py-3">
+      <!-- Teléfono -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="phone" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="text" name="telefono" placeholder="Teléfono" class="flex-1 bg-transparent outline-none text-black">
       </div>
-      <div>
-        <label for="mensaje" class="block text-sm font-semibold">Mensaje</label>
-        <textarea id="mensaje" name="mensaje" rows="4" required class="w-full border rounded-lg px-4 py-3"></textarea>
+      <!-- DNI -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="file-text" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="text" name="dni" placeholder="DNI" class="flex-1 bg-transparent outline-none text-black">
       </div>
-      <button type="submit" class="w-full bg-teal-600 text-white px-6 py-3 rounded-full font-semibold shadow hover:bg-teal-700 transition">
-        Enviar mensaje
-      </button>
+      <!-- Tipo -->
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="users" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <select name="tipo" class="flex-1 bg-transparent outline-none text-black">
+          <option value="medico">Médico</option>
+          <option value="enfermero">Enfermero</option>
+        </select>
+      </div>
+      <!-- Archivos -->
+      <label class="block text-sm font-semibold text-white/80">Foto de perfil</label>
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="image" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="file" name="foto_perfil" accept="image/*" class="flex-1 text-black">
+      </div>
+      <label class="block text-sm font-semibold text-white/80">DNI Frente</label>
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="image" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="file" name="foto_dni_frente" accept="image/*" class="flex-1 text-black">
+      </div>
+      <label class="block text-sm font-semibold text-white/80">DNI Dorso</label>
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="image" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="file" name="foto_dni_dorso" accept="image/*" class="flex-1 text-black">
+      </div>
+      <label class="block text-sm font-semibold text-white/80">Selfie con DNI</label>
+      <div class="flex items-center bg-white rounded-md p-3">
+        <i data-lucide="camera" class="w-5 h-5 text-gray-500 mr-3"></i>
+        <input type="file" name="selfie_dni" accept="image/*" class="flex-1 text-black">
+      </div>
+      <!-- Submit -->
+      <button type="submit" class="bg-[#14B8A6] hover:bg-[#0f9e8c] text-white font-semibold py-3 px-6 rounded-xl shadow-lg transition">Registrarme</button>
     </form>
-  </div>
-</section>
-{% endblock %}
+  </section>
 
+  <!-- Footer -->
+  <footer class="bg-black/40 py-8 text-center text-white/60 text-sm">
+    © 2025 DocYa. Todos los derechos reservados.
+  </footer>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
