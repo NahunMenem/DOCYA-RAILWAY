@@ -182,10 +182,12 @@ def register(data: RegisterIn, db=Depends(get_db)):
         print("⚠️ Error enviando email validación paciente:", e)
 
     return {
-        "mensaje": "Registro exitoso. Revisa tu correo para activar la cuenta.",
-        "user_id": user_id,
+        "ok": True,
+        "mensaje": "✅ Registro exitoso. Revisa tu correo para activar la cuenta.",
+        "user_id": str(user_id),  # lo mando como string por si es UUID
         "full_name": full_name
     }
+
 
 # --- Activación paciente ---
 @app.get("/auth/activar_paciente", response_class=HTMLResponse)
