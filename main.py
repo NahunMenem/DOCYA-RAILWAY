@@ -1670,7 +1670,7 @@ async def register_medico_form(
 
     db.commit()
 
-    # Mandar mail de validación
+    # Mandar mail de validación (el mismo que usa la app)
     try:
         enviar_email_validacion(email.lower(), medico_id, full_name)
     except Exception as e:
