@@ -1596,6 +1596,12 @@ templates = Jinja2Templates(directory="templates")
 async def home(request: Request):
     return templates.TemplateResponse("docya.html", {"request": request})
 
+# Inversores (proyección y plan de crecimiento)
+@app.get("/inversores", response_class=HTMLResponse)
+async def inversores(request: Request):
+    return templates.TemplateResponse("inversores.html", {"request": request})
+    
+
 from fastapi import Form, File, UploadFile
 
 @app.post("/auth/register_medico_form")
