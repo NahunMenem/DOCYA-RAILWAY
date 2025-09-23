@@ -145,6 +145,10 @@ def health():
     return {"ok": True, "service": "docya-auth"}
 
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+from fastapi import HTTPException, Depends
+
 @app.post("/auth/register")
 def register(data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
@@ -158,16 +162,18 @@ def register(data: RegisterIn, db=Depends(get_db)):
             INSERT INTO users (
                 email, full_name, password_hash,
                 dni, telefono, pais, provincia, localidad, fecha_nacimiento,
-                acepto_condiciones, fecha_aceptacion, version_texto, validado
+                acepto_condiciones, fecha_aceptacion, version_texto, validado,
+                role
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)
             RETURNING id, full_name
         """, (
             data.email.lower(), data.full_name.strip(), password_hash,
             data.dni, data.telefono, data.pais, data.provincia, data.localidad,
             data.fecha_nacimiento, data.acepto_condiciones,
             datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")) if data.acepto_condiciones else None,
-            "v1.0"
+            "v1.0",
+            "patient"   # 👈 importante: rol fijo para pacientes
         ))
         user_id, full_name = cur.fetchone()
         db.commit()
@@ -185,9 +191,9 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "ok": True,
         "mensaje": "✅ Registro exitoso. Revisa tu correo para activar la cuenta.",
         "user_id": str(user_id),  # lo mando como string por si es UUID
-        "full_name": full_name
+        "full_name": full_name,
+        "role": "patient"
     }
-
 
 # --- Activación paciente ---
 @app.get("/auth/activar_paciente", response_class=HTMLResponse)
