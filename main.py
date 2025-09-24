@@ -1256,6 +1256,9 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
 
 # Diccionario para conexiones activas de médicos
 active_medicos: Dict[int, WebSocket] = {}
+# Diccionario para conexiones de chat por consulta
+active_chats: Dict[int, list[WebSocket]] = {}  # clave = consulta_id
+
 
 import asyncio
 
@@ -1700,3 +1703,67 @@ async def register_medico_form(
             "selfie_dni": selfie_dni_url
         }
     }
+
+#chat---------------------------------------------------------------
+from fastapi import WebSocket, WebSocketDisconnect
+
+@app.websocket("/ws/chat/{consulta_id}/{remitente_tipo}/{remitente_id}")
+async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, remitente_id: str, db=Depends(get_db)):
+    await websocket.accept()
+
+    if consulta_id not in active_chats:
+        active_chats[consulta_id] = []
+    active_chats[consulta_id].append(websocket)
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            mensaje = data.get("mensaje")
+
+            # Guardar en BD
+            cur = db.cursor()
+            cur.execute("""
+                INSERT INTO mensajes_chat (consulta_id, remitente_tipo, remitente_id, mensaje)
+                VALUES (%s,%s,%s,%s) RETURNING id, creado_en
+            """, (consulta_id, remitente_tipo, remitente_id, mensaje))
+            row = cur.fetchone(); db.commit()
+
+            msg_obj = {
+                "id": row[0],
+                "consulta_id": consulta_id,
+                "remitente_tipo": remitente_tipo,
+                "remitente_id": remitente_id,
+                "mensaje": mensaje,
+                "creado_en": format_datetime_arg(row[1])
+            }
+
+            # Enviar a todos los sockets conectados de esa consulta
+            for conn in active_chats[consulta_id]:
+                await conn.send_json(msg_obj)
+
+    except WebSocketDisconnect:
+        active_chats[consulta_id].remove(websocket)
+        if not active_chats[consulta_id]:
+            del active_chats[consulta_id]
+
+
+@app.get("/consultas/{consulta_id}/chat")
+def historial_chat(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, remitente_tipo, remitente_id, mensaje, creado_en
+        FROM mensajes_chat
+        WHERE consulta_id=%s
+        ORDER BY creado_en ASC
+    """, (consulta_id,))
+    rows = cur.fetchall()
+    return [
+        {
+            "id": r[0],
+            "remitente_tipo": r[1],
+            "remitente_id": r[2],
+            "mensaje": r[3],
+            "creado_en": format_datetime_arg(r[4])
+        }
+        for r in rows
+    ]
