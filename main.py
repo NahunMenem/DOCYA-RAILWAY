@@ -1769,3 +1769,23 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
             del active_chats[consulta_id]
         cur.close()
         conn.close()
+@app.get("/consultas/{consulta_id}/chat")
+def historial_chat(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, remitente_tipo, remitente_id, mensaje, creado_en
+        FROM mensajes_chat
+        WHERE consulta_id=%s
+        ORDER BY creado_en ASC
+    """, (consulta_id,))
+    rows = cur.fetchall()
+    return [
+        {
+            "id": r[0],
+            "remitente_tipo": r[1],
+            "remitente_id": r[2],
+            "mensaje": r[3],
+            "creado_en": format_datetime_arg(r[4])
+        }
+        for r in rows
+    ]  # 👈 nunca None, siempre []
