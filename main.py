@@ -1715,50 +1715,57 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
         active_chats[consulta_id] = []
     active_chats[consulta_id].append(websocket)
 
-    print(f"✅ Cliente conectado a chat consulta {consulta_id}: {remitente_tipo} {remitente_id}")
+    print(f"✅ WS conectado consulta {consulta_id}: {remitente_tipo} {remitente_id}")
 
     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
     cur = conn.cursor()
 
     try:
         while True:
-            data = await websocket.receive_json()
-            mensaje = data.get("mensaje")
-            if not mensaje:
-                continue
+            try:
+                data = await websocket.receive_json()
+                mensaje = data.get("mensaje")
+                if not mensaje:
+                    continue
+                print(f"📥 Recibido de {remitente_tipo} {remitente_id}: {mensaje}")
 
-            print(f"📥 Mensaje recibido [{remitente_tipo} {remitente_id}] en consulta {consulta_id}: {mensaje}")
-
-            # Guardar en BD
-            cur.execute("""
-                INSERT INTO mensajes_chat (consulta_id, remitente_tipo, remitente_id, mensaje)
-                VALUES (%s,%s,%s,%s) RETURNING id, creado_en
-            """, (consulta_id, remitente_tipo, remitente_id, mensaje))
-            row = cur.fetchone(); conn.commit()
-
-            msg_obj = {
-                "id": row[0],
-                "consulta_id": consulta_id,
-                "remitente_tipo": remitente_tipo,
-                "remitente_id": remitente_id,
-                "mensaje": mensaje,
-                "creado_en": format_datetime_arg(row[1])
-            }
-
-            print(f"📤 Reenviando mensaje a {len(active_chats[consulta_id])} sockets: {msg_obj}")
-
-            # Enviar a todos los sockets conectados de esa consulta
-            for conn_ws in active_chats[consulta_id]:
+                # Guardar en DB
                 try:
-                    await conn_ws.send_json(msg_obj)
+                    cur.execute("""
+                        INSERT INTO mensajes_chat (consulta_id, remitente_tipo, remitente_id, mensaje)
+                        VALUES (%s,%s,%s,%s) RETURNING id, creado_en
+                    """, (consulta_id, remitente_tipo, remitente_id, mensaje))
+                    row = cur.fetchone(); conn.commit()
                 except Exception as e:
-                    print(f"⚠️ Error enviando mensaje WS: {e}")
+                    print(f"❌ Error guardando en DB: {e}")
+                    conn.rollback()
+                    continue
+
+                msg_obj = {
+                    "id": row[0],
+                    "consulta_id": consulta_id,
+                    "remitente_tipo": remitente_tipo,
+                    "remitente_id": remitente_id,
+                    "mensaje": mensaje,
+                    "creado_en": format_datetime_arg(row[1])
+                }
+
+                print(f"📤 Reenviando a {len(active_chats[consulta_id])} sockets: {msg_obj}")
+                for conn_ws in active_chats[consulta_id]:
+                    try:
+                        await conn_ws.send_json(msg_obj)
+                    except Exception as e:
+                        print(f"⚠️ Error enviando a cliente: {e}")
+
+            except Exception as e:
+                print(f"⚠️ Error en loop WS: {e}")
+                break
 
     except WebSocketDisconnect:
-        print(f"❌ Cliente desconectado de chat {consulta_id}: {remitente_tipo} {remitente_id}")
+        print(f"❌ WS desconectado consulta {consulta_id}: {remitente_tipo} {remitente_id}")
+    finally:
         active_chats[consulta_id].remove(websocket)
         if not active_chats[consulta_id]:
             del active_chats[consulta_id]
-    finally:
         cur.close()
         conn.close()
