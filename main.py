@@ -1757,6 +1757,41 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                     except Exception as e:
                         print(f"⚠️ Error enviando a cliente: {e}")
 
+                # 🔔 Notificación push al otro participante
+                try:
+                    if remitente_tipo == "paciente":
+                        cur.execute("""
+                            SELECT m.fcm_token
+                            FROM consultas c
+                            JOIN medicos m ON c.medico_id = m.id
+                            WHERE c.id = %s
+                        """, (consulta_id,))
+                        row_push = cur.fetchone()
+                        if row_push and row_push[0]:
+                            enviar_push(
+                                row_push[0],
+                                "💬 Nuevo mensaje de paciente",
+                                mensaje[:80],
+                                {"tipo": "chat", "consulta_id": str(consulta_id)}
+                            )
+                    else:  # médico/enfermero → notificar paciente
+                        cur.execute("""
+                            SELECT u.fcm_token
+                            FROM consultas c
+                            JOIN users u ON u.id = c.paciente_uuid
+                            WHERE c.id = %s
+                        """, (consulta_id,))
+                        row_push = cur.fetchone()
+                        if row_push and row_push[0]:
+                            enviar_push(
+                                row_push[0],
+                                "💬 Nuevo mensaje del profesional",
+                                mensaje[:80],
+                                {"tipo": "chat", "consulta_id": str(consulta_id)}
+                            )
+                except Exception as e:
+                    print(f"⚠️ Error enviando push: {e}")
+
             except Exception as e:
                 print(f"⚠️ Error en loop WS: {e}")
                 break
@@ -1769,6 +1804,7 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
             del active_chats[consulta_id]
         cur.close()
         conn.close()
+
 @app.get("/consultas/{consulta_id}/chat")
 def historial_chat(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
