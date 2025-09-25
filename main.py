@@ -411,10 +411,13 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         print("⚠️ Error enviando email validación:", e)
 
     return {
-        "mensaje": f"Registro exitoso como {tipo}. Revisa tu correo para activar la cuenta.",
+        "ok": True,
+        "mensaje": f"Registro exitoso como {tipo}. ✅ Revisa tu correo para activar tu cuenta.",
         "medico_id": medico_id,
+        "full_name": full_name,
         "tipo": tipo
     }
+
 
 
 
