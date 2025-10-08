@@ -1116,6 +1116,12 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
         )
 
     db.commit()
+    send_event("consulta_finalizada", {
+        "consulta_id": consulta_id,
+        "medico_id": medico_id,
+        "estado": "finalizada",
+        "fecha_fin": datetime.now().isoformat()
+    })
 
     return {
         "msg": "Consulta finalizada",
