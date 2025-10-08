@@ -1992,62 +1992,67 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
           font-family: 'Helvetica', Arial, sans-serif;
           background-color: #f9fafb;
           color: #1f2937;
-          padding: 20px;
-          max-width: 720px;
+          padding: 24px;
+          max-width: 750px;
           margin: auto;
-          line-height: 1.6;
-          position: relative;
+          line-height: 1.7;
+        }}
+        .card {{
+          background: white;
+          border-radius: 12px;
+          padding: 30px 35px;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.08);
         }}
         .header {{
           display: flex;
           align-items: center;
-          margin-bottom: 10px;
+          gap: 12px;
+          margin-bottom: 20px;
         }}
         .header img {{
           width: 60px;
           height: 60px;
-          margin-right: 15px;
         }}
         .title {{
           color: #14B8A6;
-          font-size: 22px;
+          font-size: 24px;
           font-weight: bold;
         }}
         hr {{
           border: none;
           border-top: 2px solid #14B8A6;
-          margin: 10px 0 20px;
+          margin: 15px 0 25px;
         }}
         .section-title {{
           color: #14B8A6;
           font-weight: bold;
-          margin-top: 25px;
-          margin-bottom: 5px;
-          font-size: 16px;
+          font-size: 17px;
+          margin-top: 28px;
+          margin-bottom: 8px;
         }}
         .label {{
           font-weight: bold;
         }}
+        p {{
+          margin: 6px 0;
+        }}
         ul {{
-          margin: 5px 0 0 20px;
+          margin: 10px 0 0 25px;
         }}
         li {{
-          margin-bottom: 6px;
+          margin-bottom: 8px;
         }}
         .firma {{
-          margin-top: 40px;
+          margin-top: 45px;
+          text-align: left;
         }}
         .firma img {{
-          width: 150px;
-          height: auto;
+          width: 160px;
+          margin-top: 6px;
         }}
         .qr {{
-          position: absolute;
-          right: 25px;
-          bottom: 100px;
-          text-align: center;
-          font-size: 12px;
-          color: #6b7280;
+          text-align: right;
+          margin-top: 30px;
         }}
         .qr img {{
           width: 90px;
@@ -2055,13 +2060,13 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         }}
         footer {{
           text-align: center;
-          color: #94a3b8;
+          color: #9ca3af;
           font-size: 13px;
-          margin-top: 60px;
+          margin-top: 50px;
         }}
         @media (max-width: 600px) {{
-          body {{
-            padding: 15px;
+          .card {{
+            padding: 20px;
           }}
           .header img {{
             width: 50px;
@@ -2074,45 +2079,47 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
       </style>
     </head>
     <body>
-      <div class="header">
-        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo">
-        <div class="title">Receta Médica Digital</div>
-      </div>
-      <hr>
+      <div class="card">
+        <div class="header">
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo">
+          <div class="title">Receta Médica Digital</div>
+        </div>
+        <hr>
 
-      <p><span class="label">Médico:</span> {receta['medico_nombre']}<br>
-         <span class="label">Especialidad:</span> {receta['especialidad']}<br>
-         <span class="label">Matrícula:</span> {receta['matricula']}<br>
-         <span class="label">Fecha:</span> {fecha}</p>
+        <p><span class="label">Médico:</span> {receta['medico_nombre']}<br>
+           <span class="label">Especialidad:</span> {receta['especialidad']}<br>
+           <span class="label">Matrícula:</span> {receta['matricula']}<br>
+           <span class="label">Fecha:</span> {fecha}</p>
 
-      <div class="section-title">Paciente</div>
-      <p>
-        <span class="label">Nombre:</span> {receta['paciente_nombre']}<br>
-        <span class="label">DNI:</span> {receta['dni']}<br>
-        <span class="label">Obra social:</span> {receta['obra_social'] or '—'}<br>
-        <span class="label">Credencial:</span> {receta['nro_credencial'] or '—'}
-      </p>
+        <div class="section-title">Paciente</div>
+        <p>
+          <span class="label">Nombre:</span> {receta['paciente_nombre']}<br>
+          <span class="label">DNI:</span> {receta['dni']}<br>
+          <span class="label">Obra social:</span> {receta['obra_social'] or '—'}<br>
+          <span class="label">Credencial:</span> {receta['nro_credencial'] or '—'}
+        </p>
 
-      <div class="section-title">Diagnóstico</div>
-      <p>{receta['diagnostico'] or '—'}</p>
+        <div class="section-title">Diagnóstico</div>
+        <p>{receta['diagnostico'] or '—'}</p>
 
-      <div class="section-title">Rp / Indicaciones</div>
-      <ul>
-        {''.join([
-          f"<li><b>{m['nombre']}</b>: {m['dosis']}, {m['frecuencia']}, {m['duracion']}</li>"
-          for m in medicamentos
-        ])}
-      </ul>
+        <div class="section-title">Rp / Indicaciones</div>
+        <ul>
+          {''.join([
+            f"<li><b>{m['nombre']}</b>: {m['dosis']}, {m['frecuencia']}, {m['duracion']}</li>"
+            for m in medicamentos
+          ])}
+        </ul>
 
-      <div class="firma">
-        <p><b>Firma digital:</b></p>
-        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png" alt="Firma digital">
-        <p>Documento firmado electrónicamente conforme Ley 25.506.</p>
-      </div>
+        <div class="firma">
+          <p><span class="label">Firma digital:</span></p>
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png" alt="Firma digital">
+          <p style="font-size:13px; color:#4b5563;">Documento firmado electrónicamente conforme Ley 25.506.</p>
+        </div>
 
-      <div class="qr">
-        <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{receta_id}" alt="QR">
-        <div>Verificar autenticidad<br>docya.com.ar/ver_receta/{receta_id}</div>
+        <div class="qr">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{receta_id}" alt="QR">
+          <p style="font-size:12px; color:#6b7280;">Verificar autenticidad<br>docya.com.ar/ver_receta/{receta_id}</p>
+        </div>
       </div>
 
       <footer>© {datetime.now().year} DocYa — Atención médica a domicilio</footer>
