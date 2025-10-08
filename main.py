@@ -1300,6 +1300,14 @@ def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
         """, (receta_id, m["nombre"], m["dosis"], m["frecuencia"], m["duracion"]))
 
     db.commit()
+    send_event("receta_creada", {
+        "receta_id": receta_id,
+        "consulta_id": consulta_id,
+        "medico_id": data.medico_id,
+        "paciente_uuid": data.paciente_uuid,
+        "diagnostico": data.diagnostico
+    })
+
     return {"ok": True, "receta_id": receta_id}
 
 
