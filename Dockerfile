@@ -28,12 +28,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-
-
-# 🚀 Fijamos puerto 8080 directamente
+# 🚀 Puerto fijo 8080 (Railway lo redirige automáticamente)
 ENV PORT=8080
 EXPOSE 8080
 
-# Ejecutar Uvicorn fijo en 8080 (Railway redirige automáticamente)
 CMD ["bash", "-c", "uvicorn main:app --host 0.0.0.0 --port 8080"]
+
 
