@@ -28,8 +28,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Permisos al script
-RUN chmod +x /app/start.sh
+
 
 # 🚀 Fijamos puerto 8080 directamente
 ENV PORT=8080
