@@ -1190,78 +1190,126 @@ def crear_certificado(consulta_id:int,data:CertificadoIn,db=Depends(get_db)):
     cur=db.cursor();cur.execute("INSERT INTO certificados (consulta_id,medico_id,paciente_uuid,contenido) VALUES (%s,%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid,data.contenido))
     row=cur.fetchone()[0];db.commit();return {"ok":True,"certificado_id":row}
 
-from fastapi import UploadFile, File, Form
-from fastapi.responses import JSONResponse
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfgen import canvas
-import cloudinary.uploader
-import io
-from datetime import datetime
+from fastapi import FastAPI, Depends
+from fastapi.responses import FileResponse, Response
+from sqlalchemy.orm import Session
+from weasyprint import HTML, CSS
+import tempfile
+import os
 
-# ---------------------------
-# ✅ ENDPOINT PRINCIPAL
-# ---------------------------
-@app.post("/consultas/{consulta_id}/certificado_pdf")
-async def generar_certificado_pdf(
-    consulta_id: int,
-    medico_id: int = Form(...),
-    paciente_uuid: str = Form(...),
-    motivo: str = Form(...),
-    firma: UploadFile = File(...)
-):
+@app.post("/consultas/{consulta_id}/certificado")
+def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depends(get_db)):
+    """
+    Genera un certificado médico profesional DocYa en PDF y lo abre directamente en el navegador.
+    """
+    medico_id = data.get("medico_id")
+    paciente_uuid = data.get("paciente_uuid")
+    diagnostico = data.get("diagnostico")
+    reposo_dias = data.get("reposo_dias")
+    observaciones = data.get("observaciones")
+
+    logo_url = "https://res.cloudinary.com/docya/image/upload/v1726700000/logo_docya.png"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Certificado Médico</title>
+        <style>
+            body {{
+                font-family: 'Helvetica', sans-serif;
+                background-color: #fff;
+                color: #222;
+                padding: 60px;
+                line-height: 1.6;
+            }}
+            .header {{
+                text-align: center;
+                border-bottom: 2px solid #14B8A6;
+                padding-bottom: 10px;
+                margin-bottom: 30px;
+            }}
+            .logo {{
+                height: 60px;
+            }}
+            .titulo {{
+                font-size: 24px;
+                color: #14B8A6;
+                font-weight: bold;
+                margin-top: 10px;
+            }}
+            .box {{
+                border: 1px solid #14B8A6;
+                border-radius: 8px;
+                padding: 20px;
+                background-color: #f9fdfc;
+                margin-top: 20px;
+            }}
+            .datos strong {{
+                color: #000;
+            }}
+            .firma {{
+                margin-top: 80px;
+                text-align: right;
+                font-size: 14px;
+            }}
+            .footer {{
+                text-align: center;
+                margin-top: 60px;
+                color: #999;
+                font-size: 12px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="{logo_url}" class="logo">
+            <div class="titulo">CERTIFICADO MÉDICO</div>
+        </div>
+
+        <div class="box">
+            <p><strong>Paciente:</strong> {paciente_uuid}</p>
+            <p><strong>Diagnóstico:</strong> {diagnostico}</p>
+            <p><strong>Reposo indicado:</strong> {reposo_dias} días</p>
+            <p><strong>Observaciones:</strong> {observaciones or 'Sin observaciones adicionales.'}</p>
+        </div>
+
+        <div class="firma">
+            <p>______________________________________</p>
+            <p>Médico ID: {medico_id}</p>
+            <p>Firma digital DocYa</p>
+        </div>
+
+        <div class="footer">
+            DocYa - Atención médica domiciliaria © 2025
+        </div>
+    </body>
+    </html>
+    """
+
     try:
-        # 🖊️ Guardar firma temporal en memoria
-        firma_bytes = await firma.read()
-
-        # 📄 Crear PDF en memoria
-        buffer = io.BytesIO()
-        c = canvas.Canvas(buffer, pagesize=A4)
-        width, height = A4
-
-        # Título
-        c.setFont("Helvetica-Bold", 18)
-        c.drawCentredString(width / 2, height - 80, "CERTIFICADO MÉDICO")
-
-        # Datos principales
-        c.setFont("Helvetica", 12)
-        c.drawString(50, height - 140, f"Consulta N°: {consulta_id}")
-        c.drawString(50, height - 160, f"Paciente UUID: {paciente_uuid}")
-        c.drawString(50, height - 180, f"Médico ID: {medico_id}")
-        c.drawString(50, height - 200, f"Motivo: {motivo}")
-        c.drawString(50, height - 220, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
-
-        # Firma
-        firma_path = "/tmp/firma.png"
-        with open(firma_path, "wb") as f:
-            f.write(firma_bytes)
-
-        c.drawImage(firma_path, 50, 100, width=200, height=80, mask="auto")
-        c.drawString(50, 90, "Firma del médico")
-
-        c.showPage()
-        c.save()
-
-        buffer.seek(0)
-
-        # ☁️ Subir a Cloudinary
-        result = cloudinary.uploader.upload(
-            buffer,
-            resource_type="raw",
-            folder="certificados",
-            public_id=f"certificado_{consulta_id}",
-            overwrite=True,
-            format="pdf"
+        # 🧾 Generar PDF temporal
+        tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+        HTML(string=html_content).write_pdf(
+            tmp_pdf.name,
+            stylesheets=[CSS(string="body { font-family: Helvetica, sans-serif; }")]
         )
 
-        url_pdf = result.get("secure_url")
+        # 📤 Leer PDF y devolverlo al navegador
+        with open(tmp_pdf.name, "rb") as f:
+            pdf_bytes = f.read()
+        os.remove(tmp_pdf.name)
 
-        return {"status": "ok", "consulta_id": consulta_id, "pdf_url": url_pdf}
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f"inline; filename=certificado_{consulta_id}.pdf"}
+        )
 
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": str(e)},
-        )
+        return Response(content=f"Error al generar certificado: {str(e)}", status_code=500)
+
 
 # ---------------------------
 # ✅ ALIAS PARA COMPATIBILIDAD
