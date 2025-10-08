@@ -1423,6 +1423,161 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
         "fecha_actualizacion": direccion[10],
     }
 
+
+# ====================================================
+# 💊 GENERAR RECETA PDF PROFESIONAL
+# ====================================================
+from fastapi import Form, UploadFile, File
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+import io, qrcode
+from datetime import datetime
+
+@app.post("/consultas/{consulta_id}/receta_pdf")
+async def generar_receta_pdf(
+    consulta_id: int,
+    medico_id: int = Form(...),
+    paciente_uuid: str = Form(...),
+    obra_social: str = Form(""),
+    nro_credencial: str = Form(""),
+    diagnostico: str = Form(""),
+    firma: UploadFile = File(None)
+):
+    try:
+        # Buscar datos del médico y paciente
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        cur = conn.cursor()
+        cur.execute("SELECT full_name, matricula, especialidad FROM medicos WHERE id=%s", (medico_id,))
+        medico = cur.fetchone()
+        cur.execute("SELECT full_name, dni, fecha_nacimiento FROM users WHERE id=%s", (paciente_uuid,))
+        paciente = cur.fetchone()
+        conn.close()
+
+        if not medico or not paciente:
+            raise Exception("Datos de médico o paciente no encontrados")
+
+        medico_nombre, matricula, especialidad = medico
+        paciente_nombre, paciente_dni, paciente_nac = paciente
+
+        # Crear PDF
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=A4)
+        width, height = A4
+
+        # Fondo y encabezado
+        c.setFillColorRGB(1, 1, 1)
+        c.rect(0, 0, width, height, fill=1)
+        c.drawImage(
+            "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png",
+            40, height - 90, width=140, preserveAspectRatio=True, mask='auto'
+        )
+
+        c.setFont("Helvetica-Bold", 18)
+        c.setFillColor(colors.HexColor("#14B8A6"))
+        c.drawString(200, height - 70, "Receta Médica Digital")
+
+        # Línea divisoria
+        c.setStrokeColor(colors.HexColor("#14B8A6"))
+        c.setLineWidth(1)
+        c.line(40, height - 95, width - 40, height - 95)
+
+        # Datos del médico
+        c.setFillColor(colors.black)
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, height - 120, f"Médico: {medico_nombre}")
+        c.setFont("Helvetica", 11)
+        c.drawString(40, height - 135, f"Especialidad: {especialidad}")
+        c.drawString(40, height - 150, f"Matrícula: {matricula}")
+        c.drawString(40, height - 165, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+
+        # Datos del paciente
+        y = height - 200
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, y, "Paciente:")
+        c.setFont("Helvetica", 11)
+        c.drawString(120, y, f"{paciente_nombre}")
+        y -= 18
+        c.drawString(40, y, f"DNI: {paciente_dni or '—'}")
+        c.drawString(200, y, f"Fecha nac.: {paciente_nac.strftime('%d/%m/%Y') if paciente_nac else '—'}")
+        y -= 18
+        c.drawString(40, y, f"Obra social: {obra_social or '—'}")
+        c.drawString(250, y, f"Credencial: {nro_credencial or '—'}")
+
+        # Diagnóstico
+        y -= 35
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, y, "Diagnóstico:")
+        y -= 18
+        c.setFont("Helvetica", 11)
+        c.drawString(60, y, diagnostico or "—")
+
+        # Medicamentos
+        y -= 35
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, y, "Rp / Indicaciones:")
+        y -= 20
+
+        # Consultar medicamentos de la receta
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT nombre, dosis, frecuencia, duracion
+            FROM receta_items ri
+            JOIN recetas r ON r.id = ri.receta_id
+            WHERE r.consulta_id = %s AND r.medico_id = %s
+        """, (consulta_id, medico_id))
+        medicamentos = cur.fetchall()
+        conn.close()
+
+        c.setFont("Helvetica", 11)
+        for m in medicamentos:
+            y -= 18
+            if y < 100:  # salto de página si se llena
+                c.showPage()
+                y = height - 100
+            c.drawString(60, y, f"- {m[0]}  ({m[1]}), {m[2]}, {m[3]}")
+
+        # Firma
+        y -= 60
+        if firma:
+            firma_bytes = await firma.read()
+            firma_img = ImageReader(io.BytesIO(firma_bytes))
+            c.drawImage(firma_img, 60, y - 20, width=160, height=60, mask="auto")
+        c.setFont("Helvetica", 10)
+        c.drawString(60, y - 30, "Firma digital del profesional")
+
+        # QR con link de verificación
+        qr_data = f"https://docya.com.ar/ver_receta/{consulta_id}"
+        qr_img = qrcode.make(qr_data)
+        qr_buf = io.BytesIO()
+        qr_img.save(qr_buf)
+        qr_buf.seek(0)
+        c.drawImage(ImageReader(qr_buf), width - 150, 90, width=100, height=100)
+        c.setFont("Helvetica", 8)
+        c.drawString(width - 150, 80, "Verificar autenticidad")
+
+        c.showPage()
+        c.save()
+        buffer.seek(0)
+
+        # Subir a Cloudinary
+        result = cloudinary.uploader.upload(
+            buffer,
+            resource_type="raw",
+            folder="recetas",
+            public_id=f"receta_{consulta_id}",
+            overwrite=True,
+            format="pdf"
+        )
+
+        return {"status": "ok", "consulta_id": consulta_id, "pdf_url": result.get("secure_url")}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ---------- USUARIOS ----------
 @app.get("/usuarios/{user_id}")
 def alias_usuario(user_id: str, db=Depends(get_db)):
