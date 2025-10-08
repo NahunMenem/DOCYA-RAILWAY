@@ -1963,7 +1963,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         FROM recetas r
         JOIN consultas c ON c.id = r.consulta_id
         JOIN medicos m ON m.id = c.medico_id
-        JOIN pacientes p ON p.paciente_uuid = r.paciente_uuid
+        JOIN users u ON u.id = r.paciente_uuid
         WHERE r.id = %s
     """, (receta_id,))
     receta = cur.fetchone()
