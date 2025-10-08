@@ -1,9 +1,6 @@
-# -------------------------
-# Etapa base
-# -------------------------
 FROM python:3.12-slim
 
-# Instala dependencias del sistema necesarias (PDF, fuentes, etc.)
+# Dependencias del sistema necesarias
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2 \
@@ -24,22 +21,20 @@ RUN apt-get update && apt-get install -y \
     bash \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Establece el directorio de trabajo
 WORKDIR /app
 
-# Copia requirements e instala dependencias Python
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copia el resto de los archivos del proyecto
 COPY . .
 
-# Da permisos de ejecución al script start.sh
+# Permisos al script
 RUN chmod +x /app/start.sh
 
-# Expone el puerto 8080 (Railway lo redirige internamente)
+# 🚀 Fijamos puerto 8080 directamente
+ENV PORT=8080
 EXPOSE 8080
 
-# Ejecuta el script bash que arranca uvicorn con el puerto real
-CMD ["bash", "/app/start.sh"]
+# Ejecutar Uvicorn fijo en 8080 (Railway redirige automáticamente)
+CMD ["bash", "-c", "uvicorn main:app --host 0.0.0.0 --port 8080"]
 
