@@ -131,6 +131,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+
 # ====================================================
 # 🔑 AUTENTICACIÓN (PACIENTES)
 # ====================================================
@@ -222,6 +224,19 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "user_id": str(user_id),  # lo mando como string por si es UUID
         "full_name": full_name,
         "role": "patient"
+    }
+
+# ====================================================
+# 🟢 MÉDICOS CONECTADOS (ENDPOINT)
+# ====================================================
+@app.get("/auth/medicos_online")
+def medicos_online():
+    """
+    Devuelve la cantidad de médicos actualmente conectados via WebSocket.
+    """
+    return {
+        "total": len(active_medicos),
+        "ids": list(active_medicos.keys())
     }
 
 # --- Activación paciente ---
