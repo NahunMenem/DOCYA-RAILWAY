@@ -1213,6 +1213,87 @@ async def generar_certificado_pdf_alias(
 
 
 # --- Recetas ---
+from fastapi.responses import HTMLResponse
+import json
+
+@app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
+def ver_receta(receta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
+               c.id AS consulta_id,
+               m.nombre AS medico_nombre, m.especialidad, m.matricula,
+               p.nombre AS paciente_nombre, p.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON m.id = c.medico_id
+        JOIN pacientes p ON p.uuid = r.paciente_uuid
+        WHERE r.id = %s
+    """, (receta_id,))
+    receta = cur.fetchone()
+
+    if not receta:
+        return HTMLResponse("<h2>❌ Receta no encontrada</h2>", status_code=404)
+
+    cur.execute("SELECT nombre, dosis, frecuencia, duracion FROM receta_items WHERE receta_id = %s", (receta_id,))
+    medicamentos = cur.fetchall()
+
+    html = f"""
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <title>Receta Digital DocYa</title>
+      <style>
+        body {{
+          font-family: 'Arial', sans-serif;
+          background: #f5f9f9;
+          color: #333;
+          padding: 30px;
+          line-height: 1.6;
+        }}
+        h2 {{
+          color: #14B8A6;
+          border-bottom: 2px solid #14B8A6;
+          padding-bottom: 4px;
+        }}
+        .label {{ color: #14B8A6; font-weight: bold; }}
+        .box {{
+          background: white;
+          border-radius: 12px;
+          padding: 20px;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+        ul {{ margin-top: 8px; }}
+      </style>
+    </head>
+    <body>
+      <h2>Receta Médica Digital</h2>
+      <div class="box">
+        <p><span class="label">Médico:</span> {receta['medico_nombre']}<br>
+           <span class="label">Especialidad:</span> {receta['especialidad']}<br>
+           <span class="label">Matrícula:</span> {receta['matricula']}</p>
+
+        <p><span class="label">Paciente:</span> {receta['paciente_nombre']}<br>
+           <span class="label">DNI:</span> {receta['dni']}<br>
+           <span class="label">Obra social:</span> {receta['obra_social'] or '—'}<br>
+           <span class="label">Credencial:</span> {receta['nro_credencial'] or '—'}</p>
+
+        <p><span class="label">Diagnóstico:</span> {receta['diagnostico'] or '—'}</p>
+
+        <p><span class="label">Rp / Indicaciones:</span></p>
+        <ul>
+          {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
+        </ul>
+      </div>
+
+      <p style="text-align:center; margin-top:40px; color:#999;">
+        docya.com.ar — Firma digital médica
+      </p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
 class RecetaIn(BaseModel):
     medico_id: int
     paciente_uuid: str
