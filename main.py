@@ -1361,14 +1361,8 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
         "telefono": row[4],
     }
 
-# ====================================================
-# 🔔 NOTIFICACIONES Y WS
-# ====================================================
 
-# Diccionario para conexiones activas de médicos
-active_medicos: Dict[int, WebSocket] = {}
-# Diccionario para conexiones de chat por consulta
-active_chats: Dict[int, list[WebSocket]] = {}  # clave = consulta_id
+
 
 
 import asyncio
