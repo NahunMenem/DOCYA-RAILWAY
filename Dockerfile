@@ -3,7 +3,7 @@
 # -------------------------
 FROM python:3.12-slim
 
-# Dependencias necesarias (para weasyprint, pdfkit, etc)
+# Dependencias necesarias (para PDF, etc)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2 \
@@ -32,7 +32,7 @@ COPY . .
 
 EXPOSE 8080
 
-# 🔧 Railway asigna $PORT automáticamente.
-# Usamos "sh -c" para que se expanda correctamente.
-CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
+# 🔥 Comando final (sin comillas ni shell): Railway inyecta $PORT automáticamente.
+ENTRYPOINT ["uvicorn"]
+CMD ["main:app", "--host", "0.0.0.0", "--port", "8080"]
 
