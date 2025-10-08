@@ -2082,7 +2082,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     <body>
       <div class="card">
         <div class="header">
-          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" alt="DocYa Logo">
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo">
           <div class="title">Receta Médica Digital</div>
         </div>
         <hr>
