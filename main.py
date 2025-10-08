@@ -1951,26 +1951,24 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 # 🩺 Nueva ruta: Ver receta digital pública (DocYa)
 # ==========================================================
 from fastapi.responses import HTMLResponse
-
 from psycopg2.extras import RealDictCursor
 
 @app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
 def ver_receta(receta_id: int, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
-    SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
-           c.id AS consulta_id,
-           m.full_name AS medico_nombre, m.especialidad, m.matricula,
-           u.full_name AS paciente_nombre, u.dni
-    FROM recetas r
-    JOIN consultas c ON c.id = r.consulta_id
-    JOIN medicos m ON m.id = c.medico_id
-    JOIN users u ON u.id = r.paciente_uuid
-    WHERE r.id = %s
-""", (receta_id,))
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
+               c.id AS consulta_id,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON m.id = c.medico_id
+        JOIN users u ON u.id = r.paciente_uuid
+        WHERE r.id = %s
+    """, (receta_id,))
 
     receta = cur.fetchone()
-
     if not receta:
         return HTMLResponse("<h2>❌ Receta no encontrada</h2>", status_code=404)
 
@@ -2033,7 +2031,10 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
 
         <p><span class="label">💊 Indicaciones:</span></p>
         <ul>
-          {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
+          {''.join([
+              f"<li><b>{m['nombre']}</b>: {m['dosis']}, {m['frecuencia']}, {m['duracion']}</li>"
+              for m in medicamentos
+          ])}
         </ul>
       </div>
 
@@ -2044,6 +2045,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     </html>
     """
     return HTMLResponse(html)
+
 
     
 #pagina web 
