@@ -2006,17 +2006,19 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         .header {{
           display: flex;
           align-items: center;
-          gap: 12px;
+          gap: 15px;
           margin-bottom: 20px;
         }}
         .header img {{
-          width: 60px;
-          height: 60px;
+          height: 55px;
+          width: auto;
+          object-fit: contain;
         }}
         .title {{
           color: #14B8A6;
           font-size: 24px;
           font-weight: bold;
+          white-space: nowrap;
         }}
         hr {{
           border: none;
@@ -2069,8 +2071,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
             padding: 20px;
           }}
           .header img {{
-            width: 50px;
-            height: 50px;
+            height: 45px;
           }}
           .title {{
             font-size: 20px;
@@ -2081,7 +2082,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     <body>
       <div class="card">
         <div class="header">
-          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo">
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" alt="DocYa Logo">
           <div class="title">Receta Médica Digital</div>
         </div>
         <hr>
