@@ -1,4 +1,6 @@
+# force rebuild
 FROM python:3.12-slim
+
 
 # 🔧 Dependencias de sistema necesarias para WeasyPrint
 RUN apt-get update && apt-get install -y \
