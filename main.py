@@ -438,6 +438,14 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         enviar_email_validacion(data.email.lower(), medico_id, full_name)
     except Exception as e:
         print("⚠️ Error enviando email validación:", e)
+    send_event("medico_registrado", {
+        "medico_id": medico_id,
+        "nombre": full_name,
+        "email": data.email.lower(),
+        "especialidad": data.especialidad,
+        "tipo": tipo
+    })
+    
 
     return {
         "ok": True,
