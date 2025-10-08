@@ -1578,6 +1578,351 @@ async def generar_receta_pdf(
         return {"error": str(e)}
 
 
+# ====================================================
+# 🌐 VER RECETA DIGITAL (para QR público)
+# ====================================================
+from fastapi.responses import HTMLResponse
+
+@app.get("/ver_receta/{consulta_id}", response_class=HTMLResponse)
+def ver_receta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+
+    # Datos principales
+    cur.execute("""
+        SELECT r.id, r.consulta_id, r.paciente_uuid, r.medico_id,
+               r.obra_social, r.nro_credencial, r.diagnostico,
+               c.creado_en, m.full_name, m.matricula, m.especialidad,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON r.medico_id = m.id
+        JOIN users u ON r.paciente_uuid = u.id
+        WHERE c.id = %s
+    """, (consulta_id,))
+    receta = cur.fetchone()
+    if not receta:
+        return HTMLResponse("<h2>❌ Receta no encontrada</h2>", status_code=404)
+
+    (
+        receta_id, consulta_id, paciente_uuid, medico_id,
+        obra_social, nro_credencial, diagnostico,
+        creado_en, medico_nombre, matricula, especialidad,
+        paciente_nombre, paciente_dni
+    ) = receta
+
+    # Medicamentos
+    cur.execute("""
+        SELECT nombre, dosis, frecuencia, duracion
+        FROM receta_items ri
+        JOIN recetas r ON r.id = ri.receta_id
+        WHERE r.consulta_id = %s
+    """, (consulta_id,))
+    medicamentos = cur.fetchall()
+
+    fecha_str = creado_en.strftime("%d/%m/%Y %H:%M")
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Receta #{receta_id} - DocYa</title>
+        <style>
+            body {{
+                font-family: 'Helvetica', Arial, sans-serif;
+                margin: 0;
+                padding: 0;
+                background-color: #f9fafb;
+                color: #222;
+            }}
+            .receta-container {{
+                max-width: 700px;
+                margin: 40px auto;
+                background: white;
+                border-radius: 10px;
+                box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+                padding: 40px 50px;
+            }}
+            .header {{
+                display: flex;
+                align-items: center;
+                justify-content: space-between;
+                border-bottom: 2px solid #14B8A6;
+                padding-bottom: 10px;
+            }}
+            .header img {{
+                height: 60px;
+            }}
+            h1 {{
+                color: #14B8A6;
+                font-size: 22px;
+                margin: 10px 0 0 0;
+            }}
+            .datos {{
+                margin-top: 20px;
+                font-size: 15px;
+                line-height: 1.6;
+            }}
+            .seccion {{
+                margin-top: 30px;
+            }}
+            .titulo {{
+                color: #14B8A6;
+                font-weight: bold;
+                margin-bottom: 8px;
+                font-size: 16px;
+            }}
+            .medicamentos li {{
+                margin-bottom: 6px;
+            }}
+            .firma {{
+                margin-top: 50px;
+                text-align: left;
+            }}
+            .firma img {{
+                height: 80px;
+            }}
+            .pie {{
+                margin-top: 50px;
+                border-top: 1px solid #ccc;
+                padding-top: 10px;
+                text-align: center;
+                font-size: 12px;
+                color: #555;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="receta-container">
+            <div class="header">
+                <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" alt="DocYa">
+                <h1>Receta Médica Digital</h1>
+            </div>
+
+            <div class="datos">
+                <b>Médico:</b> {medico_nombre}<br>
+                <b>Especialidad:</b> {especialidad}<br>
+                <b>Matrícula:</b> {matricula}<br>
+                <b>Fecha:</b> {fecha_str}
+            </div>
+
+            <div class="seccion">
+                <div class="titulo">Paciente</div>
+                <p>
+                    <b>Nombre:</b> {paciente_nombre}<br>
+                    <b>DNI:</b> {paciente_dni or '—'}<br>
+                    <b>Obra social:</b> {obra_social or '—'}<br>
+                    <b>Credencial:</b> {nro_credencial or '—'}
+                </p>
+            </div>
+
+            <div class="seccion">
+                <div class="titulo">Diagnóstico</div>
+                <p>{diagnostico or '—'}</p>
+            </div>
+
+            <div class="seccion">
+                <div class="titulo">Rp / Indicaciones</div>
+                <ul class="medicamentos">
+                    {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
+                </ul>
+            </div>
+
+            <div class="firma">
+                <p><b>Firma digital:</b></p>
+                <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png" alt="Firma">
+                <p style="font-size:13px; color:#555;">
+                    Documento firmado electrónicamente por el profesional.<br>
+                    Conforme Ley 25.506 (Firma Digital).
+                </p>
+            </div>
+
+            <div class="pie">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{consulta_id}" alt="QR"><br>
+                Verificación: <b>docya.com.ar/ver_receta/{consulta_id}</b><br>
+                © {datetime.now().year} DocYa · Atención médica a domicilio
+            </div>
+        </div>
+    </body>
+    </html>
+    """
+
+    return HTMLResponse(content=html)
+# ====================================================
+# 💾 GENERAR PDF DESDE HTML (receta verificada)
+# ====================================================
+from weasyprint import HTML, CSS
+import tempfile
+
+@app.post("/consultas/{consulta_id}/receta_pdf_html")
+def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT r.id, r.consulta_id, r.paciente_uuid, r.medico_id,
+               r.obra_social, r.nro_credencial, r.diagnostico,
+               c.creado_en, m.full_name, m.matricula, m.especialidad,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON r.medico_id = m.id
+        JOIN users u ON r.paciente_uuid = u.id
+        WHERE c.id = %s
+    """, (consulta_id,))
+    receta = cur.fetchone()
+    if not receta:
+        raise HTTPException(status_code=404, detail="Receta no encontrada")
+
+    (
+        receta_id, consulta_id, paciente_uuid, medico_id,
+        obra_social, nro_credencial, diagnostico,
+        creado_en, medico_nombre, matricula, especialidad,
+        paciente_nombre, paciente_dni
+    ) = receta
+
+    cur.execute("""
+        SELECT nombre, dosis, frecuencia, duracion
+        FROM receta_items ri
+        JOIN recetas r ON r.id = ri.receta_id
+        WHERE r.consulta_id = %s
+    """, (consulta_id,))
+    medicamentos = cur.fetchall()
+
+    fecha_str = creado_en.strftime("%d/%m/%Y %H:%M")
+
+    html = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {{
+                font-family: 'Helvetica', Arial, sans-serif;
+                margin: 0;
+                padding: 40px 60px;
+                background-color: white;
+                color: #222;
+                font-size: 13px;
+            }}
+            h1 {{
+                text-align: center;
+                color: #14B8A6;
+                border-bottom: 2px solid #14B8A6;
+                padding-bottom: 5px;
+            }}
+            .header {{
+                text-align: center;
+                margin-bottom: 20px;
+            }}
+            .datos {{
+                margin-top: 10px;
+                line-height: 1.6;
+            }}
+            .titulo {{
+                color: #14B8A6;
+                font-weight: bold;
+                margin-top: 20px;
+                margin-bottom: 5px;
+                font-size: 15px;
+            }}
+            ul {{
+                margin: 0;
+                padding-left: 18px;
+            }}
+            .firma {{
+                margin-top: 50px;
+            }}
+            .firma img {{
+                height: 80px;
+            }}
+            .qr {{
+                position: absolute;
+                right: 60px;
+                bottom: 80px;
+                text-align: center;
+            }}
+            .qr img {{
+                height: 100px;
+            }}
+            .pie {{
+                position: fixed;
+                bottom: 40px;
+                left: 0;
+                width: 100%;
+                text-align: center;
+                font-size: 11px;
+                color: #555;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" height="60"><br>
+            <h1>Receta Médica Digital</h1>
+        </div>
+
+        <div class="datos">
+            <b>Médico:</b> {medico_nombre}<br>
+            <b>Especialidad:</b> {especialidad}<br>
+            <b>Matrícula:</b> {matricula}<br>
+            <b>Fecha:</b> {fecha_str}
+        </div>
+
+        <div class="titulo">Paciente</div>
+        <p>
+            <b>Nombre:</b> {paciente_nombre}<br>
+            <b>DNI:</b> {paciente_dni or '—'}<br>
+            <b>Obra social:</b> {obra_social or '—'}<br>
+            <b>Credencial:</b> {nro_credencial or '—'}
+        </p>
+
+        <div class="titulo">Diagnóstico</div>
+        <p>{diagnostico or '—'}</p>
+
+        <div class="titulo">Rp / Indicaciones</div>
+        <ul>
+            {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
+        </ul>
+
+        <div class="firma">
+            <p><b>Firma digital:</b></p>
+            <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png">
+            <p>Documento firmado electrónicamente conforme Ley 25.506.</p>
+        </div>
+
+        <div class="qr">
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{consulta_id}">
+            <div>Verificación:<br>docya.com.ar/ver_receta/{consulta_id}</div>
+        </div>
+
+        <div class="pie">
+            © {datetime.now().year} DocYa · Atención médica a domicilio
+        </div>
+    </body>
+    </html>
+    """
+
+    # Convertir HTML a PDF
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+        HTML(string=html).write_pdf(tmp_pdf.name, stylesheets=[
+            CSS(string="body { font-family: Helvetica, sans-serif; }")
+        ])
+        tmp_pdf.seek(0)
+        pdf_bytes = tmp_pdf.read()
+
+    # Subir a Cloudinary
+    result = cloudinary.uploader.upload(
+        io.BytesIO(pdf_bytes),
+        resource_type="raw",
+        folder="recetas",
+        public_id=f"receta_html_{consulta_id}",
+        overwrite=True,
+        format="pdf"
+    )
+
+    return {"status": "ok", "pdf_url": result.get("secure_url")}
+
+
 # ---------- USUARIOS ----------
 @app.get("/usuarios/{user_id}")
 def alias_usuario(user_id: str, db=Depends(get_db)):
