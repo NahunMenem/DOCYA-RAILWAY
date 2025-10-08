@@ -20,7 +20,7 @@ reportlab==4.2.2
 # --- Generación HTML y PDF avanzados ---
 weasyprint==62.3
 qrcode==7.4.2
-
+weasyprint==61.0
 # --- (opcional pero recomendado para renderizar QR e imágenes HTML) ---
 Pillow==10.4.0
 
