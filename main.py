@@ -35,6 +35,31 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from zoneinfo import ZoneInfo
 
+# ====================================================
+# 📊 EVENTOS / MONITOREO DOCYA
+# ====================================================
+import requests
+
+MONITORING_URL = os.getenv("MONITORING_URL", "https://docya-monitor-production.up.railway.app/api/events")
+
+def send_event(event_type: str, payload: dict):
+    """
+    Envía un evento al microservicio de monitoreo (docya-monitor)
+    """
+    try:
+        data = {
+            "event_type": event_type,
+            "payload": payload,
+            "source": "docya-backend"
+        }
+        r = requests.post(MONITORING_URL, json=data, timeout=3)
+        if r.status_code != 200:
+            print(f"⚠️ Error enviando evento {event_type}: {r.text}")
+    except Exception as e:
+        print(f"⚠️ Error conectando con docya-monitor: {e}")
+# ====================================================        
+
+
 def format_datetime_arg(dt):
     if not dt:
         return None
