@@ -1716,7 +1716,7 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
     </head>
     <body>
         <div class="header">
-            <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" height="60"><br>
+            <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" height="60"><br>
             <h1>Receta Médica Digital</h1>
         </div>
 
