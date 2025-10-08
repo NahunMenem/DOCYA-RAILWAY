@@ -237,13 +237,12 @@ def register(data: RegisterIn, db=Depends(get_db)):
 # ====================================================
 @app.get("/auth/medicos_online")
 def medicos_online():
-    """
-    Devuelve la cantidad de médicos actualmente conectados via WebSocket.
-    """
+    print(f"🩺 Médicos conectados actualmente: {len(active_medicos)} → {list(active_medicos.keys())}")
     return {
         "total": len(active_medicos),
         "ids": list(active_medicos.keys())
     }
+
 
 # --- Activación paciente ---
 @app.get("/auth/activar_paciente", response_class=HTMLResponse)
