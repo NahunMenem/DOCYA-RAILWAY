@@ -17,4 +17,10 @@ cloudinary==1.41.0
 python-multipart==0.0.9
 jinja2==3.1.4
 reportlab==4.2.2
+# --- Generación HTML y PDF avanzados ---
+weasyprint==62.3
+qrcode==7.4.2
+
+# --- (opcional pero recomendado para renderizar QR e imágenes HTML) ---
+Pillow==10.4.0
 
