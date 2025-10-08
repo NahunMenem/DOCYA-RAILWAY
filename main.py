@@ -1184,18 +1184,12 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
 
 
 # --- Certificados ---
-class CertificadoIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
-@app.post("/consultas/{consulta_id}/certificado")
-def crear_certificado(consulta_id:int,data:CertificadoIn,db=Depends(get_db)):
-    cur=db.cursor();cur.execute("INSERT INTO certificados (consulta_id,medico_id,paciente_uuid,contenido) VALUES (%s,%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid,data.contenido))
-    row=cur.fetchone()[0];db.commit();return {"ok":True,"certificado_id":row}
-
-from fastapi import FastAPI, Depends
-from fastapi.responses import FileResponse, Response
+# --- CERTIFICADO MÉDICO DOCYA ---
+from fastapi import Depends, Response
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from weasyprint import HTML, CSS
-import tempfile
-import os
+import tempfile, os
 
 @app.post("/consultas/{consulta_id}/certificado")
 def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depends(get_db)):
@@ -1208,8 +1202,10 @@ def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depend
     reposo_dias = data.get("reposo_dias")
     observaciones = data.get("observaciones")
 
+    # 🌿 Logo institucional
     logo_url = "https://res.cloudinary.com/docya/image/upload/v1726700000/logo_docya.png"
 
+    # 📄 Plantilla HTML profesional DocYa
     html_content = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -1245,9 +1241,6 @@ def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depend
                 padding: 20px;
                 background-color: #f9fdfc;
                 margin-top: 20px;
-            }}
-            .datos strong {{
-                color: #000;
             }}
             .firma {{
                 margin-top: 80px;
@@ -1296,7 +1289,7 @@ def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depend
             stylesheets=[CSS(string="body { font-family: Helvetica, sans-serif; }")]
         )
 
-        # 📤 Leer PDF y devolverlo al navegador
+        # 📤 Devolver PDF inline en el navegador (sin descarga)
         with open(tmp_pdf.name, "rb") as f:
             pdf_bytes = f.read()
         os.remove(tmp_pdf.name)
@@ -1309,175 +1302,6 @@ def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depend
 
     except Exception as e:
         return Response(content=f"Error al generar certificado: {str(e)}", status_code=500)
-
-
-# ---------------------------
-# ✅ ALIAS PARA COMPATIBILIDAD
-# ---------------------------
-@app.post("/consultas/{consulta_id}/certificado/pdf")
-async def generar_certificado_pdf_alias(
-    consulta_id: int,
-    medico_id: int = Form(...),
-    paciente_uuid: str = Form(...),
-    motivo: str = Form(...),
-    firma: UploadFile = File(...)
-):
-    return await generar_certificado_pdf(
-        consulta_id=consulta_id,
-        medico_id=medico_id,
-        paciente_uuid=paciente_uuid,
-        motivo=motivo,
-        firma=firma,
-    )
-
-
-# --- Certificados medicos -------------------------------------------------------
-from fastapi import FastAPI, Request, Depends
-from fastapi.responses import FileResponse
-from sqlalchemy.orm import Session
-from weasyprint import HTML, CSS
-import tempfile
-import os
-
-# ✅ función auxiliar si no existe
-def get_db():
-    from database import SessionLocal
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-from fastapi import FastAPI, Depends
-from fastapi.responses import FileResponse, JSONResponse
-from sqlalchemy.orm import Session
-from weasyprint import HTML, CSS
-import tempfile, os
-import cloudinary.uploader
-
-@app.post("/consultas/{consulta_id}/certificado")
-def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depends(get_db)):
-    """
-    Genera un certificado médico profesional DocYa en PDF y lo sube a Cloudinary
-    """
-    medico_id = data.get("medico_id")
-    paciente_uuid = data.get("paciente_uuid")
-    diagnostico = data.get("diagnostico")
-    reposo_dias = data.get("reposo_dias")
-    observaciones = data.get("observaciones")
-
-    # 🌿 Logo institucional
-    logo_url = "https://res.cloudinary.com/docya/image/upload/v1726700000/logo_docya.png"
-
-    # 📄 Plantilla HTML profesional DocYa
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <title>Certificado Médico</title>
-        <style>
-            body {{
-                font-family: 'Helvetica', sans-serif;
-                background-color: #fff;
-                color: #222;
-                padding: 60px;
-                line-height: 1.6;
-            }}
-            .header {{
-                text-align: center;
-                border-bottom: 2px solid #14B8A6;
-                padding-bottom: 10px;
-                margin-bottom: 30px;
-            }}
-            .logo {{
-                height: 60px;
-            }}
-            .titulo {{
-                font-size: 24px;
-                color: #14B8A6;
-                font-weight: bold;
-                margin-top: 10px;
-            }}
-            .datos {{
-                font-size: 16px;
-                margin-top: 40px;
-            }}
-            .datos strong {{
-                color: #000;
-            }}
-            .observaciones {{
-                margin-top: 25px;
-                font-style: italic;
-            }}
-            .firma {{
-                margin-top: 80px;
-                text-align: right;
-                font-size: 14px;
-            }}
-            .footer {{
-                text-align: center;
-                margin-top: 60px;
-                color: #999;
-                font-size: 12px;
-            }}
-            .box {{
-                border: 1px solid #14B8A6;
-                border-radius: 8px;
-                padding: 20px;
-                background-color: #f9fdfc;
-                margin-top: 20px;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <img src="{logo_url}" class="logo">
-            <div class="titulo">CERTIFICADO MÉDICO</div>
-        </div>
-
-        <div class="box">
-            <p><strong>Paciente:</strong> {paciente_uuid}</p>
-            <p><strong>Diagnóstico:</strong> {diagnostico}</p>
-            <p><strong>Reposo indicado:</strong> {reposo_dias} días</p>
-            <p class="observaciones"><strong>Observaciones:</strong> {observaciones or 'Sin observaciones adicionales.'}</p>
-        </div>
-
-        <div class="firma">
-            <p>______________________________________</p>
-            <p>Médico ID: {medico_id}</p>
-            <p>Firma digital DocYa</p>
-        </div>
-
-        <div class="footer">
-            DocYa - Atención médica domiciliaria © 2025
-        </div>
-    </body>
-    </html>
-    """
-
-    try:
-        # 🧾 Generar PDF temporal
-        tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        HTML(string=html_content).write_pdf(
-            tmp_pdf.name,
-            stylesheets=[CSS(string="body { font-family: Helvetica, sans-serif; }")]
-        )
-
-        # ☁️ Subir a Cloudinary
-        upload = cloudinary.uploader.upload(tmp_pdf.name, folder="certificados_docya")
-        os.remove(tmp_pdf.name)
-
-        return JSONResponse({"url_pdf": upload["secure_url"]})
-
-    except Exception as e:
-        return JSONResponse({"error": str(e)}, status_code=500)
-
-import cloudinary.uploader
-
-upload = cloudinary.uploader.upload(tmp_pdf.name, folder="certificados")
-os.remove(tmp_pdf.name)
-return {"url_pdf": upload["secure_url"]}
 
 # --- Certificados medicos fin  -------------------------------------------------------
 # --- Recetas ---
