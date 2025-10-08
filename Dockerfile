@@ -1,6 +1,5 @@
 FROM python:3.12-slim
 
-# Dependencias del sistema (PDF, fuentes, etc.)
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2 \
@@ -27,7 +26,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# 🔥 le damos permisos de ejecución al script
+RUN chmod +x start.sh
+
 EXPOSE 8080
 
-# ✅ el truco: usar sh -c y comillas dobles para que se expanda $PORT correctamente
-CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
+# 🚀 Ejecuta el script que fuerza la expansión del puerto
+CMD ["./start.sh"]
