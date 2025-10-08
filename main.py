@@ -1752,7 +1752,9 @@ def ver_receta(consulta_id: int, db=Depends(get_db)):
 # ====================================================
 # 💾 GENERAR PDF DESDE HTML (receta verificada)
 # ====================================================
-from weasyprint import HTML, CSS
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+
 import tempfile
 
 @app.post("/consultas/{consulta_id}/receta_pdf_html")
