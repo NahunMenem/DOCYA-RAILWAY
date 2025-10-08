@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# Dependencias del sistema necesarias
+# Dependencias del sistema
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2 \
@@ -28,10 +28,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# 🚀 Puerto fijo 8080 (Railway lo redirige automáticamente)
-ENV PORT=8080
 EXPOSE 8080
 
-CMD ["bash", "-c", "uvicorn main:app --host 0.0.0.0 --port 8080"]
+# ✅ Ejecutamos directamente Python, sin shell ni variables sin expandir
+CMD ["python", "start.py"]
 
 
