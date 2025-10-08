@@ -1370,6 +1370,8 @@ import asyncio
 # ====================================================
 # 🩺 WEBSOCKET MÉDICO (con ping/pong)
 # ====================================================
+import json
+
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
@@ -1379,14 +1381,22 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     try:
         while True:
             data = await websocket.receive_text()
+            print(f"📩 Mensaje recibido de médico {medico_id}: {data}")
 
-            # 🔄 Mantener viva la conexión
-            if data.strip().lower() == "ping":
+            # 👇 Detectar ping en texto o JSON
+            try:
+                msg = json.loads(data)
+                tipo = msg.get("tipo", "").lower()
+            except json.JSONDecodeError:
+                tipo = data.strip().lower()
+
+            # 🔄 Mantener conexión viva
+            if tipo == "ping":
                 await websocket.send_text("pong")
                 continue
 
-            # 📥 (Opcional) manejar mensajes personalizados
-            print(f"📩 Mensaje recibido de médico {medico_id}: {data}")
+            # 📥 Si llega otro tipo de mensaje, podés manejarlo acá
+            print(f"ℹ️ Mensaje no-ping de médico {medico_id}: {data}")
 
     except Exception as e:
         print(f"❌ Médico desconectado: {medico_id} → {str(e)[:100]}")
