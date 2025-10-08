@@ -1212,19 +1212,42 @@ async def generar_certificado_pdf_alias(
 
 
 
-
-
-
-
 # --- Recetas ---
-class RecetaIn(BaseModel): medico_id:int; paciente_uuid:str; medicamentos:list[dict]
+class RecetaIn(BaseModel):
+    medico_id: int
+    paciente_uuid: str
+    obra_social: Optional[str] = None
+    nro_credencial: Optional[str] = None
+    diagnostico: Optional[str] = None
+    medicamentos: list[dict]
+
 @app.post("/consultas/{consulta_id}/receta")
-def crear_receta(consulta_id:int,data:RecetaIn,db=Depends(get_db)):
-    cur=db.cursor();cur.execute("INSERT INTO recetas (consulta_id,medico_id,paciente_uuid) VALUES (%s,%s,%s) RETURNING id",(consulta_id,data.medico_id,data.paciente_uuid))
-    receta_id=cur.fetchone()[0]
+def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        INSERT INTO recetas (consulta_id, medico_id, paciente_uuid, obra_social, nro_credencial, diagnostico)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (
+        consulta_id,
+        data.medico_id,
+        data.paciente_uuid,
+        data.obra_social,
+        data.nro_credencial,
+        data.diagnostico
+    ))
+
+    receta_id = cur.fetchone()[0]
+
     for m in data.medicamentos:
-        cur.execute("INSERT INTO receta_items (receta_id,nombre,dosis,frecuencia,duracion) VALUES (%s,%s,%s,%s,%s)",(receta_id,m["nombre"],m["dosis"],m["frecuencia"],m["duracion"]))
-    db.commit();return {"ok":True,"receta_id":receta_id}
+        cur.execute("""
+            INSERT INTO receta_items (receta_id, nombre, dosis, frecuencia, duracion)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (receta_id, m["nombre"], m["dosis"], m["frecuencia"], m["duracion"]))
+
+    db.commit()
+    return {"ok": True, "receta_id": receta_id}
+
 
 # --- Notas ---
 class NotaIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
@@ -1472,7 +1495,7 @@ async def generar_receta_pdf(
         c.setFillColorRGB(1, 1, 1)
         c.rect(0, 0, width, height, fill=1)
         c.drawImage(
-            "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png",
+            "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png",
             40, height - 90, width=140, preserveAspectRatio=True, mask='auto'
         )
 
