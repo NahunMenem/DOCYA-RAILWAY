@@ -1721,7 +1721,7 @@ def ver_receta(consulta_id: int, db=Depends(get_db)):
     <body>
         <div class="receta-container">
             <div class="header">
-                <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" alt="DocYa">
+                <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa">
                 <h1>Receta Médica Digital</h1>
             </div>
 
