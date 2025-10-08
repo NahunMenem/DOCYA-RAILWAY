@@ -1952,9 +1952,11 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 # ==========================================================
 from fastapi.responses import HTMLResponse
 
+from psycopg2.extras import RealDictCursor
+
 @app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
 def ver_receta(receta_id: int, db=Depends(get_db)):
-    cur = db.cursor()
+    cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
     SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
            c.id AS consulta_id,
