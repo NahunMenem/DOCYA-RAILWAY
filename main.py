@@ -17,6 +17,12 @@ from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
+# ====================================================
+# 🌐 CONEXIONES ACTIVAS (WEBSOCKETS)
+# ====================================================
+active_medicos: Dict[int, WebSocket] = {}
+active_chats: Dict[int, list[WebSocket]] = {}
+
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
