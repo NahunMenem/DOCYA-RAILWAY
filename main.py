@@ -17,19 +17,6 @@ from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
-
-# ====================================================
-# 🟢 MÉDICOS CONECTADOS (ENDPOINT)
-# ====================================================
-@app.get("/auth/medicos_online")
-def medicos_online():
-    """
-    Devuelve la cantidad de médicos actualmente conectados via WebSocket.
-    """
-    return {
-        "total": len(active_medicos),
-        "ids": list(active_medicos.keys())
-    }
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -239,7 +226,18 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "role": "patient"
     }
 
-
+# ====================================================
+# 🟢 MÉDICOS CONECTADOS (ENDPOINT)
+# ====================================================
+@app.get("/auth/medicos_online")
+def medicos_online():
+    """
+    Devuelve la cantidad de médicos actualmente conectados via WebSocket.
+    """
+    return {
+        "total": len(active_medicos),
+        "ids": list(active_medicos.keys())
+    }
 
 # --- Activación paciente ---
 @app.get("/auth/activar_paciente", response_class=HTMLResponse)
