@@ -1,6 +1,6 @@
 FROM python:3.12-slim
 
-# 🔧 Instalar dependencias del sistema necesarias para WeasyPrint (Debian Trixie)
+# 🔧 Dependencias de sistema necesarias para WeasyPrint
 RUN apt-get update && apt-get install -y \
     build-essential \
     libcairo2 \
@@ -27,6 +27,5 @@ COPY . .
 
 EXPOSE 8080
 
-# ✅ Usar variable PORT correctamente
+# ✅ Usar variable de entorno $PORT correctamente
 CMD sh -c "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8080}"
-
