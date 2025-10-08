@@ -844,6 +844,17 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             })
         except Exception as e:
             print(f"⚠️ Error push: {e}")
+    send_event("consulta_creada", {
+        "consulta_id": consulta_id,
+        "paciente_uuid": str(data.paciente_uuid),
+        "direccion": data.direccion,
+        "lat": data.lat,
+        "lng": data.lng,
+        "tipo": data.tipo,
+        "profesional_id": profesional_id,
+        "distancia_km": round(distancia, 2)
+    })
+        
 
     return {
         "consulta_id": consulta_id,
