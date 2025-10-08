@@ -25,7 +25,8 @@ COPY . .
 
 # Instalar dependencias Python
 RUN pip install --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --use-deprecated=legacy-resolver -r requirements.txt
+
 
 # Exponer el puerto
 EXPOSE 8000
