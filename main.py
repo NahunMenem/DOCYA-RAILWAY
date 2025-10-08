@@ -1956,18 +1956,16 @@ from fastapi.responses import HTMLResponse
 def ver_receta(receta_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-    SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
-           c.id AS consulta_id,
-           m.full_name AS medico_nombre, m.especialidad, m.matricula,
-           p.nombre AS paciente_nombre, p.dni
-    FROM recetas r
-    JOIN consultas c ON c.id = r.consulta_id
-    JOIN medicos m ON m.id = c.medico_id
-    JOIN pacientes p ON p.paciente_uuid = r.paciente_uuid
-    WHERE r.id = %s
-""", (receta_id,))
-
-
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
+               c.id AS consulta_id,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula,
+               p.nombre AS paciente_nombre, p.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON m.id = c.medico_id
+        JOIN pacientes p ON p.paciente_uuid = r.paciente_uuid
+        WHERE r.id = %s
+    """, (receta_id,))
     receta = cur.fetchone()
 
     if not receta:
@@ -2006,12 +2004,8 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
           box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         }}
         .label {{ color: #14B8A6; font-weight: 600; }}
-        ul {{
-          margin-top: 8px;
-        }}
-        li {{
-          margin-bottom: 6px;
-        }}
+        ul {{ margin-top: 8px; }}
+        li {{ margin-bottom: 6px; }}
         footer {{
           margin-top: 40px;
           text-align: center;
@@ -2047,6 +2041,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     </html>
     """
     return HTMLResponse(html)
+
     
 #pagina web 
 # ====================================================
