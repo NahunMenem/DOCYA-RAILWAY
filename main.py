@@ -1957,7 +1957,7 @@ from psycopg2.extras import RealDictCursor
 def ver_receta(receta_id: int, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
-        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico,
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
                c.id AS consulta_id,
                m.full_name AS medico_nombre, m.especialidad, m.matricula,
                u.full_name AS paciente_nombre, u.dni
@@ -1967,7 +1967,6 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         JOIN users u ON u.id = r.paciente_uuid
         WHERE r.id = %s
     """, (receta_id,))
-
     receta = cur.fetchone()
     if not receta:
         return HTMLResponse("<h2>❌ Receta no encontrada</h2>", status_code=404)
@@ -1979,68 +1978,144 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     """, (receta_id,))
     medicamentos = cur.fetchall()
 
+    fecha = receta["creado_en"].strftime("%d/%m/%Y %H:%M") if receta.get("creado_en") else "—"
+
     html = f"""
-    <html>
+    <!DOCTYPE html>
+    <html lang="es">
     <head>
-      <meta charset="utf-8">
-      <title>Receta Digital DocYa</title>
+      <meta charset="UTF-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <title>Receta Médica Digital</title>
       <style>
         body {{
-          font-family: 'Inter', sans-serif;
-          background: #f8fafc;
+          font-family: 'Helvetica', Arial, sans-serif;
+          background-color: #f9fafb;
           color: #1f2937;
-          padding: 40px;
+          padding: 20px;
+          max-width: 720px;
+          margin: auto;
           line-height: 1.6;
+          position: relative;
         }}
-        h2 {{
+        .header {{
+          display: flex;
+          align-items: center;
+          margin-bottom: 10px;
+        }}
+        .header img {{
+          width: 60px;
+          height: 60px;
+          margin-right: 15px;
+        }}
+        .title {{
           color: #14B8A6;
-          border-bottom: 2px solid #14B8A6;
-          padding-bottom: 6px;
-          margin-bottom: 16px;
+          font-size: 22px;
+          font-weight: bold;
         }}
-        .box {{
-          background: white;
-          border-radius: 12px;
-          padding: 24px;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.08);
+        hr {{
+          border: none;
+          border-top: 2px solid #14B8A6;
+          margin: 10px 0 20px;
         }}
-        .label {{ color: #14B8A6; font-weight: 600; }}
-        ul {{ margin-top: 8px; }}
-        li {{ margin-bottom: 6px; }}
-        footer {{
+        .section-title {{
+          color: #14B8A6;
+          font-weight: bold;
+          margin-top: 25px;
+          margin-bottom: 5px;
+          font-size: 16px;
+        }}
+        .label {{
+          font-weight: bold;
+        }}
+        ul {{
+          margin: 5px 0 0 20px;
+        }}
+        li {{
+          margin-bottom: 6px;
+        }}
+        .firma {{
           margin-top: 40px;
+        }}
+        .firma img {{
+          width: 150px;
+          height: auto;
+        }}
+        .qr {{
+          position: absolute;
+          right: 25px;
+          bottom: 100px;
+          text-align: center;
+          font-size: 12px;
+          color: #6b7280;
+        }}
+        .qr img {{
+          width: 90px;
+          height: 90px;
+        }}
+        footer {{
           text-align: center;
           color: #94a3b8;
           font-size: 13px;
+          margin-top: 60px;
+        }}
+        @media (max-width: 600px) {{
+          body {{
+            padding: 15px;
+          }}
+          .header img {{
+            width: 50px;
+            height: 50px;
+          }}
+          .title {{
+            font-size: 20px;
+          }}
         }}
       </style>
     </head>
     <body>
-      <h2>Receta Médica Digital</h2>
-      <div class="box">
-        <p><span class="label">👨‍⚕️ Médico:</span> {receta['medico_nombre']}<br>
-           <span class="label">Especialidad:</span> {receta['especialidad']}<br>
-           <span class="label">Matrícula:</span> {receta['matricula']}</p>
+      <div class="header">
+        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo">
+        <div class="title">Receta Médica Digital</div>
+      </div>
+      <hr>
 
-        <p><span class="label">🧍 Paciente:</span> {receta['paciente_nombre']}<br>
-           <span class="label">DNI:</span> {receta['dni']}<br>
-           <span class="label">Obra social:</span> {receta['obra_social'] or '—'}<br>
-           <span class="label">Credencial:</span> {receta['nro_credencial'] or '—'}</p>
+      <p><span class="label">Médico:</span> {receta['medico_nombre']}<br>
+         <span class="label">Especialidad:</span> {receta['especialidad']}<br>
+         <span class="label">Matrícula:</span> {receta['matricula']}<br>
+         <span class="label">Fecha:</span> {fecha}</p>
 
-        <p><span class="label">📋 Diagnóstico:</span> {receta['diagnostico'] or '—'}</p>
+      <div class="section-title">Paciente</div>
+      <p>
+        <span class="label">Nombre:</span> {receta['paciente_nombre']}<br>
+        <span class="label">DNI:</span> {receta['dni']}<br>
+        <span class="label">Obra social:</span> {receta['obra_social'] or '—'}<br>
+        <span class="label">Credencial:</span> {receta['nro_credencial'] or '—'}
+      </p>
 
-        <p><span class="label">💊 Indicaciones:</span></p>
-        <ul>
-          {''.join([
-              f"<li><b>{m['nombre']}</b>: {m['dosis']}, {m['frecuencia']}, {m['duracion']}</li>"
-              for m in medicamentos
-          ])}
-        </ul>
+      <div class="section-title">Diagnóstico</div>
+      <p>{receta['diagnostico'] or '—'}</p>
+
+      <div class="section-title">Rp / Indicaciones</div>
+      <ul>
+        {''.join([
+          f"<li><b>{m['nombre']}</b>: {m['dosis']}, {m['frecuencia']}, {m['duracion']}</li>"
+          for m in medicamentos
+        ])}
+      </ul>
+
+      <div class="firma">
+        <p><b>Firma digital:</b></p>
+        <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png" alt="Firma digital">
+        <p>Documento firmado electrónicamente conforme Ley 25.506.</p>
       </div>
 
-      <footer>
-        docya.com.ar — Receta firmada digitalmente
-      </footer>
+      <div class="qr">
+        <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{receta_id}" alt="QR">
+        <div>Verificar autenticidad<br>docya.com.ar/ver_receta/{receta_id}</div>
+      </div>
+
+      <footer>© {datetime.now().year} DocYa — Atención médica a domicilio</footer>
     </body>
     </html>
     """
