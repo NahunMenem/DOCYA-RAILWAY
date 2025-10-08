@@ -4,6 +4,8 @@
 import os
 import jwt
 import psycopg2
+from weasyprint import HTML, CSS
+
 import json
 import math
 import requests
