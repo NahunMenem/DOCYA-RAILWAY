@@ -1367,41 +1367,33 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
 import asyncio
 
 # --- WebSocket de médicos ---
+# ====================================================
+# 🩺 WEBSOCKET MÉDICO (con ping/pong)
+# ====================================================
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
     active_medicos[medico_id] = websocket
-
-    # 🔎 Traer tipo del profesional (medico / enfermero)
-    conn = None
-    tipo = "desconocido"
-    try:
-        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-        cur = conn.cursor()
-        cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
-        row = cur.fetchone()
-        if row:
-            tipo = row[0]
-    except Exception as e:
-        print(f"⚠️ No se pudo obtener tipo del profesional {medico_id}: {e}")
-    finally:
-        if conn:
-            conn.close()
-
-    print(f"✅ WebSocket abierto para {tipo} {medico_id}")
+    print(f"✅ Médico conectado: {medico_id} | Total: {len(active_medicos)}")
 
     try:
         while True:
-            try:
-                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
-                if data == '{"tipo":"ping"}':
-                    print(f"❤️ Ping recibido de {tipo} {medico_id}")
-            except asyncio.TimeoutError:
+            data = await websocket.receive_text()
+
+            # 🔄 Mantener viva la conexión
+            if data.strip().lower() == "ping":
+                await websocket.send_text("pong")
                 continue
-    except WebSocketDisconnect:
+
+            # 📥 (Opcional) manejar mensajes personalizados
+            print(f"📩 Mensaje recibido de médico {medico_id}: {data}")
+
+    except Exception as e:
+        print(f"❌ Médico desconectado: {medico_id} → {str(e)[:100]}")
         if medico_id in active_medicos:
             del active_medicos[medico_id]
-            print(f"❌ WebSocket cerrado para {tipo} {medico_id}")
+        print(f"🔻 Total conectados ahora: {len(active_medicos)}")
+
 
 
 
