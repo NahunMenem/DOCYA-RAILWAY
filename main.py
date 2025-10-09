@@ -1339,19 +1339,46 @@ def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
 
 # --- Certificados medicos fin  -------------------------------------------------------
 # ✅ NUEVO ENDPOINT UNIFICADO
+# ✅ NUEVO ENDPOINT UNIFICADO CON FILTRO OPCIONAL
 @app.get("/pacientes/{paciente_id}/archivos")
-def listar_archivos_paciente(paciente_id: str):
+def listar_archivos_paciente(paciente_id: str, tipo: str | None = None):
     """
-    Devuelve todas las recetas y certificados de un paciente,
-    combinadas en una sola lista.
+    Devuelve todas las recetas y certificados de un paciente.
+    Soporta filtro opcional: ?tipo=receta o ?tipo=certificado
     """
     try:
+        # 🔹 Si el filtro pide solo recetas
+        if tipo and tipo.lower() == "receta":
+            recetas = session.query(Receta).filter(Receta.paciente_id == paciente_id).all()
+            return [
+                {
+                    "tipo": "Receta médica",
+                    "doctor": getattr(r, "doctor_nombre", None) or getattr(r, "medico_nombre", "—"),
+                    "fecha": str(getattr(r, "fecha_emision", None) or getattr(r, "created_at", ""))[:10],
+                    "url": f"https://docya.com.ar/ver_receta/{r.id}",
+                }
+                for r in recetas
+            ]
+
+        # 🔹 Si el filtro pide solo certificados
+        if tipo and tipo.lower() == "certificado":
+            certificados = session.query(Certificado).filter(Certificado.paciente_id == paciente_id).all()
+            return [
+                {
+                    "tipo": "Certificado médico",
+                    "doctor": getattr(c, "doctor_nombre", None) or getattr(c, "medico_nombre", "—"),
+                    "fecha": str(getattr(c, "fecha_emision", None) or getattr(c, "created_at", ""))[:10],
+                    "url": f"https://docya.com.ar/ver_certificado/{c.id}",
+                }
+                for c in certificados
+            ]
+
+        # 🔹 Si no hay filtro → traer ambos
         recetas = session.query(Receta).filter(Receta.paciente_id == paciente_id).all()
         certificados = session.query(Certificado).filter(Certificado.paciente_id == paciente_id).all()
 
         resultados = []
 
-        # 🔹 Recetas
         for r in recetas:
             resultados.append({
                 "tipo": "Receta médica",
@@ -1360,7 +1387,6 @@ def listar_archivos_paciente(paciente_id: str):
                 "url": f"https://docya.com.ar/ver_receta/{r.id}",
             })
 
-        # 🔹 Certificados
         for c in certificados:
             resultados.append({
                 "tipo": "Certificado médico",
@@ -1369,12 +1395,12 @@ def listar_archivos_paciente(paciente_id: str):
                 "url": f"https://docya.com.ar/ver_certificado/{c.id}",
             })
 
-        # Si no hay ninguno, devolver lista vacía (no error)
         return resultados
 
     except Exception as e:
         print(f"❌ Error al listar archivos del paciente {paciente_id}: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # --- PACIENTE: LISTAR RECETAS Y CERTIFICADOS ---
