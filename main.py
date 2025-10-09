@@ -1338,6 +1338,50 @@ def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
     )
 
 # --- Certificados medicos fin  -------------------------------------------------------
+@app.get("/paciente/{paciente_uuid}/archivos")
+def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+
+    # Recetas
+    cur.execute("""
+        SELECT r.id, m.full_name AS medico, r.creado_en
+        FROM recetas r
+        JOIN medicos m ON m.id = r.medico_id
+        WHERE r.paciente_uuid = %s
+        ORDER BY r.creado_en DESC
+    """, (paciente_uuid,))
+    recetas = [
+        {
+            "id": r[0],
+            "tipo": "Receta médica",
+            "doctor": r[1],
+            "fecha": r[2].strftime("%d/%m/%Y"),
+            "url": f"https://docya.com.ar/ver_receta/{r[0]}"
+        }
+        for r in cur.fetchall()
+    ]
+
+    # Certificados
+    cur.execute("""
+        SELECT c.id, m.full_name AS medico, c.creado_en
+        FROM certificados c
+        JOIN medicos m ON m.id = c.medico_id
+        WHERE c.paciente_uuid = %s
+        ORDER BY c.creado_en DESC
+    """, (paciente_uuid,))
+    certificados = [
+        {
+            "id": r[0],
+            "tipo": "Certificado médico",
+            "doctor": r[1],
+            "fecha": r[2].strftime("%d/%m/%Y"),
+            "url": f"https://docya.com.ar/ver_certificado/{r[0]}"
+        }
+        for r in cur.fetchall()
+    ]
+
+    return recetas + certificados
+
 # --- PACIENTE: LISTAR RECETAS Y CERTIFICADOS ---
 from fastapi import Depends
 from sqlalchemy.orm import Session
