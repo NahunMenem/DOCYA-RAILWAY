@@ -1238,11 +1238,12 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
                u.full_name AS paciente_nombre, u.dni, u.fecha_nacimiento
         FROM certificados c
         JOIN medicos m ON c.medico_id = m.id
-        JOIN users u ON c.paciente_uuid = u.id
+        JOIN users u ON c.paciente_uuid = u.id::text
         WHERE c.consulta_id = %s
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (consulta_id,))
+
     row = cur.fetchone()
 
     if not row:
