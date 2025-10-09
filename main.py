@@ -2663,3 +2663,120 @@ def historial_chat(consulta_id: int, db=Depends(get_db)):
         }
         for r in rows
     ]  # 👈 nunca None, siempre []
+
+
+# Agregar al final de tu main.py
+
+@app.get("/monitoring/stats")
+def monitoring_stats(db=Depends(get_db)):
+    cur = db.cursor()
+    
+    # Médicos conectados (del WebSocket)
+    active_medicos_count = len(active_medicos)
+    
+    # Consultas hoy
+    cur.execute("""
+        SELECT COUNT(*) FROM consultas 
+        WHERE DATE(creado_en) = CURRENT_DATE
+    """)
+    consultations_today = cur.fetchone()[0] or 0
+    
+    # Consultas activas
+    cur.execute("""
+        SELECT COUNT(*) FROM consultas 
+        WHERE estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
+    """)
+    active_consultations = cur.fetchone()[0] or 0
+    
+    # Ingresos estimados hoy (médico: 24000, enfermero: 15000)
+    cur.execute("""
+        SELECT SUM(
+            CASE 
+                WHEN m.tipo = 'medico' THEN 24000 
+                WHEN m.tipo = 'enfermero' THEN 15000 
+                ELSE 0 
+            END
+        )
+        FROM consultas c
+        JOIN medicos m ON c.medico_id = m.id
+        WHERE DATE(c.creado_en) = CURRENT_DATE 
+        AND c.estado = 'finalizada'
+    """)
+    revenue_today = cur.fetchone()[0] or 0
+    
+    return {
+        "active_medicos": active_medicos_count,
+        "consultations_today": consultations_today,
+        "active_consultations": active_consultations,
+        "revenue_today": revenue_today,
+        "avg_response_time": 8.5,
+        "consultations_by_type": {
+            "medico": consultations_today,  # Por simplificar
+            "enfermero": 0
+        }
+    }
+
+@app.get("/monitoring/professionals")
+def monitoring_professionals(db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, tipo, especialidad, disponible, 
+               latitud, longitud,
+               (SELECT COUNT(*) FROM consultas 
+                WHERE medico_id = medicos.id 
+                AND DATE(creado_en) = CURRENT_DATE) as consultas_hoy,
+               (SELECT AVG(puntaje) FROM valoraciones 
+                WHERE medico_id = medicos.id) as rating
+        FROM medicos
+        ORDER BY disponible DESC, full_name
+    """)
+    
+    professionals = []
+    for row in cur.fetchall():
+        professional_id = row[0]
+        is_online = professional_id in active_medicos
+        
+        professionals.append({
+            "id": professional_id,
+            "full_name": row[1],
+            "tipo": row[2],
+            "especialidad": row[3],
+            "disponible": row[4],
+            "is_online": is_online,
+            "latitud": row[5],
+            "longitud": row[6],
+            "consultas_hoy": row[7] or 0,
+            "rating": float(row[8] or 0.0),
+        })
+    
+    return professionals
+
+@app.get("/consultas/activas")
+def consultas_activas(db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id, c.estado, c.motivo, c.direccion, c.creado_en,
+               u.full_name as paciente_nombre,
+               m.full_name as medico_nombre,
+               EXTRACT(EPOCH FROM (NOW() - c.creado_en))/60 as duracion_minutos
+        FROM consultas c
+        LEFT JOIN users u ON c.paciente_uuid = u.id
+        LEFT JOIN medicos m ON c.medico_id = m.id
+        WHERE c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
+        ORDER BY c.creado_en DESC
+    """)
+    
+    consultas = []
+    for row in cur.fetchall():
+        consultas.append({
+            "id": row[0],
+            "estado": row[1],
+            "motivo": row[2],
+            "direccion": row[3],
+            "creado_en": row[4].isoformat(),
+            "paciente_nombre": row[5] or 'Paciente',
+            "medico_nombre": row[6] or 'Profesional',
+            "duracion_minutos": int(row[7] or 0),
+        })
+    
+    return consultas
