@@ -1340,66 +1340,50 @@ def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
 # --- Certificados medicos fin  -------------------------------------------------------
 # ✅ NUEVO ENDPOINT UNIFICADO
 # ✅ NUEVO ENDPOINT UNIFICADO CON FILTRO OPCIONAL
-@app.get("/pacientes/{paciente_id}/archivos")
-def listar_archivos_paciente(paciente_id: str, tipo: str | None = None):
+@app.get("/pacientes/{paciente_uuid}/archivos")
+def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     """
-    Devuelve todas las recetas y certificados de un paciente.
-    Soporta filtro opcional: ?tipo=receta o ?tipo=certificado
+    Devuelve todas las recetas y certificados del paciente.
+    Soporta filtro opcional con ?tipo=receta o ?tipo=certificado
     """
-    try:
-        # 🔹 Si el filtro pide solo recetas
-        if tipo and tipo.lower() == "receta":
-            recetas = session.query(Receta).filter(Receta.paciente_id == paciente_id).all()
-            return [
-                {
-                    "tipo": "Receta médica",
-                    "doctor": getattr(r, "doctor_nombre", None) or getattr(r, "medico_nombre", "—"),
-                    "fecha": str(getattr(r, "fecha_emision", None) or getattr(r, "created_at", ""))[:10],
-                    "url": f"https://docya.com.ar/ver_receta/{r.id}",
-                }
-                for r in recetas
-            ]
+    cur = db.cursor()
 
-        # 🔹 Si el filtro pide solo certificados
-        if tipo and tipo.lower() == "certificado":
-            certificados = session.query(Certificado).filter(Certificado.paciente_id == paciente_id).all()
-            return [
-                {
-                    "tipo": "Certificado médico",
-                    "doctor": getattr(c, "doctor_nombre", None) or getattr(c, "medico_nombre", "—"),
-                    "fecha": str(getattr(c, "fecha_emision", None) or getattr(c, "created_at", ""))[:10],
-                    "url": f"https://docya.com.ar/ver_certificado/{c.id}",
-                }
-                for c in certificados
-            ]
+    # --- Recetas ---
+    cur.execute("""
+        SELECT id, consulta_id, medico_id, creado_en
+        FROM recetas
+        WHERE paciente_uuid = %s
+        ORDER BY creado_en DESC
+    """, (paciente_uuid,))
+    recetas = [
+        {
+            "tipo": "Receta médica",
+            "doctor": str(r[2]),
+            "fecha": r[3].strftime('%d/%m/%Y'),
+            "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/receta"
+        }
+        for r in cur.fetchall()
+    ]
 
-        # 🔹 Si no hay filtro → traer ambos
-        recetas = session.query(Receta).filter(Receta.paciente_id == paciente_id).all()
-        certificados = session.query(Certificado).filter(Certificado.paciente_id == paciente_id).all()
+    # --- Certificados ---
+    cur.execute("""
+        SELECT id, consulta_id, medico_id, creado_en
+        FROM certificados
+        WHERE paciente_uuid = %s
+        ORDER BY creado_en DESC
+    """, (paciente_uuid,))
+    certificados = [
+        {
+            "tipo": "Certificado médico",
+            "doctor": str(r[2]),
+            "fecha": r[3].strftime('%d/%m/%Y'),
+            "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/certificado"
+        }
+        for r in cur.fetchall()
+    ]
 
-        resultados = []
+    return recetas + certificados
 
-        for r in recetas:
-            resultados.append({
-                "tipo": "Receta médica",
-                "doctor": getattr(r, "doctor_nombre", None) or getattr(r, "medico_nombre", "—"),
-                "fecha": str(getattr(r, "fecha_emision", None) or getattr(r, "created_at", ""))[:10],
-                "url": f"https://docya.com.ar/ver_receta/{r.id}",
-            })
-
-        for c in certificados:
-            resultados.append({
-                "tipo": "Certificado médico",
-                "doctor": getattr(c, "doctor_nombre", None) or getattr(c, "medico_nombre", "—"),
-                "fecha": str(getattr(c, "fecha_emision", None) or getattr(c, "created_at", ""))[:10],
-                "url": f"https://docya.com.ar/ver_certificado/{c.id}",
-            })
-
-        return resultados
-
-    except Exception as e:
-        print(f"❌ Error al listar archivos del paciente {paciente_id}: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 
