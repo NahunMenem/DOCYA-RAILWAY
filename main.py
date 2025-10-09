@@ -1219,113 +1219,169 @@ def crear_certificado(consulta_id: int, data: CertificadoIn, db: Session = Depen
 
 
 # --- GET: ver certificado real en navegador ---
+from fastapi import Depends, Response, HTTPException
+from sqlalchemy.orm import Session
+from weasyprint import HTML, CSS
+from datetime import datetime
+import tempfile, os
+
 @app.get("/consultas/{consulta_id}/certificado")
-def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
+def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
     """
-    Devuelve el certificado médico real (último guardado)
-    en formato PDF para abrir directamente en el navegador.
+    Genera un certificado médico DocYa con datos del paciente y médico,
+    formato profesional, firma electrónica y QR de verificación.
     """
     cur = db.cursor()
     cur.execute("""
-        SELECT medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones, creado_en
-        FROM certificados
-        WHERE consulta_id = %s
-        ORDER BY creado_en DESC
+        SELECT c.medico_id, c.paciente_uuid, c.diagnostico, c.reposo_dias, c.observaciones, c.creado_en,
+               m.full_name AS medico_nombre, m.matricula, m.especialidad,
+               u.full_name AS paciente_nombre, u.dni, u.fecha_nacimiento
+        FROM certificados c
+        JOIN medicos m ON c.medico_id = m.id
+        JOIN users u ON c.paciente_uuid = u.id
+        WHERE c.consulta_id = %s
+        ORDER BY c.creado_en DESC
         LIMIT 1
     """, (consulta_id,))
     row = cur.fetchone()
 
     if not row:
-        raise HTTPException(status_code=404, detail="No existe certificado para esta consulta")
+        raise HTTPException(status_code=404, detail="❌ No existe certificado para esta consulta")
 
-    medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones, creado_en = row
+    (
+        medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones, creado_en,
+        medico_nombre, matricula, especialidad, paciente_nombre, paciente_dni, paciente_nac
+    ) = row
 
-    # 🌿 Logo DocYa
-    logo_url = "https://res.cloudinary.com/docya/image/upload/v1726700000/logo_docya.png"
+    logo_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
+    firma_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_certificado/{consulta_id}"
 
-    # 🧾 HTML del certificado
+    fecha_nac = paciente_nac.strftime("%d/%m/%Y") if paciente_nac else "—"
+    fecha_emision = creado_en.strftime("%d/%m/%Y %H:%M")
+
     html = f"""
     <!DOCTYPE html>
     <html lang="es">
     <head>
-        <meta charset="UTF-8">
-        <title>Certificado Médico</title>
-        <style>
-            body {{
-                font-family: Helvetica, Arial, sans-serif;
-                background-color: #fff;
-                color: #111;
-                padding: 50px;
-                line-height: 1.6;
-            }}
-            .header {{
-                text-align: center;
-                border-bottom: 3px solid #14B8A6;
-                padding-bottom: 10px;
-                margin-bottom: 40px;
-            }}
-            .logo {{
-                height: 70px;
-            }}
-            .titulo {{
-                font-size: 24px;
-                color: #14B8A6;
-                font-weight: bold;
-                margin-top: 10px;
-            }}
-            .datos {{
-                margin-top: 40px;
-                font-size: 16px;
-            }}
-            .box {{
-                border: 1px solid #14B8A6;
-                border-radius: 10px;
-                padding: 20px;
-                background-color: #f7fdfb;
-                margin-top: 20px;
-            }}
-            .firma {{
-                margin-top: 80px;
-                text-align: right;
-            }}
-            .footer {{
-                text-align: center;
-                margin-top: 50px;
-                color: #999;
-                font-size: 12px;
-            }}
-        </style>
+      <meta charset="UTF-8">
+      <title>Certificado Médico</title>
+      <style>
+        body {{
+          font-family: 'Helvetica', Arial, sans-serif;
+          background-color: #fff;
+          color: #1f2937;
+          padding: 40px 60px;
+          line-height: 1.6;
+        }}
+        .header {{
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          border-bottom: 3px solid #14B8A6;
+          padding-bottom: 10px;
+          margin-bottom: 30px;
+        }}
+        .logo {{
+          height: 65px;
+        }}
+        h1 {{
+          color: #14B8A6;
+          text-align: center;
+          font-size: 24px;
+          margin-top: 10px;
+        }}
+        .section {{
+          margin-top: 25px;
+        }}
+        .section-title {{
+          color: #14B8A6;
+          font-weight: bold;
+          font-size: 16px;
+          margin-bottom: 8px;
+        }}
+        .box {{
+          border: 1px solid #14B8A6;
+          border-radius: 10px;
+          background: #f9fdfc;
+          padding: 18px 25px;
+        }}
+        .firma {{
+          margin-top: 70px;
+          text-align: right;
+        }}
+        .firma img {{
+          height: 80px;
+          margin-bottom: -10px;
+        }}
+        .qr {{
+          text-align: left;
+          margin-top: 25px;
+        }}
+        .qr img {{
+          height: 100px;
+        }}
+        footer {{
+          text-align: center;
+          color: #6b7280;
+          font-size: 12px;
+          margin-top: 50px;
+        }}
+      </style>
     </head>
     <body>
-        <div class="header">
-            <img src="{logo_url}" class="logo">
-            <div class="titulo">CERTIFICADO MÉDICO</div>
+      <div class="header">
+        <img src="{logo_url}" class="logo">
+        <div style="text-align:right; font-size:13px;">
+          <b>Emitido:</b> {fecha_emision}<br>
+          <b>ID Consulta:</b> {consulta_id}
         </div>
+      </div>
 
-        <div class="datos">
-            <p><strong>Paciente:</strong> {paciente_uuid}</p>
-            <p><strong>Diagnóstico:</strong> {diagnostico}</p>
-            <p><strong>Reposo indicado:</strong> {reposo_dias} días</p>
-            <p><strong>Observaciones:</strong> {observaciones or 'Sin observaciones adicionales.'}</p>
-            <p><strong>Fecha de emisión:</strong> {creado_en.strftime('%d/%m/%Y')}</p>
-        </div>
+      <h1>CERTIFICADO MÉDICO</h1>
 
-        <div class="firma">
-            <p>______________________________________</p>
-            <p>Médico ID: {medico_id}</p>
-            <p>Firma digital DocYa</p>
+      <div class="section">
+        <div class="section-title">Datos del Paciente</div>
+        <div class="box">
+          <p><b>Nombre:</b> {paciente_nombre}</p>
+          <p><b>DNI:</b> {paciente_dni or '—'}</p>
+          <p><b>Fecha de Nacimiento:</b> {fecha_nac}</p>
         </div>
+      </div>
 
-        <div class="footer">
-            DocYa - Atención médica domiciliaria © 2025
+      <div class="section">
+        <div class="section-title">Detalle Médico</div>
+        <div class="box">
+          <p><b>Diagnóstico:</b> {diagnostico}</p>
+          <p><b>Reposo indicado:</b> {reposo_dias} días</p>
+          <p><b>Observaciones:</b> {observaciones or 'Sin observaciones adicionales.'}</p>
         </div>
+      </div>
+
+      <div class="firma">
+        <img src="{firma_url}" alt="Firma digital">
+        <p><b>{medico_nombre}</b></p>
+        <p>{especialidad}</p>
+        <p>M.P. {matricula}</p>
+        <p style="color:#14B8A6;">Firma electrónica certificada</p>
+      </div>
+
+      <div class="qr">
+        <img src="{qr_url}" alt="QR de verificación"><br>
+        <small>Verificar autenticidad:<br>docya.com.ar/ver_certificado/{consulta_id}</small>
+      </div>
+
+      <footer>
+        Documento firmado electrónicamente conforme Ley 25.506 — DocYa © {datetime.now().year}
+      </footer>
     </body>
     </html>
     """
 
-    # 🧾 Generar PDF temporal
     tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-    HTML(string=html).write_pdf(tmp_pdf.name, stylesheets=[CSS(string="body { font-family: Helvetica; }")])
+    HTML(string=html).write_pdf(tmp_pdf.name, stylesheets=[
+        CSS(string="body { font-family: Helvetica; }")
+    ])
 
     with open(tmp_pdf.name, "rb") as f:
         pdf_bytes = f.read()
@@ -1336,6 +1392,7 @@ def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": f"inline; filename=certificado_{consulta_id}.pdf"}
     )
+
 
 # --- Certificados medicos fin  -------------------------------------------------------
 # ✅ NUEVO ENDPOINT UNIFICADO
