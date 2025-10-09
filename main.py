@@ -1338,49 +1338,44 @@ def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
     )
 
 # --- Certificados medicos fin  -------------------------------------------------------
-@app.get("/paciente/{paciente_uuid}/archivos")
-def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
-    cur = db.cursor()
+# ✅ NUEVO ENDPOINT UNIFICADO
+@app.get("/pacientes/{paciente_id}/archivos")
+def listar_archivos_paciente(paciente_id: str):
+    """
+    Devuelve todas las recetas y certificados de un paciente,
+    combinadas en una sola lista.
+    """
+    try:
+        recetas = session.query(Receta).filter(Receta.paciente_id == paciente_id).all()
+        certificados = session.query(Certificado).filter(Certificado.paciente_id == paciente_id).all()
 
-    # Recetas
-    cur.execute("""
-        SELECT r.id, m.full_name AS medico, r.creado_en
-        FROM recetas r
-        JOIN medicos m ON m.id = r.medico_id
-        WHERE r.paciente_uuid = %s
-        ORDER BY r.creado_en DESC
-    """, (paciente_uuid,))
-    recetas = [
-        {
-            "id": r[0],
-            "tipo": "Receta médica",
-            "doctor": r[1],
-            "fecha": r[2].strftime("%d/%m/%Y"),
-            "url": f"https://docya.com.ar/ver_receta/{r[0]}"
-        }
-        for r in cur.fetchall()
-    ]
+        resultados = []
 
-    # Certificados
-    cur.execute("""
-        SELECT c.id, m.full_name AS medico, c.creado_en
-        FROM certificados c
-        JOIN medicos m ON m.id = c.medico_id
-        WHERE c.paciente_uuid = %s
-        ORDER BY c.creado_en DESC
-    """, (paciente_uuid,))
-    certificados = [
-        {
-            "id": r[0],
-            "tipo": "Certificado médico",
-            "doctor": r[1],
-            "fecha": r[2].strftime("%d/%m/%Y"),
-            "url": f"https://docya.com.ar/ver_certificado/{r[0]}"
-        }
-        for r in cur.fetchall()
-    ]
+        # 🔹 Recetas
+        for r in recetas:
+            resultados.append({
+                "tipo": "Receta médica",
+                "doctor": getattr(r, "doctor_nombre", None) or getattr(r, "medico_nombre", "—"),
+                "fecha": str(getattr(r, "fecha_emision", None) or getattr(r, "created_at", ""))[:10],
+                "url": f"https://docya.com.ar/ver_receta/{r.id}",
+            })
 
-    return recetas + certificados
+        # 🔹 Certificados
+        for c in certificados:
+            resultados.append({
+                "tipo": "Certificado médico",
+                "doctor": getattr(c, "doctor_nombre", None) or getattr(c, "medico_nombre", "—"),
+                "fecha": str(getattr(c, "fecha_emision", None) or getattr(c, "created_at", ""))[:10],
+                "url": f"https://docya.com.ar/ver_certificado/{c.id}",
+            })
+
+        # Si no hay ninguno, devolver lista vacía (no error)
+        return resultados
+
+    except Exception as e:
+        print(f"❌ Error al listar archivos del paciente {paciente_id}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # --- PACIENTE: LISTAR RECETAS Y CERTIFICADOS ---
 from fastapi import Depends
