@@ -1338,6 +1338,61 @@ def ver_certificado(consulta_id: int, db: Session = Depends(get_db)):
     )
 
 # --- Certificados medicos fin  -------------------------------------------------------
+# --- PACIENTE: LISTAR RECETAS Y CERTIFICADOS ---
+from fastapi import Depends
+from sqlalchemy.orm import Session
+
+@app.get("/paciente/{paciente_uuid}/recetas")
+def listar_recetas_paciente(paciente_uuid: str, db: Session = Depends(get_db)):
+    """
+    Devuelve todas las recetas generadas para un paciente.
+    """
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, consulta_id, medico_id, creado_en
+        FROM recetas
+        WHERE paciente_uuid = %s
+        ORDER BY creado_en DESC
+    """, (paciente_uuid,))
+    rows = cur.fetchall()
+    recetas = [
+        {
+            "id": r[0],
+            "consulta_id": r[1],
+            "medico_id": r[2],
+            "fecha": r[3].strftime('%d/%m/%Y'),
+            "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/receta"
+        }
+        for r in rows
+    ]
+    return {"recetas": recetas}
+
+
+@app.get("/paciente/{paciente_uuid}/certificados")
+def listar_certificados_paciente(paciente_uuid: str, db: Session = Depends(get_db)):
+    """
+    Devuelve todos los certificados generados para un paciente.
+    """
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, consulta_id, medico_id, creado_en
+        FROM certificados
+        WHERE paciente_uuid = %s
+        ORDER BY creado_en DESC
+    """, (paciente_uuid,))
+    rows = cur.fetchall()
+    certificados = [
+        {
+            "id": r[0],
+            "consulta_id": r[1],
+            "medico_id": r[2],
+            "fecha": r[3].strftime('%d/%m/%Y'),
+            "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/certificado"
+        }
+        for r in rows
+    ]
+    return {"certificados": certificados}
+
 # --- Recetas ---
 
 
