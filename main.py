@@ -1303,6 +1303,108 @@ def generar_certificado_docya(consulta_id: int, data: dict, db: Session = Depend
     except Exception as e:
         return Response(content=f"Error al generar certificado: {str(e)}", status_code=500)
 
+# --- GET para ver certificado en navegador ---
+from fastapi.responses import Response
+from weasyprint import HTML, CSS
+import tempfile, os
+
+@app.get("/consultas/{consulta_id}/certificado")
+def ver_certificado_docya(consulta_id: int, medico_id: int = None, paciente_uuid: str = None):
+    """
+    Permite abrir el certificado en el navegador (GET).
+    """
+    logo_url = "https://res.cloudinary.com/docya/image/upload/v1726700000/logo_docya.png"
+
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <title>Certificado Médico</title>
+        <style>
+            body {{
+                font-family: 'Helvetica', sans-serif;
+                background-color: #fff;
+                color: #222;
+                padding: 60px;
+                line-height: 1.6;
+            }}
+            .header {{
+                text-align: center;
+                border-bottom: 2px solid #14B8A6;
+                padding-bottom: 10px;
+                margin-bottom: 30px;
+            }}
+            .logo {{
+                height: 60px;
+            }}
+            .titulo {{
+                font-size: 24px;
+                color: #14B8A6;
+                font-weight: bold;
+                margin-top: 10px;
+            }}
+            .box {{
+                border: 1px solid #14B8A6;
+                border-radius: 8px;
+                padding: 20px;
+                background-color: #f9fdfc;
+                margin-top: 20px;
+            }}
+            .firma {{
+                margin-top: 80px;
+                text-align: right;
+                font-size: 14px;
+            }}
+            .footer {{
+                text-align: center;
+                margin-top: 60px;
+                color: #999;
+                font-size: 12px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="header">
+            <img src="{logo_url}" class="logo">
+            <div class="titulo">CERTIFICADO MÉDICO</div>
+        </div>
+
+        <div class="box">
+            <p><strong>Paciente:</strong> {paciente_uuid or 'No especificado'}</p>
+            <p><strong>Reposo indicado:</strong> según indicación médica</p>
+            <p><strong>Observaciones:</strong> control médico en 48hs o ante persistencia de síntomas</p>
+        </div>
+
+        <div class="firma">
+            <p>______________________________________</p>
+            <p>Médico ID: {medico_id or 'N/A'}</p>
+            <p>Firma digital DocYa</p>
+        </div>
+
+        <div class="footer">
+            DocYa - Atención médica domiciliaria © 2025
+        </div>
+    </body>
+    </html>
+    """
+
+    tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+    HTML(string=html_content).write_pdf(
+        tmp_pdf.name,
+        stylesheets=[CSS(string="body { font-family: Helvetica, sans-serif; }")]
+    )
+
+    with open(tmp_pdf.name, "rb") as f:
+        pdf_bytes = f.read()
+    os.remove(tmp_pdf.name)
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=certificado_{consulta_id}.pdf"}
+    )
+
 # --- Certificados medicos fin  -------------------------------------------------------
 # --- Recetas ---
 
