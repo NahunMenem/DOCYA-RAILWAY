@@ -2162,6 +2162,42 @@ def obtener_valoraciones(medico_id: int, db=Depends(get_db)):
         for r in rows
     ]
 
+# ==========================
+# 📋 Historial del paciente
+# ==========================
+@app.get("/consultas/historial_paciente/{paciente_uuid}")
+def historial_paciente(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT 
+            c.id,
+            c.motivo,
+            c.estado,
+            c.direccion,
+            c.creado_en,
+            COALESCE(m.full_name, 'Médico sin asignar') AS medico_nombre
+        FROM consultas c
+        LEFT JOIN users m ON c.medico_id = m.id
+        WHERE c.paciente_uuid = %s
+        ORDER BY c.creado_en DESC
+        LIMIT 5
+    """, (paciente_uuid,))
+    
+    rows = cur.fetchall()
+    db.close()
+
+    return [
+        {
+            "id": r[0],
+            "motivo": r[1],
+            "estado": r[2],
+            "direccion": r[3],
+            "creado_en": r[4].strftime("%d/%m/%Y %H:%M"),
+            "medico_nombre": r[5]
+        }
+        for r in rows
+    ]
+
 # ---------- UBICACIÓN MÉDICO ----------
 class UbicacionMedicoIn(BaseModel):
     lat: float
