@@ -358,54 +358,35 @@ def login(data: LoginIn, db=Depends(get_db)):
     }
 
 # =========================================================
-# 🔐 Verificar token JWT (para reset de contraseña)
+# =========================================================
+# 🔐 JWT CONFIG GLOBAL (UNIFICADA)
 # =========================================================
 from jose import jwt, JWTError
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from fastapi import HTTPException
 
+JWT_SECRET = os.getenv("JWT_SECRET", "docya_secret_key")  # 👈 misma clave para crear y verificar
+ALGORITHM = "HS256"
+TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
+
+def create_access_token(payload: dict, expires_minutes: int = TOKEN_EXPIRE_MINUTES):
+    """Genera un JWT con expiración"""
+    to_encode = payload.copy()
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm=ALGORITHM)
+
 def verify_token(token: str):
-    """
-    Decodifica y valida el token JWT generado por create_access_token().
-    Verifica expiración y devuelve el payload si es válido.
-    """
+    """Verifica y decodifica el JWT. Lanza HTTPException si no es válido."""
     try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
         exp = payload.get("exp")
         if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
             raise HTTPException(status_code=401, detail="Token expirado")
         return payload
-    except JWTError as e:
-        print(f"⚠️ Error de verificación JWT: {e}")
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
-
-
-# =========================================================
-# 🔐 Verificar token JWT (DocYa Pro)
-# =========================================================
-from jose import jwt, JWTError
-from datetime import datetime, timezone
-from fastapi import HTTPException
-
-# Usamos la misma clave y algoritmo que create_access_token()
-SECRET_KEY = os.getenv("SECRET_KEY", "docya_secret_key")
-ALGORITHM = "HS256"
-
-def verify_token(token: str):
-    """
-    Decodifica y valida el token JWT generado por create_access_token().
-    Verifica expiración y devuelve el payload si es válido.
-    """
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        exp = payload.get("exp")
-        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
-            raise HTTPException(status_code=401, detail="Token expirado")
-
-        return payload  # contiene sub, email, tipo, etc.
-
     except JWTError:
         raise HTTPException(status_code=401, detail="Token inválido o expirado")
+
 
 
 # ====================================================
