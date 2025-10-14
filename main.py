@@ -2493,6 +2493,7 @@ def render_reset_password_page(request: Request, token: str = None):
         )
     return templates.TemplateResponse("reset_password.html", {"request": request, "token": token})
 
+
 # ==========================================================
 # 🩺 Nueva ruta: Ver receta digital pública (DocYa)
 # ==========================================================
