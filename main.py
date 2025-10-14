@@ -357,6 +357,27 @@ def login(data: LoginIn, db=Depends(get_db)):
         }
     }
 
+# =========================================================
+# 🔐 Verificar token JWT (para reset de contraseña)
+# =========================================================
+from jose import jwt, JWTError
+from datetime import datetime, timezone
+from fastapi import HTTPException
+
+def verify_token(token: str):
+    """
+    Decodifica y valida el token JWT generado por create_access_token().
+    Verifica expiración y devuelve el payload si es válido.
+    """
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        exp = payload.get("exp")
+        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="Token expirado")
+        return payload
+    except JWTError as e:
+        print(f"⚠️ Error de verificación JWT: {e}")
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 
 # =========================================================
