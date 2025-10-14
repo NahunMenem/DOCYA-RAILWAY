@@ -2475,6 +2475,22 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
         print("⚠️ Error en reset_password:", e)
         raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
 
+
+# ====================================================
+# 🌐 Página pública: Restablecer contraseña (HTML)
+# ====================================================
+@app.get("/auth/reset_password", response_class=HTMLResponse)
+def render_reset_password_page(request: Request, token: str = None):
+    """
+    Renderiza la página profesional de restablecer contraseña DocYa Pro.
+    """
+    if not token:
+        return HTMLResponse(
+            "<h3 style='font-family:sans-serif;color:#555;text-align:center;margin-top:80px;'>⚠️ Enlace inválido o faltante.</h3>",
+            status_code=400,
+        )
+    return templates.TemplateResponse("reset_password.html", {"request": request, "token": token})
+
 # ==========================================================
 # 🩺 Nueva ruta: Ver receta digital pública (DocYa)
 # ==========================================================
