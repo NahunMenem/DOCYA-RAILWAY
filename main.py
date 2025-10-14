@@ -2274,6 +2274,207 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         "disponible": data.disponible
     }
 
+
+
+# ====================================================
+# 🔑 Recuperar contraseña (Médicos)
+# ====================================================
+from sib_api_v3_sdk import SendSmtpEmail
+
+class ForgotPasswordIn(BaseModel):
+    identificador: str  # email o dni/pasaporte
+
+
+@app.post("/auth/forgot_password")
+def forgot_password(data: ForgotPasswordIn, db=Depends(get_db)):
+    cur = db.cursor()
+    identificador = data.identificador.strip().lower()
+
+    # Buscar médico por email o DNI
+    cur.execute("""
+        SELECT id, full_name, email 
+        FROM medicos
+        WHERE LOWER(email) = %s OR dni = %s
+        LIMIT 1
+    """, (identificador, identificador))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="No se encontró un profesional con esos datos")
+
+    medico_id, full_name, email = row
+
+    # Crear token de recuperación válido por 1 hora
+    token = create_access_token(
+        {"sub": str(medico_id), "email": email, "tipo": "reset_password"},
+        expires_minutes=60
+    )
+    link_reset = f"https://docya.com.ar/auth/reset_password?token={token}"
+
+    # Plantilla HTML estilo DocYa Pro
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Recuperar contraseña – DocYa Pro</title>
+    </head>
+    <body style="margin:0; padding:0; background-color:#F4F6F8; font-family: Arial, sans-serif;">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F4F6F8" style="padding:20px 0;">
+        <tr>
+          <td align="center">
+            <table border="0" cellpadding="0" cellspacing="0" width="600" 
+                   style="background:#ffffff; border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+              <tr>
+                <td align="center" style="padding:30px 20px;">
+                  <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
+                       alt="DocYa" style="max-width:180px; margin-bottom:20px;">
+                  <h2 style="color:#00A8A8; font-size:22px; margin:0 0 15px;">Recuperar tu contraseña</h2>
+                  <p style="color:#333333; font-size:15px; line-height:1.5; margin:0 0 25px;">
+                    Hola <b>{full_name}</b>, recibimos una solicitud para restablecer tu contraseña de acceso a <b>DocYa Pro</b>.<br><br>
+                    Si fuiste vos, hacé clic en el botón siguiente para crear una nueva contraseña:
+                  </p>
+                  <a href="{link_reset}" target="_blank"
+                     style="background-color:#00A8A8; color:#ffffff; padding:14px 28px; text-decoration:none; 
+                            border-radius:6px; font-size:15px; font-weight:bold; display:inline-block;">
+                    🔒 Restablecer contraseña
+                  </a>
+                  <p style="color:#555555; font-size:14px; line-height:1.5; margin:25px 0 0;">
+                    Si no solicitaste este cambio, simplemente ignorá este mensaje.<br><br>
+                    Por motivos de seguridad, el enlace expirará en 1 hora.
+                  </p>
+                </td>
+              </tr>
+            </table>
+            <p style="color:#999999; font-size:11px; margin-top:20px;">
+              © {datetime.now().year} DocYa · Profesionales a domicilio con confianza.
+            </p>
+          </td>
+        </tr>
+      </table>
+    </body>
+    </html>
+    """
+
+    # Enviar correo con Brevo (igual que otros)
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "nahundeveloper@gmail.com", "name": "DocYa Pro"},
+        subject="Restablecé tu contraseña – DocYa Pro",
+        html_content=html_content
+    )
+
+    try:
+        api_instance.send_transac_email(email_data)
+        print(f"✅ Correo de recuperación enviado a {email}")
+    except ApiException as e:
+        print(f"⚠️ Error enviando email con Brevo API: {e}")
+        raise HTTPException(status_code=500, detail="Error al enviar el correo de recuperación")
+
+    return {
+        "ok": True,
+        "message": f"Enviamos un correo a {email} para que recuperes tu contraseña."
+    }
+
+
+from fastapi import Form
+
+# ====================================================
+# 🔒 Restablecer contraseña (desde link del correo)
+# ====================================================
+
+class ResetPasswordIn(BaseModel):
+    token: str
+    new_password: str
+
+
+@app.post("/auth/reset_password")
+def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
+    """
+    Permite al médico restablecer su contraseña desde el enlace recibido por email.
+    """
+    try:
+        # 🔍 Verificar token JWT
+        payload = verify_token(data.token)
+        medico_id = payload.get("sub")
+        if not medico_id:
+            raise HTTPException(status_code=400, detail="Token inválido")
+
+        # 🔐 Encriptar nueva contraseña
+        hashed = get_password_hash(data.new_password)
+
+        cur = db.cursor()
+        cur.execute("UPDATE medicos SET password = %s WHERE id = %s RETURNING id", (hashed, medico_id))
+        db.commit()
+
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+        # 📨 Correo de confirmación
+        cur.execute("SELECT full_name, email FROM medicos WHERE id = %s", (medico_id,))
+        full_name, email = cur.fetchone()
+
+        html_confirm = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color:#F4F6F8; margin:0; padding:0;">
+          <table align="center" width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
+            <tr>
+              <td align="center">
+                <table width="600" bgcolor="#ffffff" style="border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); padding:30px;">
+                  <tr>
+                    <td align="center">
+                      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" 
+                           alt="DocYa Pro" style="max-width:160px; margin-bottom:20px;">
+                      <h2 style="color:#14B8A6;">Contraseña actualizada con éxito</h2>
+                      <p style="font-size:15px; color:#333333;">
+                        Hola <b>{full_name}</b>, tu contraseña fue cambiada correctamente.<br>
+                        Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa Pro</b>.
+                      </p>
+                      <a href="https://docya.com.ar/login" 
+                         style="display:inline-block; margin-top:20px; padding:12px 24px;
+                                background-color:#14B8A6; color:#fff; text-decoration:none; border-radius:6px;">
+                        Ir al inicio de sesión
+                      </a>
+                      <p style="color:#999; font-size:13px; margin-top:30px;">
+                        Si no realizaste este cambio, comunicate con soporte inmediatamente.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+        """
+
+        configuration = sib_api_v3_sdk.Configuration()
+        configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+        confirm_email = SendSmtpEmail(
+            to=[{"email": email, "name": full_name}],
+            sender={"email": "soporte@docya.com.ar", "name": "DocYa Pro"},
+            subject="Contraseña actualizada – DocYa Pro",
+            html_content=html_confirm,
+        )
+
+        api_instance.send_transac_email(confirm_email)
+
+        return {"ok": True, "message": "Contraseña actualizada correctamente."}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print("⚠️ Error en reset_password:", e)
+        raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
+
 # ==========================================================
 # 🩺 Nueva ruta: Ver receta digital pública (DocYa)
 # ==========================================================
@@ -2458,125 +2659,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
 
 
     
-#pagina web 
-# ====================================================
-# 🌐 PÁGINAS WEB (Landing con Jinja2 Templates)
-# ====================================================
-from fastapi import Request
-from fastapi.responses import HTMLResponse
-from fastapi.templating import Jinja2Templates
 
-templates = Jinja2Templates(directory="templates")
-
-# Home (landing principal)
-@app.get("/", response_class=HTMLResponse)
-async def home(request: Request):
-    return templates.TemplateResponse("docya.html", {"request": request})
-
-# Inversores (proyección y plan de crecimiento)
-@app.get("/inversores", response_class=HTMLResponse)
-async def inversores(request: Request):
-    return templates.TemplateResponse("inversores.html", {"request": request})
-    
-
-from fastapi import Form, File, UploadFile
-
-@app.post("/auth/register_medico_form")
-async def register_medico_form(
-    full_name: str = Form(...),
-    email: EmailStr = Form(...),
-    password: str = Form(...),
-    matricula: str = Form(...),
-    especialidad: str = Form(...),
-    tipo: str = Form("medico"),   # medico | enfermero
-    telefono: Optional[str] = Form(None),
-    provincia: Optional[str] = Form(None),
-    localidad: Optional[str] = Form(None),
-    dni: Optional[str] = Form(None),
-
-    # Archivos opcionales
-    foto_perfil: UploadFile = File(None),
-    foto_dni_frente: UploadFile = File(None),
-    foto_dni_dorso: UploadFile = File(None),
-    selfie_dni: UploadFile = File(None),
-
-    db = Depends(get_db),
-):
-    cur = db.cursor()
-
-    # Validar email/matrícula únicos
-    cur.execute("SELECT 1 FROM medicos WHERE email=%s", (email.lower(),))
-    if cur.fetchone():
-        raise HTTPException(status_code=409, detail="El email ya está registrado")
-
-    cur.execute("SELECT 1 FROM medicos WHERE matricula=%s", (matricula,))
-    if cur.fetchone():
-        raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
-
-    password_hash = pwd_context.hash(password)
-
-    # Insertar base
-    cur.execute("""
-        INSERT INTO medicos (
-            full_name, email, password_hash, matricula, especialidad, tipo,
-            telefono, provincia, localidad, dni, validado
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
-        RETURNING id
-    """, (
-        full_name.strip(), email.lower(), password_hash, matricula, especialidad, tipo,
-        telefono, provincia, localidad, dni
-    ))
-    medico_id = cur.fetchone()[0]
-
-    # Subida a Cloudinary
-    def _upload(upl: UploadFile, public_id: str):
-        if upl and upl.filename:
-            res = cloudinary.uploader.upload(
-                upl.file,
-                folder="docya/profesionales",
-                public_id=public_id,
-                overwrite=True,
-                resource_type="image"
-            )
-            return res["secure_url"]
-        return None
-
-    foto_perfil_url = _upload(foto_perfil, f"medico_{medico_id}_perfil")
-    dni_frente_url  = _upload(foto_dni_frente, f"medico_{medico_id}_dni_frente")
-    dni_dorso_url   = _upload(foto_dni_dorso, f"medico_{medico_id}_dni_dorso")
-    selfie_dni_url  = _upload(selfie_dni, f"medico_{medico_id}_selfie_dni")
-
-    # Update con las URLs
-    cur.execute("""
-        UPDATE medicos SET
-            foto_perfil=%s,
-            foto_dni_frente=%s,
-            foto_dni_dorso=%s,
-            selfie_dni=%s,
-            updated_at=NOW()
-        WHERE id=%s
-    """, (foto_perfil_url, dni_frente_url, dni_dorso_url, selfie_dni_url, medico_id))
-
-    db.commit()
-
-    # Mandar mail de validación (el mismo que usa la app)
-    try:
-        enviar_email_validacion(email.lower(), medico_id, full_name)
-    except Exception as e:
-        print("⚠️ Error enviando email validación:", e)
-
-    return {
-        "ok": True,
-        "mensaje": f"Registro exitoso como {tipo}. Revisá tu correo para activar la cuenta.",
-        "medico_id": medico_id,
-        "tipo": tipo,
-        "archivos": {
-            "foto_perfil": foto_perfil_url,
-            "dni_frente": dni_frente_url,
-            "dni_dorso": dni_dorso_url,
-            "selfie_dni": selfie_dni_url
-        }
-    }
 
 #chat---------------------------------------------------------------
 from fastapi import WebSocket, WebSocketDisconnect
@@ -2703,116 +2786,3 @@ def historial_chat(consulta_id: int, db=Depends(get_db)):
 
 # Agregar al final de tu main.py
 
-@app.get("/monitoring/stats")
-def monitoring_stats(db=Depends(get_db)):
-    cur = db.cursor()
-    
-    # Médicos conectados (del WebSocket)
-    active_medicos_count = len(active_medicos)
-    
-    # Consultas hoy
-    cur.execute("""
-        SELECT COUNT(*) FROM consultas 
-        WHERE DATE(creado_en) = CURRENT_DATE
-    """)
-    consultations_today = cur.fetchone()[0] or 0
-    
-    # Consultas activas
-    cur.execute("""
-        SELECT COUNT(*) FROM consultas 
-        WHERE estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
-    """)
-    active_consultations = cur.fetchone()[0] or 0
-    
-    # Ingresos estimados hoy (médico: 24000, enfermero: 15000)
-    cur.execute("""
-        SELECT SUM(
-            CASE 
-                WHEN m.tipo = 'medico' THEN 24000 
-                WHEN m.tipo = 'enfermero' THEN 15000 
-                ELSE 0 
-            END
-        )
-        FROM consultas c
-        JOIN medicos m ON c.medico_id = m.id
-        WHERE DATE(c.creado_en) = CURRENT_DATE 
-        AND c.estado = 'finalizada'
-    """)
-    revenue_today = cur.fetchone()[0] or 0
-    
-    return {
-        "active_medicos": active_medicos_count,
-        "consultations_today": consultations_today,
-        "active_consultations": active_consultations,
-        "revenue_today": revenue_today,
-        "avg_response_time": 8.5,
-        "consultations_by_type": {
-            "medico": consultations_today,  # Por simplificar
-            "enfermero": 0
-        }
-    }
-
-@app.get("/monitoring/professionals")
-def monitoring_professionals(db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        SELECT id, full_name, tipo, especialidad, disponible, 
-               latitud, longitud,
-               (SELECT COUNT(*) FROM consultas 
-                WHERE medico_id = medicos.id 
-                AND DATE(creado_en) = CURRENT_DATE) as consultas_hoy,
-               (SELECT AVG(puntaje) FROM valoraciones 
-                WHERE medico_id = medicos.id) as rating
-        FROM medicos
-        ORDER BY disponible DESC, full_name
-    """)
-    
-    professionals = []
-    for row in cur.fetchall():
-        professional_id = row[0]
-        is_online = professional_id in active_medicos
-        
-        professionals.append({
-            "id": professional_id,
-            "full_name": row[1],
-            "tipo": row[2],
-            "especialidad": row[3],
-            "disponible": row[4],
-            "is_online": is_online,
-            "latitud": row[5],
-            "longitud": row[6],
-            "consultas_hoy": row[7] or 0,
-            "rating": float(row[8] or 0.0),
-        })
-    
-    return professionals
-
-@app.get("/consultas/activas")
-def consultas_activas(db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        SELECT c.id, c.estado, c.motivo, c.direccion, c.creado_en,
-               u.full_name as paciente_nombre,
-               m.full_name as medico_nombre,
-               EXTRACT(EPOCH FROM (NOW() - c.creado_en))/60 as duracion_minutos
-        FROM consultas c
-        LEFT JOIN users u ON c.paciente_uuid = u.id
-        LEFT JOIN medicos m ON c.medico_id = m.id
-        WHERE c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
-        ORDER BY c.creado_en DESC
-    """)
-    
-    consultas = []
-    for row in cur.fetchall():
-        consultas.append({
-            "id": row[0],
-            "estado": row[1],
-            "motivo": row[2],
-            "direccion": row[3],
-            "creado_en": row[4].isoformat(),
-            "paciente_nombre": row[5] or 'Paciente',
-            "medico_nombre": row[6] or 'Profesional',
-            "duracion_minutos": int(row[7] or 0),
-        })
-    
-    return consultas
