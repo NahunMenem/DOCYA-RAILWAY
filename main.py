@@ -2277,6 +2277,26 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 # Carpeta de plantillas HTML
 templates = Jinja2Templates(directory="templates")
 
+from jose import jwt, JWTError
+from datetime import datetime, timezone
+import os
+
+SECRET_KEY = os.getenv("SECRET_KEY", "clave_super_secreta")  # usá la misma que en create_access_token
+ALGORITHM = "HS256"
+
+
+# =========================================================
+# 🔐 Verificar token JWT (para reset de contraseña, login, etc.)
+# =========================================================
+def verify_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        exp = payload.get("exp")
+        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
+            raise JWTError("Token expirado")
+        return payload
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 # ====================================================
 # 🔑 Recuperar contraseña (Médicos)
