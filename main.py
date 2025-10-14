@@ -359,48 +359,33 @@ def login(data: LoginIn, db=Depends(get_db)):
 
 
 
-@app.post("/auth/google", response_model=AuthResponse)
-def auth_google(data: GoogleIn, db=Depends(get_db)):
+# =========================================================
+# 🔐 Verificar token JWT (DocYa Pro)
+# =========================================================
+from jose import jwt, JWTError
+from datetime import datetime, timezone
+from fastapi import HTTPException
+
+# Usamos la misma clave y algoritmo que create_access_token()
+SECRET_KEY = os.getenv("SECRET_KEY", "docya_secret_key")
+ALGORITHM = "HS256"
+
+def verify_token(token: str):
+    """
+    Decodifica y valida el token JWT generado por create_access_token().
+    Verifica expiración y devuelve el payload si es válido.
+    """
     try:
-        payload = id_token.verify_oauth2_token(data.id_token, google_requests.Request(), os.getenv("GOOGLE_CLIENT_ID"))
-    except Exception:
-        raise HTTPException(status_code=400, detail="id_token inválido")
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        exp = payload.get("exp")
+        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
+            raise HTTPException(status_code=401, detail="Token expirado")
 
-    email = payload["email"].lower()
-    name = payload.get("name") or email.split("@")[0]
-    picture = payload.get("picture")
-    sub = payload["sub"]
+        return payload  # contiene sub, email, tipo, etc.
 
-    cur = db.cursor()
-    cur.execute("""
-        SELECT u.id, u.full_name, u.role FROM auth_providers ap
-        JOIN users u ON ap.user_id = u.id
-        WHERE ap.provider=%s AND ap.provider_uid=%s
-    """, ("google", sub))
-    row = cur.fetchone()
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
-    if row:
-        user_id, full_name, role = row
-    else:
-        cur.execute("SELECT id, full_name, role FROM users WHERE email=%s", (email,))
-        user = cur.fetchone()
-        if user:
-            user_id, full_name, role = user
-        else:
-            cur.execute("""
-                INSERT INTO users (email, full_name, avatar_url)
-                VALUES (%s,%s,%s) RETURNING id, full_name, role
-            """, (email, name, picture))
-            user_id, full_name, role = cur.fetchone()
-
-        cur.execute("""
-            INSERT INTO auth_providers (user_id, provider, provider_uid)
-            VALUES (%s,%s,%s) ON CONFLICT DO NOTHING
-        """, (user_id, "google", sub))
-        db.commit()
-
-    token = create_access_token({"sub": str(user_id), "email": email, "role": role})
-    return {"access_token": token, "token_type": "bearer", "user": {"id": str(user_id), "full_name": full_name}}
 
 # ====================================================
 # 👨‍⚕️ MÉDICOS (Rutas originales bajo /auth)
@@ -2277,26 +2262,7 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 # Carpeta de plantillas HTML
 templates = Jinja2Templates(directory="templates")
 
-from jose import jwt, JWTError
-from datetime import datetime, timezone
-import os
 
-SECRET_KEY = os.getenv("SECRET_KEY", "clave_super_secreta")  # usá la misma que en create_access_token
-ALGORITHM = "HS256"
-
-
-# =========================================================
-# 🔐 Verificar token JWT (para reset de contraseña, login, etc.)
-# =========================================================
-def verify_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        exp = payload.get("exp")
-        if exp and datetime.fromtimestamp(exp, tz=timezone.utc) < datetime.now(timezone.utc):
-            raise JWTError("Token expirado")
-        return payload
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Token inválido o expirado")
 
 # ====================================================
 # 🔑 Recuperar contraseña (Médicos)
