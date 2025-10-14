@@ -5,7 +5,7 @@ import os
 import jwt
 import psycopg2
 from weasyprint import HTML, CSS
-
+from fastapi.templating import Jinja2Templates
 import json
 import math
 import requests
@@ -22,7 +22,7 @@ from fastapi import (
 # ====================================================
 active_medicos: Dict[int, WebSocket] = {}
 active_chats: Dict[int, list[WebSocket]] = {}
-
+from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr
@@ -2274,6 +2274,8 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         "disponible": data.disponible
     }
 
+# Carpeta de plantillas HTML
+templates = Jinja2Templates(directory="templates")
 
 
 # ====================================================
@@ -2494,7 +2496,7 @@ def render_reset_password_page(request: Request, token: str = None):
 # ==========================================================
 # 🩺 Nueva ruta: Ver receta digital pública (DocYa)
 # ==========================================================
-from fastapi.responses import HTMLResponse
+
 from psycopg2.extras import RealDictCursor
 
 @app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
