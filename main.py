@@ -243,6 +243,25 @@ def medicos_online():
         "ids": list(active_medicos.keys())
     }
 
+# =========================================================
+# 🔐 Hash de contraseñas (DocYa Pro)
+# =========================================================
+from passlib.context import CryptContext
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def get_password_hash(password: str) -> str:
+    """
+    Encripta la contraseña usando bcrypt.
+    """
+    return pwd_context.hash(password)
+
+
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """
+    Verifica si la contraseña ingresada coincide con el hash guardado.
+    """
+    return pwd_context.verify(plain_password, hashed_password)
 
 # --- Activación paciente ---
 @app.get("/auth/activar_paciente", response_class=HTMLResponse)
