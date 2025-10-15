@@ -2419,7 +2419,7 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
         hashed = get_password_hash(data.new_password)
 
         cur = db.cursor()
-        cur.execute("UPDATE medicos SET password = %s WHERE id = %s RETURNING id", (hashed, medico_id))
+        cur.execute("UPDATE medicos SET password_hash = %s WHERE id = %s RETURNING id", (hashed, medico_id))
         db.commit()
 
         if cur.rowcount == 0:
