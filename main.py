@@ -1553,12 +1553,13 @@ def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
     return {"ok": True, "receta_id": receta_id}
 
 # --- GET: ver receta de una consulta (PDF/HTML) ---
-from fastapi.responses import HTMLResponse, Response
+# --- GET: ver receta de una consulta en HTML ---
+from fastapi.responses import HTMLResponse
 
 @app.get("/consultas/{consulta_id}/receta", response_class=HTMLResponse)
 def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
     """
-    Muestra la receta de una consulta en formato HTML profesional DocYa.
+    Muestra la receta de una consulta (última generada) en formato HTML DocYa.
     """
     cur = db.cursor()
     cur.execute("""
@@ -1575,11 +1576,129 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
 
     receta_id = row[0]
 
-    # Reutilizamos la vista pública existente
-    from fastapi.testclient import TestClient
-    client = TestClient(app)
-    response = client.get(f"/ver_receta/{receta_id}")
-    return HTMLResponse(response.text, status_code=response.status_code)
+    # 🔁 Reutiliza directamente el HTML de /ver_receta/{receta_id}
+    cur = db.cursor()
+    cur.execute("""
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+               c.id AS consulta_id,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON m.id = c.medico_id
+        JOIN users u ON u.id = r.paciente_uuid
+        WHERE r.id = %s
+    """, (receta_id,))
+    receta = cur.fetchone()
+    if not receta:
+        raise HTTPException(status_code=404, detail="Receta no encontrada")
+
+    cur.execute("""
+        SELECT nombre, dosis, frecuencia, duracion
+        FROM receta_items
+        WHERE receta_id = %s
+    """, (receta_id,))
+    medicamentos = cur.fetchall()
+
+    fecha = receta[4].strftime("%d/%m/%Y %H:%M") if receta[4] else "—"
+
+    html = f"""
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Receta Médica Digital</title>
+      <style>
+        body {{
+          font-family: 'Helvetica', Arial, sans-serif;
+          background-color: #f9fafb;
+          color: #1f2937;
+          padding: 24px;
+          max-width: 750px;
+          margin: auto;
+          line-height: 1.7;
+        }}
+        .card {{
+          background: white;
+          border-radius: 12px;
+          padding: 30px 35px;
+          box-shadow: 0 3px 10px rgba(0,0,0,0.08);
+        }}
+        .header {{
+          display: flex;
+          align-items: center;
+          gap: 15px;
+          margin-bottom: 20px;
+        }}
+        .header img {{
+          height: 55px;
+        }}
+        .title {{
+          color: #14B8A6;
+          font-size: 24px;
+          font-weight: bold;
+        }}
+        hr {{
+          border: none;
+          border-top: 2px solid #14B8A6;
+          margin: 15px 0 25px;
+        }}
+        .section-title {{
+          color: #14B8A6;
+          font-weight: bold;
+          font-size: 17px;
+          margin-top: 28px;
+          margin-bottom: 8px;
+        }}
+        .label {{ font-weight: bold; }}
+        ul {{ margin-left: 25px; }}
+        li {{ margin-bottom: 8px; }}
+        .firma img {{ width: 160px; margin-top: 10px; }}
+        .qr img {{ width: 90px; }}
+        footer {{
+          text-align: center;
+          color: #9ca3af;
+          font-size: 13px;
+          margin-top: 50px;
+        }}
+      </style>
+    </head>
+    <body>
+      <div class="card">
+        <div class="header">
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" alt="DocYa Logo">
+          <div class="title">Receta Médica Digital</div>
+        </div>
+        <hr>
+        <p><b>Médico:</b> {receta[6]}<br>
+           <b>Especialidad:</b> {receta[7]}<br>
+           <b>Matrícula:</b> {receta[8]}<br>
+           <b>Fecha:</b> {fecha}</p>
+        <div class="section-title">Paciente</div>
+        <p><b>Nombre:</b> {receta[9]}<br>
+           <b>DNI:</b> {receta[10]}<br>
+           <b>Obra social:</b> {receta[1] or '—'}<br>
+           <b>Credencial:</b> {receta[2] or '—'}</p>
+        <div class="section-title">Diagnóstico</div>
+        <p>{receta[3] or '—'}</p>
+        <div class="section-title">Rp / Indicaciones</div>
+        <ul>
+          {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
+        </ul>
+        <div class="firma">
+          <p><b>Firma digital:</b></p>
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png">
+          <p style="font-size:13px;color:#4b5563;">Documento firmado electrónicamente conforme Ley 25.506.</p>
+        </div>
+        <div class="qr" style="text-align:right;margin-top:30px;">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_receta/{receta_id}">
+        </div>
+      </div>
+      <footer>© {datetime.now().year} DocYa — Atención médica a domicilio</footer>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
+
 
 # --- Notas ---
 class NotaIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
