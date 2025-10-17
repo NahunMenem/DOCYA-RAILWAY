@@ -1873,7 +1873,7 @@ async def generar_receta_pdf(
         c.drawString(60, y - 30, "Firma digital del profesional")
 
         # QR con link de verificación
-        qr_data = f"https://docya.com.ar/ver_receta/{consulta_id}"
+        qr_data = f"https://docya-railway-production.up.railway.app/ver_receta/{consulta_id}"
         qr_img = qrcode.make(qr_data)
         qr_buf = io.BytesIO()
         qr_img.save(qr_buf)
@@ -2047,8 +2047,8 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         </div>
 
         <div class="qr">
-            <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{consulta_id}">
-            <div>Verificación:<br>docya.com.ar/ver_receta/{consulta_id}</div>
+            <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_receta/{consulta_id}">
+            <div>Verificación:<br>docya-railway-production.up.railway.app/ver_receta/{consulta_id}</div>
         </div>
 
         <div class="pie">
@@ -2672,8 +2672,8 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         </div>
 
         <div class="qr">
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_receta/{receta_id}" alt="QR">
-          <p style="font-size:12px; color:#6b7280;">Verificar autenticidad<br>docya.com.ar/ver_receta/{receta_id}</p>
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_receta/{receta_id}" alt="QR">
+          <p style="font-size:12px; color:#6b7280;">Verificar autenticidad<br>docya-railway-production.up.railway.app/ver_receta/{receta_id}</p>
         </div>
       </div>
 
