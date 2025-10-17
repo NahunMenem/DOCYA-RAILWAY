@@ -286,7 +286,7 @@ def enviar_email_validacion_paciente(email: str, user_id: int, full_name: str):
         {"sub": str(user_id), "email": email, "tipo": "validacion_paciente"},
         expires_minutes=60*24
     )
-    link_activacion = f"https://docya.com.ar/auth/activar_paciente?token={token}"
+    link_activacion = f"https://docya-railway-production.up.railway.app/auth/activar_paciente?token={token}"
 
     html_content = f"""
     <!DOCTYPE html>
@@ -516,7 +516,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
         {"sub": str(medico_id), "email": email, "tipo": "validacion"},
         expires_minutes=60*24
     )
-    link_activacion = f"https://docya.com.ar/auth/activar_medico?token={token}"
+    link_activacion = f"https://docya-railway-production.up.railway.app/auth/activar_medico?token={token}"
 
     # HTML seguro y compatible con correos
     html_content = f"""
@@ -570,7 +570,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
 
     email_data = SendSmtpEmail(
         to=[{"email": email, "name": full_name}],
-        sender={"email": "soporte@docya.com.ar", "name": "DocYa"},  # 👈 mejor usar dominio verificado
+        sender={"email": "soporte@docya-railway-production.up.railway.app", "name": "DocYa"},  # 👈 mejor usar dominio verificado
         subject="Activa tu cuenta en DocYa",
         html_content=html_content
     )
@@ -1262,7 +1262,7 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
 
     logo_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
     firma_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png"
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya.com.ar/ver_certificado/{consulta_id}"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_certificado/{consulta_id}"
 
     fecha_nac = paciente_nac.strftime("%d/%m/%Y") if paciente_nac else "—"
     fecha_emision = creado_en.strftime("%d/%m/%Y %H:%M")
@@ -1375,7 +1375,7 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
 
       <div class="qr">
         <img src="{qr_url}" alt="QR de verificación"><br>
-        <small>Verificar autenticidad:<br>docya.com.ar/ver_certificado/{consulta_id}</small>
+        <small>Verificar autenticidad:<br>docya-railway-production.up.railway.app/ver_certificado/{consulta_id}</small>
       </div>
 
       <footer>
@@ -2317,7 +2317,7 @@ def forgot_password(data: ForgotPasswordIn, db=Depends(get_db)):
         {"sub": str(medico_id), "email": email, "tipo": "reset_password"},
         expires_minutes=60
     )
-    link_reset = f"https://docya.com.ar/auth/reset_password?token={token}"
+    link_reset = f"https://docya-railway-production.up.railway.app/auth/reset_password?token={token}"
 
     # Plantilla HTML estilo DocYa Pro
     html_content = f"""
@@ -2445,7 +2445,7 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
                         Hola <b>{full_name}</b>, tu contraseña fue cambiada correctamente.<br>
                         Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa Pro</b>.
                       </p>
-                      <a href="https://docya.com.ar/login" 
+                      <a href="https://docya-railway-production.up.railway.app/login" 
                          style="display:inline-block; margin-top:20px; padding:12px 24px;
                                 background-color:#14B8A6; color:#fff; text-decoration:none; border-radius:6px;">
                         Ir al inicio de sesión
@@ -2469,7 +2469,7 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
 
         confirm_email = SendSmtpEmail(
             to=[{"email": email, "name": full_name}],
-            sender={"email": "soporte@docya.com.ar", "name": "DocYa Pro"},
+            sender={"email": "soporte@docya-railway-production.up.railway.app", "name": "DocYa Pro"},
             subject="Contraseña actualizada – DocYa Pro",
             html_content=html_confirm,
         )
