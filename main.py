@@ -1552,6 +1552,34 @@ def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
 
     return {"ok": True, "receta_id": receta_id}
 
+# --- GET: ver receta de una consulta (PDF/HTML) ---
+from fastapi.responses import HTMLResponse, Response
+
+@app.get("/consultas/{consulta_id}/receta", response_class=HTMLResponse)
+def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
+    """
+    Muestra la receta de una consulta en formato HTML profesional DocYa.
+    """
+    cur = db.cursor()
+    cur.execute("""
+        SELECT r.id
+        FROM recetas r
+        WHERE r.consulta_id = %s
+        ORDER BY r.creado_en DESC
+        LIMIT 1
+    """, (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="❌ No existe receta para esta consulta")
+
+    receta_id = row[0]
+
+    # Reutilizamos la vista pública existente
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+    response = client.get(f"/ver_receta/{receta_id}")
+    return HTMLResponse(response.text, status_code=response.status_code)
 
 # --- Notas ---
 class NotaIn(BaseModel): medico_id:int; paciente_uuid:str; contenido:str
