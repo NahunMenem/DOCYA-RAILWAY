@@ -681,9 +681,12 @@ def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get
         raise HTTPException(status_code=500, detail=f"Error subiendo foto: {e}")
 
 
+
 class AliasIn(BaseModel):
     alias: str
 
+class FcmTokenIn(BaseModel):
+    fcm_token: str
 @app.patch("/auth/medico/{medico_id}/alias")
 def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
     cur = db.cursor()
