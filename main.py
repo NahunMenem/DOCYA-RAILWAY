@@ -2970,33 +2970,40 @@ class PagoConsultaIn(BaseModel):
     consulta_id: int
     medico_id: int
     paciente_uuid: str
-    metodo_pago: str  # 'efectivo', 'debito', 'credito'
 
 
 @app.post("/consultas/{consulta_id}/pago")
-def registrar_pago(consulta_id: int, data: PagoConsultaIn):
-    db = get_db()
+def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
-    monto_total = 30000
 
-    if data.metodo_pago == "efectivo":
+    # 1️⃣ Buscar el método de pago guardado en la consulta
+    cur.execute("SELECT metodo_pago FROM consultas WHERE id = %s", (consulta_id,))
+    row = cur.fetchone()
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="No se encontró el método de pago para esta consulta")
+
+    metodo_pago = row[0].lower().strip()
+
+    # 2️⃣ Calcular montos según método de pago
+    monto_total = 30000
+    if metodo_pago == "efectivo":
         medico_neto = 30000
         docya_comision = 6000
         saldo_delta = -6000  # médico le debe a DocYa
-    else:
+    else:  # débito o crédito
         medico_neto = 24000
         docya_comision = 6000
         saldo_delta = 24000  # DocYa le debe al médico
 
-    # Insertar pago
+    # 3️⃣ Registrar el pago
     cur.execute("""
         INSERT INTO pagos_consulta 
         (consulta_id, medico_id, paciente_uuid, metodo_pago, monto_total, medico_neto, docya_comision)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
-    """, (data.consulta_id, data.medico_id, data.paciente_uuid, data.metodo_pago,
-          monto_total, medico_neto, docya_comision))
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+    """, (data.consulta_id, data.medico_id, data.paciente_uuid,
+          metodo_pago, monto_total, medico_neto, docya_comision))
 
-    # Actualizar o crear saldo del médico
+    # 4️⃣ Actualizar o crear saldo del médico
     cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id = %s", (data.medico_id,))
     row = cur.fetchone()
     if row:
@@ -3006,17 +3013,26 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn):
         cur.execute("INSERT INTO saldo_medico (medico_id, saldo) VALUES (%s, %s)",
                     (data.medico_id, saldo_delta))
 
+    # 5️⃣ Marcar la consulta como completada
+    cur.execute("UPDATE consultas SET estado = 'finalizada' WHERE id = %s", (consulta_id,))
+
     db.commit()
     db.close()
 
     return {
         "ok": True,
         "consulta_id": consulta_id,
-        "metodo_pago": data.metodo_pago,
+        "metodo_pago": metodo_pago,
         "docya_comision": docya_comision,
         "medico_neto": medico_neto,
-        "saldo_delta": saldo_delta
+        "saldo_delta": saldo_delta,
+        "mensaje": (
+            "Consulta registrada: el médico debe a DocYa $6.000"
+            if metodo_pago == "efectivo"
+            else "Consulta registrada: DocYa debe pagar $24.000 al médico"
+        )
     }
+
     #💰 2️⃣ Consultar saldo del médico
     @app.get("/medicos/{medico_id}/saldo")
 def obtener_saldo(medico_id: int):
