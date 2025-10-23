@@ -2957,5 +2957,120 @@ def historial_chat(consulta_id: int, db=Depends(get_db)):
     ]  # 👈 nunca None, siempre []
 
 
-# Agregar al final de tu main.py
+
+# 🧾 1️⃣ Registrar un pago de consulta --------------------------------------------------------------------------------------------------------------------------
+class PagoConsultaIn(BaseModel):
+    consulta_id: int
+    medico_id: int
+    paciente_uuid: str
+    metodo_pago: str  # 'efectivo', 'debito', 'credito'
+
+
+@app.post("/consultas/{consulta_id}/pago")
+def registrar_pago(consulta_id: int, data: PagoConsultaIn):
+    db = get_db()
+    cur = db.cursor()
+    monto_total = 30000
+
+    if data.metodo_pago == "efectivo":
+        medico_neto = 30000
+        docya_comision = 6000
+        saldo_delta = -6000  # médico le debe a DocYa
+    else:
+        medico_neto = 24000
+        docya_comision = 6000
+        saldo_delta = 24000  # DocYa le debe al médico
+
+    # Insertar pago
+    cur.execute("""
+        INSERT INTO pagos_consulta 
+        (consulta_id, medico_id, paciente_uuid, metodo_pago, monto_total, medico_neto, docya_comision)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """, (data.consulta_id, data.medico_id, data.paciente_uuid, data.metodo_pago,
+          monto_total, medico_neto, docya_comision))
+
+    # Actualizar o crear saldo del médico
+    cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id = %s", (data.medico_id,))
+    row = cur.fetchone()
+    if row:
+        cur.execute("UPDATE saldo_medico SET saldo = saldo + %s WHERE medico_id = %s",
+                    (saldo_delta, data.medico_id))
+    else:
+        cur.execute("INSERT INTO saldo_medico (medico_id, saldo) VALUES (%s, %s)",
+                    (data.medico_id, saldo_delta))
+
+    db.commit()
+    db.close()
+
+    return {
+        "ok": True,
+        "consulta_id": consulta_id,
+        "metodo_pago": data.metodo_pago,
+        "docya_comision": docya_comision,
+        "medico_neto": medico_neto,
+        "saldo_delta": saldo_delta
+    }
+    #💰 2️⃣ Consultar saldo del médico
+    @app.get("/medicos/{medico_id}/saldo")
+def obtener_saldo(medico_id: int):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id = %s", (medico_id,))
+    row = cur.fetchone()
+    db.close()
+
+    saldo = float(row[0]) if row else 0.0
+    estado = "DocYa le debe" if saldo > 0 else "Debe a DocYa" if saldo < 0 else "Saldo en cero"
+
+    return {"medico_id": medico_id, "saldo": saldo, "estado": estado}
+#📋 3️⃣ Listar pagos del médico
+@app.get("/medicos/{medico_id}/pagos")
+def listar_pagos_medico(medico_id: int):
+    db = get_db()
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, consulta_id, metodo_pago, monto_total, medico_neto, docya_comision, fecha
+        FROM pagos_consulta
+        WHERE medico_id = %s
+        ORDER BY fecha DESC
+    """, (medico_id,))
+    rows = cur.fetchall()
+    db.close()
+
+    return [
+        {
+            "id": r[0],
+            "consulta_id": r[1],
+            "metodo_pago": r[2],
+            "monto_total": float(r[3]),
+            "medico_neto": float(r[4]),
+            "docya_comision": float(r[5]),
+            "fecha": r[6].strftime("%d/%m/%Y %H:%M")
+        } for r in rows
+    ]
+#🧾 4️⃣ Registrar una liquidación
+class LiquidacionIn(BaseModel):
+    periodo_inicio: date
+    periodo_fin: date
+    monto_pagado: float
+
+@app.post("/medicos/{medico_id}/liquidar")
+def liquidar_medico(medico_id: int, data: LiquidacionIn):
+    db = get_db()
+    cur = db.cursor()
+
+    # Insertar la liquidación
+    cur.execute("""
+        INSERT INTO liquidaciones_medico (medico_id, periodo_inicio, periodo_fin, monto_pagado)
+        VALUES (%s, %s, %s, %s)
+    """, (medico_id, data.periodo_inicio, data.periodo_fin, data.monto_pagado))
+
+    # Actualizar saldo
+    cur.execute("UPDATE saldo_medico SET saldo = saldo - %s WHERE medico_id = %s",
+                (data.monto_pagado, medico_id))
+
+    db.commit()
+    db.close()
+
+    return {"ok": True, "mensaje": f"Liquidación registrada por ${data.monto_pagado}"}
 
