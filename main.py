@@ -724,20 +724,20 @@ from fastapi import HTTPException, Depends
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 🔹 1. Verificar tipo del profesional
+    # 1️⃣ Tipo del profesional
     cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
     tipo = row[0]
 
-    # 🔹 2. Calcular rango de semana actual (lunes → domingo)
-    inicio_semana = date.today() - timedelta(days=date.today().weekday())  # lunes
-    fin_semana = inicio_semana + timedelta(days=6)  # domingo
+    # 2️⃣ Semana actual
+    inicio_semana = date.today() - timedelta(days=date.today().weekday())
+    fin_semana = inicio_semana + timedelta(days=6)
 
-    # 🔹 3. Consultas finalizadas esta semana
+    # 3️⃣ Consultas finalizadas esta semana
     cur.execute("""
-        SELECT COUNT(*)
+        SELECT COUNT(*) 
         FROM consultas
         WHERE medico_id = %s
           AND estado = 'finalizada'
@@ -745,41 +745,31 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     """, (medico_id,))
     consultas = cur.fetchone()[0] or 0
 
-    # 🔹 4. Tarifa según tipo de profesional
+    # 4️⃣ Tarifa
     tarifa = 24000 if tipo == "medico" else 15000
     ganancias = consultas * tarifa
 
-    # 🔹 5. Totales por método de pago
+    # 5️⃣ Pagos reales por método
     cur.execute("""
         SELECT 
-            COALESCE(metodo_pago, 'desconocido') AS metodo_pago,
+            COALESCE(metodo_pago, 'efectivo') AS metodo_pago,
             COUNT(*) AS cantidad,
             COALESCE(SUM(medico_neto), 0) AS total
         FROM pagos_consulta
         WHERE medico_id = %s
           AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
-        GROUP BY metodo_pago
-        ORDER BY metodo_pago;
+        GROUP BY metodo_pago;
     """, (medico_id,))
-
     pagos = cur.fetchall()
-    detalle_pagos = {
-        row[0]: {"cantidad": int(row[1]), "monto": float(row[2])}
-        for row in pagos
-    }
+    detalle_pagos = {row[0]: {"cantidad": int(row[1]), "monto": float(row[2])} for row in pagos}
 
-    # Si no hay registros, incluir estructura vacía con montos 0 (para evitar errores en Flutter)
-    if not detalle_pagos:
-        detalle_pagos = {
-            "efectivo": {"cantidad": 0, "monto": 0.0},
-            "transferencia": {"cantidad": 0, "monto": 0.0},
-            "tarjeta": {"cantidad": 0, "monto": 0.0}
-        }
+    # 6️⃣ Si no hay pagos registrados pero hay consultas → asumir "efectivo"
+    if not detalle_pagos and consultas > 0:
+        detalle_pagos = {"efectivo": {"cantidad": consultas, "monto": float(ganancias)}}
 
-    db.commit()
     db.close()
 
-    # 🔹 6. Respuesta final
+    # 7️⃣ Respuesta final
     return {
         "consultas": int(consultas),
         "ganancias": int(ganancias),
