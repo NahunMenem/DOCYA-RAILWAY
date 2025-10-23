@@ -801,6 +801,7 @@ class SolicitarConsultaIn(BaseModel):
     lat: float
     lng: float
     tipo: str = "medico"   # 👈 puede ser "medico" o "enfermero"
+    metodo_pago: str
 
 
 @app.post("/consultas/solicitar")
