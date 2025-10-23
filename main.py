@@ -3061,7 +3061,7 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
     }
 
     #💰 2️⃣ Consultar saldo del médico
-    @app.get("/medicos/{medico_id}/saldo")
+@app.get("/medicos/{medico_id}/saldo")
 def obtener_saldo(medico_id: int):
     db = get_db()
     cur = db.cursor()
