@@ -749,22 +749,32 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     tarifa = 24000 if tipo == "medico" else 15000
     ganancias = consultas * tarifa
 
-    # 🔹 5. Totales por método de pago (si ya registrás en pagos_consulta)
+    # 🔹 5. Totales por método de pago
     cur.execute("""
         SELECT 
-            metodo_pago,
+            COALESCE(metodo_pago, 'desconocido') AS metodo_pago,
             COUNT(*) AS cantidad,
             COALESCE(SUM(medico_neto), 0) AS total
         FROM pagos_consulta
         WHERE medico_id = %s
           AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
         GROUP BY metodo_pago
+        ORDER BY metodo_pago;
     """, (medico_id,))
+
     pagos = cur.fetchall()
     detalle_pagos = {
         row[0]: {"cantidad": int(row[1]), "monto": float(row[2])}
         for row in pagos
     }
+
+    # Si no hay registros, incluir estructura vacía con montos 0 (para evitar errores en Flutter)
+    if not detalle_pagos:
+        detalle_pagos = {
+            "efectivo": {"cantidad": 0, "monto": 0.0},
+            "transferencia": {"cantidad": 0, "monto": 0.0},
+            "tarjeta": {"cantidad": 0, "monto": 0.0}
+        }
 
     db.commit()
     db.close()
@@ -777,6 +787,7 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
         "periodo": f"{inicio_semana} → {fin_semana}",
         "detalle_pagos": detalle_pagos
     }
+
 
 
 @app.post("/auth/medico/{medico_id}/fcm_token")
