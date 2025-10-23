@@ -714,40 +714,67 @@ def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_d
     return {"ok": True, "medico_id": medico_id, "disponible": row["disponible"]}
 
 
+from datetime import date, timedelta
+from fastapi import HTTPException, Depends
+
 @app.get("/auth/medico/{medico_id}/stats")
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
-    # traer tipo del profesional
+    # 🔹 1. Verificar tipo del profesional
     cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
     tipo = row[0]
 
-    # consultas finalizadas este mes
+    # 🔹 2. Calcular rango de semana actual (lunes → domingo)
+    inicio_semana = date.today() - timedelta(days=date.today().weekday())  # lunes
+    fin_semana = inicio_semana + timedelta(days=6)  # domingo
+
+    # 🔹 3. Consultas finalizadas esta semana
     cur.execute("""
         SELECT COUNT(*)
         FROM consultas
-        WHERE medico_id=%s AND estado='finalizada'
-          AND DATE_TRUNC('month', creado_en) = DATE_TRUNC('month', CURRENT_DATE)
+        WHERE medico_id = %s
+          AND estado = 'finalizada'
+          AND DATE_TRUNC('week', creado_en) = DATE_TRUNC('week', CURRENT_DATE)
     """, (medico_id,))
     consultas = cur.fetchone()[0] or 0
 
-    # definir tarifa según tipo
+    # 🔹 4. Tarifa según tipo de profesional
     tarifa = 24000 if tipo == "medico" else 15000
-
     ganancias = consultas * tarifa
 
+    # 🔹 5. Totales por método de pago (si ya registrás en pagos_consulta)
+    cur.execute("""
+        SELECT 
+            metodo_pago,
+            COUNT(*) AS cantidad,
+            COALESCE(SUM(medico_neto), 0) AS total
+        FROM pagos_consulta
+        WHERE medico_id = %s
+          AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
+        GROUP BY metodo_pago
+    """, (medico_id,))
+    pagos = cur.fetchall()
+    detalle_pagos = {
+        row[0]: {"cantidad": int(row[1]), "monto": float(row[2])}
+        for row in pagos
+    }
+
+    db.commit()
+    db.close()
+
+    # 🔹 6. Respuesta final
     return {
         "consultas": int(consultas),
         "ganancias": int(ganancias),
-        "tipo": tipo
+        "tipo": tipo,
+        "periodo": f"{inicio_semana} → {fin_semana}",
+        "detalle_pagos": detalle_pagos
     }
 
-
-class FcmTokenIn(BaseModel):
-    fcm_token: str
 
 @app.post("/auth/medico/{medico_id}/fcm_token")
 def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
