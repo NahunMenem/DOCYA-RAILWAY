@@ -801,14 +801,14 @@ class SolicitarConsultaIn(BaseModel):
     lat: float
     lng: float
     tipo: str = "medico"   # 👈 puede ser "medico" o "enfermero"
-    metodo_pago: str
+    metodo_pago: str       # 👈 'efectivo', 'debito', 'credito'
 
 
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Buscar profesional más cercano disponible del tipo solicitado
+    # Buscar profesional más cercano disponible
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -830,29 +830,30 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
-    # Insertar consulta vinculada al profesional encontrado (médico o enfermero)
+    # 💾 Insertar la consulta con el método de pago
     cur.execute("""
-        INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng)
-        VALUES (%s,%s,'pendiente',%s,%s,%s,%s)
+        INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng, metodo_pago)
+        VALUES (%s,%s,'pendiente',%s,%s,%s,%s,%s)
         RETURNING id, creado_en
-    """, (str(data.paciente_uuid), profesional_id, data.motivo, data.direccion, data.lat, data.lng))
+    """, (str(data.paciente_uuid), profesional_id, data.motivo, data.direccion,
+          data.lat, data.lng, data.metodo_pago))
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # 🔔 Notificación WS en tiempo real
+    # 🔔 Notificación WebSocket
     if profesional_id in active_medicos:
         try:
             await active_medicos[profesional_id].send_json({
                 "tipo": "consulta_nueva",
                 "consulta_id": consulta_id,
                 "paciente_uuid": str(data.paciente_uuid),
-                "paciente_nombre": None,  # opcional, si querés enviar nombre
                 "motivo": data.motivo,
                 "direccion": data.direccion,
                 "lat": data.lat,
                 "lng": data.lng,
                 "distancia_km": round(distancia, 2),
                 "profesional_tipo": tipo,
+                "metodo_pago": data.metodo_pago,
                 "creado_en": str(creado_en)
             })
         except Exception as e:
@@ -866,11 +867,14 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             enviar_push(row[0], "📢 Nueva consulta", f"{data.motivo}", {
                 "tipo": "consulta_nueva",
                 "consulta_id": str(consulta_id),
-                "medico_id": str(profesional_id),   # 👈 genérico, puede ser médico o enfermero
-                "profesional_tipo": tipo
+                "medico_id": str(profesional_id),
+                "profesional_tipo": tipo,
+                "metodo_pago": data.metodo_pago
             })
         except Exception as e:
             print(f"⚠️ Error push: {e}")
+
+    # Evento global
     send_event("consulta_creada", {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -879,9 +883,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "lng": data.lng,
         "tipo": data.tipo,
         "profesional_id": profesional_id,
+        "metodo_pago": data.metodo_pago,
         "distancia_km": round(distancia, 2)
     })
-        
 
     return {
         "consulta_id": consulta_id,
@@ -896,9 +900,11 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         },
         "motivo": data.motivo,
         "direccion": data.direccion,
+        "metodo_pago": data.metodo_pago,
         "estado": "pendiente",
         "creado_en": format_datetime_arg(creado_en)
     }
+
 
 #historial consultas medico 
 @app.get("/consultas/historial_medico/{medico_id}")
