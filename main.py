@@ -3128,7 +3128,8 @@ def liquidar_medico(medico_id: int, data: LiquidacionIn):
 
     return {"ok": True, "mensaje": f"Liquidación registrada por ${data.monto_pagado}"}
 
-@app.route('/inversores')
-def inversores():
-    return render_template('inversores.html')
+templates = Jinja2Templates(directory="templates")
 
+@app.get("/inversores", response_class=HTMLResponse)
+async def inversores(request: Request):
+    return templates.TemplateResponse("inversores.html", {"request": request})
