@@ -3133,3 +3133,8 @@ templates = Jinja2Templates(directory="templates")
 @app.get("/inversores", response_class=HTMLResponse)
 async def inversores(request: Request):
     return templates.TemplateResponse("inversores.html", {"request": request})
+
+@app.get("/flujo", response_class=HTMLResponse)
+async def inversores(request: Request):
+    return templates.TemplateResponse("flujo.html", {"request": request})
+    
