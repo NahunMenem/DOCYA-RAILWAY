@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Flujo de Usuario – DocYa</title>
-  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Flujo de Usuario – DocYa & DocYa Pro</title>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet" />
   <script src="https://unpkg.com/lucide@latest"></script>
   <style>
     body {
@@ -18,83 +18,180 @@
       border-radius: 1rem;
       padding: 1.5rem;
       margin-bottom: 2rem;
-      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .step-number {
+      background-color: #14B8A6;
+      border-radius: 50%;
+      color: #fff;
+      width: 2rem;
+      height: 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 600;
+      margin-right: 0.75rem;
     }
     img.screenshot {
-      border-radius: 0.75rem;
-      margin-top: 1rem;
-      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 1rem;
+      object-fit: cover;
+      width: 100%;
+      height: 340px;
     }
   </style>
 </head>
-<body class="p-6 md:p-12">
-  <header class="mb-10 text-center">
-    <h1 class="text-4xl font-bold text-teal-400 mb-2">🩺 DocYa — Flujo de Usuario</h1>
-    <p class="text-gray-300 max-w-2xl mx-auto">Guía visual paso a paso del recorrido del paciente dentro de la app DocYa.</p>
+
+<body class="min-h-screen p-6">
+  <!-- HEADER -->
+  <header class="text-center mb-10">
+    <div class="flex justify-center gap-10 mb-6">
+      <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/logo_docya.png" alt="Logo DocYa" class="h-20">
+      <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/logo_docya_pro.png" alt="Logo DocYa Pro" class="h-20">
+    </div>
+    <h1 class="text-3xl font-bold mb-2">Flujo de Usuario – DocYa & DocYa Pro</h1>
+    <p class="text-gray-200 max-w-2xl mx-auto">
+      <strong>DocYa</strong> es la primera plataforma tipo Uber de atención médica a domicilio en Argentina.
+      Conecta pacientes con médicos y enfermeros cercanos para consultas a domicilio, permitiendo pago directo desde la app,
+      seguimiento en mapa y registro digital de historia clínica.
+    </p>
   </header>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">1️⃣ Inicio</h2>
-    <p class="text-gray-200">El paciente abre la app, ve la pantalla de bienvenida con opciones de registro o inicio de sesión.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/dqsacd9ez/image/upload/v1761328705/Screenshot_20251024-145612_upf1bo.png</p>
-  </section>
+  <!-- PASOS -->
+  <main class="max-w-5xl mx-auto space-y-10">
+    <!-- Paso 1 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">1</div>
+        <h2 class="text-xl font-semibold">Inicio del paciente: Login o Registro</h2>
+      </div>
+      <p>El paciente abre la app y puede iniciar sesión o crear una nueva cuenta en DocYa.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso1a.png" class="screenshot" alt="Inicio sesión">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso1b.png" class="screenshot" alt="Registro">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">2️⃣ Registro</h2>
-    <p class="text-gray-200">Completa su información personal (nombre, DNI, teléfono, dirección) y acepta los términos y condiciones.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_registro.png</p>
-  </section>
+    <!-- Paso 2 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">2</div>
+        <h2 class="text-xl font-semibold">Aceptación de Términos y Condiciones</h2>
+      </div>
+      <p>Durante el registro, el paciente debe aceptar los Términos y Condiciones antes de continuar.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso2a.png" class="screenshot" alt="Términos">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso2b.png" class="screenshot" alt="Confirmación">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">3️⃣ Solicitud de servicio</h2>
-    <p class="text-gray-200">Selecciona el tipo de atención (médico o enfermero), ingresa el motivo y confirma ubicación en el mapa.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_solicitud.png</p>
-  </section>
+    <!-- Paso 3 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">3</div>
+        <h2 class="text-xl font-semibold">Elección del tipo de atención</h2>
+      </div>
+      <p>El paciente elige si desea atención de un médico o un enfermero a domicilio.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso3a.png" class="screenshot" alt="Elegir médico">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso3b.png" class="screenshot" alt="Elegir enfermero">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">4️⃣ Asignación</h2>
-    <p class="text-gray-200">El sistema muestra el profesional más cercano y su tiempo estimado de llegada. Se habilita el seguimiento en tiempo real.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_asignacion.png</p>
-  </section>
+    <!-- Paso 4 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">4</div>
+        <h2 class="text-xl font-semibold">Triage: Filtro de urgencias</h2>
+      </div>
+      <p>Antes de solicitar atención, DocYa muestra preguntas de triage para descartar emergencias graves.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso4a.png" class="screenshot" alt="Triage paso 1">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso4b.png" class="screenshot" alt="Triage paso 2">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">5️⃣ Atención</h2>
-    <p class="text-gray-200">El médico o enfermero llega al domicilio, realiza la atención y puede generar una receta o informe digital.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_atencion.png</p>
-  </section>
+    <!-- Paso 5 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">5</div>
+        <h2 class="text-xl font-semibold">Selección de método de pago y motivo</h2>
+      </div>
+      <p>El paciente elige cómo pagar (tarjeta, transferencia, efectivo) y explica brevemente el motivo de la consulta.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso5a.png" class="screenshot" alt="Método de pago">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso5b.png" class="screenshot" alt="Motivo consulta">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">6️⃣ Pago</h2>
-    <p class="text-gray-200">El paciente abona el servicio desde la app mediante MercadoPago, tarjeta o efectivo.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_pago.png</p>
-  </section>
+    <!-- Paso 6 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">6</div>
+        <h2 class="text-xl font-semibold">Recepción de la consulta en DocYa Pro</h2>
+      </div>
+      <p>El médico recibe la notificación en DocYa Pro con los datos del paciente, dirección y motivo de consulta.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso6a.png" class="screenshot" alt="Notificación médico">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso6b.png" class="screenshot" alt="Detalle consulta médico">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">7️⃣ Valoración</h2>
-    <p class="text-gray-200">El paciente califica la atención del profesional con estrellas y puede dejar un comentario.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_valoracion.png</p>
-  </section>
+    <!-- Paso 7 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">7</div>
+        <h2 class="text-xl font-semibold">Aceptación y navegación al domicilio</h2>
+      </div>
+      <p>El médico acepta la consulta y puede abrir el mapa para recibir indicaciones hacia el domicilio del paciente.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso7a.png" class="screenshot" alt="Aceptar consulta">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso7b.png" class="screenshot" alt="Mapa navegación">
+      </div>
+    </section>
 
-  <section class="card">
-    <h2 class="text-2xl font-semibold mb-3">8️⃣ Fin del proceso</h2>
-    <p class="text-gray-200">Se genera un resumen de la consulta con datos del profesional, diagnóstico y recomendaciones finales.</p>
-    <p class="text-sm text-gray-400 mt-2">🖼️ Enlace captura Cloudinary:</p>
-    <p class="text-sm text-teal-300 italic">https://res.cloudinary.com/TU_USUARIO/image/upload/vXXXXXXX/docya_resumen.png</p>
-  </section>
+    <!-- Paso 8 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">8</div>
+        <h2 class="text-xl font-semibold">Inicio de la consulta</h2>
+      </div>
+      <p>Al llegar al domicilio, se habilita el botón para iniciar la consulta. DocYa valida la geolocalización.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso8a.png" class="screenshot" alt="Inicio consulta">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso8b.png" class="screenshot" alt="Validación ubicación">
+      </div>
+    </section>
 
-  <footer class="mt-16 text-center text-gray-400">
-    <p>© 2025 DocYa — Desarrollado con ❤️ en Argentina</p>
+    <!-- Paso 9 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">9</div>
+        <h2 class="text-xl font-semibold">Certificados y carga de historia clínica</h2>
+      </div>
+      <p>Durante la consulta, el médico puede emitir certificados, recetas digitales y cargar notas médicas en la historia clínica del paciente.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso9a.png" class="screenshot" alt="Certificados">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso9b.png" class="screenshot" alt="Historia clínica">
+      </div>
+    </section>
+
+    <!-- Paso 10 -->
+    <section class="card">
+      <div class="flex items-center mb-4">
+        <div class="step-number">10</div>
+        <h2 class="text-xl font-semibold">Finalización y calificación</h2>
+      </div>
+      <p>El médico finaliza la consulta y el paciente puede calificar la atención con estrellas y comentarios.</p>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso10a.png" class="screenshot" alt="Final consulta">
+        <img src="https://res.cloudinary.com/tu_cuenta/image/upload/v1/docya/screens/paso10b.png" class="screenshot" alt="Calificación paciente">
+      </div>
+    </section>
+  </main>
+
+  <footer class="text-center text-gray-400 mt-16 text-sm">
+    © 2025 DocYa – Salud a tu puerta · Desarrollado en Argentina
   </footer>
 
-  <script>
-    lucide.createIcons();
-  </script>
+  <script>lucide.createIcons();</script>
 </body>
 </html>
