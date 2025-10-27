@@ -3,6 +3,7 @@
 # ==================================================
 import os
 import jwt
+from sqlalchemy.orm import Session
 import psycopg2
 from weasyprint import HTML, CSS
 from fastapi.templating import Jinja2Templates
