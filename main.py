@@ -233,38 +233,34 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "role": "patient"
     }
 @app.post("/users/{user_id}/foto")
-def subir_foto_paciente(user_id: int, file: UploadFile = File(...), db: Session = Depends(get_db)):
-    """
-    📸 Sube la foto de perfil del paciente (tabla users) a Cloudinary
-    y actualiza el campo foto_url en la base de datos.
-    """
+def subir_foto_paciente(
+    user_id: int,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db)
+):
     try:
-        user = db.query(User).filter(User.id == user_id).first()
-        if not user:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-        # Subir a Cloudinary en carpeta específica
-        upload_result = cloudinary.uploader.upload(
+        # Subir imagen a Cloudinary
+        result = cloudinary.uploader.upload(
             file.file,
             folder="docya/pacientes",
             public_id=f"paciente_{user_id}",
-            overwrite=True,
-            resource_type="image"
+            overwrite=True
         )
 
-        # Guardar la URL pública
-        user.foto_url = upload_result.get("secure_url")
+        url_publica = result.get("secure_url")
+
+        # Actualizar en la base de datos
+        db.execute(
+            "UPDATE users SET foto_url = :url WHERE id = :id",
+            {"url": url_publica, "id": user_id}
+        )
         db.commit()
 
-        return {
-            "ok": True,
-            "user_id": user_id,
-            "foto_url": user.foto_url
-        }
+        return {"message": "Foto subida correctamente", "foto_url": url_publica}
 
     except Exception as e:
-        print(f"❌ Error al subir foto del paciente: {e}")
-        raise HTTPException(status_code=500, detail="Error al subir la foto de perfil")
+        raise HTTPException(status_code=500, detail=f"Error al subir la foto: {str(e)}")
+
 # ====================================================
 # 🟢 MÉDICOS CONECTADOS (ENDPOINT)
 # ====================================================
