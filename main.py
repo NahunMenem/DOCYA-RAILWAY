@@ -20,6 +20,9 @@ from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
+from monitoreo import router as monitoreo_router
+app.include_router(monitoreo_router)
+
 # ====================================================
 # 🌐 CONEXIONES ACTIVAS (WEBSOCKETS)
 # ====================================================
