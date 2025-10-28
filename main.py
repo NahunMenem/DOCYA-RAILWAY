@@ -21,7 +21,7 @@ from fastapi import (
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
 from monitoreo import router as monitoreo_router
-app.include_router(monitoreo_router)
+
 
 # ====================================================
 # 🌐 CONEXIONES ACTIVAS (WEBSOCKETS)
@@ -77,7 +77,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
    #     yield conn
     #finally:
      #   conn.close()
-
+app.include_router(monitoreo_router)
 def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES):
     to_encode = payload.copy()
     expire = now_argentina() + timedelta(minutes=expires_minutes)
