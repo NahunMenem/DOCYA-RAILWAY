@@ -3,7 +3,7 @@
 # ====================================================
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from psycopg2.extras import RealDictCursor
-from database import get_db
+from main import get_db
 import json
 import asyncio
 
