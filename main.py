@@ -232,40 +232,41 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "full_name": full_name,
         "role": "patient"
     }
-from fastapi import UploadFile, File, Depends
-import cloudinary.uploader
-
-
-from fastapi import UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
+from fastapi import UploadFile, File, Depends, HTTPException
 from datetime import datetime
 import cloudinary.uploader
 
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
     """
-    Devuelve los datos del paciente, cantidad de consultas y meses en DocYa.
+    Devuelve los datos del paciente, cantidad de consultas médicas y meses activo en DocYa.
     """
+    # Buscar usuario por ID
     user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     data = dict(user._mapping)
 
-    # Calcular meses desde el registro
+    # 🧮 Calcular meses en DocYa desde la fecha de registro
     meses = 0
     if data.get("created_at"):
-        meses = (datetime.utcnow() - data["created_at"]).days // 30
+        try:
+            meses = (datetime.utcnow() - data["created_at"]).days // 30
+        except Exception:
+            meses = 0
 
-    # Contar consultas médicas si existe tabla 'consultas'
+    # 🧾 Contar consultas médicas del paciente (según tu tabla)
     try:
-        count = db.execute(
-            "SELECT COUNT(*) FROM consultas WHERE user_id = :id", {"id": user_id}
+        total_consultas = db.execute(
+            "SELECT COUNT(*) FROM consultas WHERE user_id = :id OR paciente_id = :id",
+            {"id": user_id}
         ).scalar() or 0
     except Exception:
-        count = 0
+        total_consultas = 0
 
-    data["consultas_count"] = count
+    data["consultas_count"] = total_consultas
     data["meses_en_docya"] = meses
     return data
 
@@ -277,9 +278,10 @@ async def subir_foto_paciente(
     db: Session = Depends(get_db)
 ):
     """
-    Sube una foto del paciente a Cloudinary y actualiza la URL en la base de datos.
+    Sube la foto del paciente a Cloudinary y actualiza la URL en la tabla users.
     """
     try:
+        # 📸 Subir imagen a Cloudinary
         result = cloudinary.uploader.upload(
             file.file,
             folder="docya/pacientes",
@@ -287,11 +289,12 @@ async def subir_foto_paciente(
             overwrite=True,
             resource_type="image"
         )
-
         foto_url = result.get("secure_url")
-        if not foto_url:
-            raise HTTPException(status_code=500, detail="Error al obtener URL de Cloudinary")
 
+        if not foto_url:
+            raise HTTPException(status_code=500, detail="Error al obtener la URL de Cloudinary")
+
+        # 💾 Guardar la URL en la tabla users
         db.execute(
             "UPDATE users SET foto_url = :url WHERE id = :id",
             {"url": foto_url, "id": user_id}
@@ -302,6 +305,7 @@ async def subir_foto_paciente(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al subir la foto: {str(e)}")
+
 
 # ====================================================
 # 🟢 MÉDICOS CONECTADOS (ENDPOINT)
