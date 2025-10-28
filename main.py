@@ -232,24 +232,49 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "full_name": full_name,
         "role": "patient"
     }
+from fastapi import UploadFile, File, Depends
+import cloudinary.uploader
+
+
+from sqlalchemy.orm import Session
+from fastapi import HTTPException, Depends
+
+@app.get("/users/{user_id}")
+def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
+    """
+    Retorna la información del paciente (user) según su ID o UUID.
+    """
+    query = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id})
+    user = query.fetchone()
+
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    return dict(user._mapping)
+
 @app.post("/users/{user_id}/foto")
-def subir_foto_paciente(
-    user_id: int,
+async def subir_foto_paciente(
+    user_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
+    """
+    Sube una foto del paciente a Cloudinary y actualiza la URL en la base de datos.
+    """
     try:
-        # Subir imagen a Cloudinary
         result = cloudinary.uploader.upload(
             file.file,
             folder="docya/pacientes",
             public_id=f"paciente_{user_id}",
-            overwrite=True
+            overwrite=True,
+            resource_type="image"
         )
 
         url_publica = result.get("secure_url")
 
-        # Actualizar en la base de datos
+        if not url_publica:
+            raise HTTPException(status_code=500, detail="Error al obtener la URL de Cloudinary")
+
         db.execute(
             "UPDATE users SET foto_url = :url WHERE id = :id",
             {"url": url_publica, "id": user_id}
