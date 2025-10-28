@@ -63,7 +63,7 @@ def resumen_monitoreo(db=Depends(get_db)):
             SELECT COUNT(*)
             FROM medicos
             WHERE disponible = TRUE
-            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '30 seconds');
+            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '1 minute');
         """)
         medicos_conectados = cur.fetchone()[0]
 
