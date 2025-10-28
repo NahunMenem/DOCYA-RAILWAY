@@ -20,7 +20,6 @@ from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
-from monitoreo import router as monitoreo_router
 
 
 # ====================================================
@@ -158,6 +157,10 @@ class ValoracionIn(BaseModel):
     enfermero_id: Optional[int] = None
     puntaje: int
     comentario: Optional[str] = None
+
+
+from monitoreo import router as monitoreo_router
+app.include_router(monitoreo_router)
 
 @app.get("/health")
 def health():
