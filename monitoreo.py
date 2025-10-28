@@ -121,10 +121,10 @@ async def obtener_estado_general():
     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
     cur = conn.cursor()
 
-    # ✅ usar 'disponible' en lugar de 'conectado'
     cur.execute("SELECT COUNT(*) FROM medicos WHERE disponible = TRUE;")
     medicos_conectados = cur.fetchone()[0]
 
+    # ✅ cambiar aquí:
     cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_domicilio';")
     consultas_en_curso = cur.fetchone()[0]
 
