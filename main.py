@@ -1830,12 +1830,23 @@ import asyncio
 import json
 
 import asyncio
-
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
     active_medicos[medico_id] = websocket
     print(f"✅ Médico conectado: {medico_id} | Total: {len(active_medicos)}")
+
+    # 🔄 Marcar médico como conectado en la base de datos
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        cur = conn.cursor()
+        cur.execute("UPDATE medicos SET conectado = TRUE WHERE id = %s;", (medico_id,))
+        conn.commit()
+        cur.close()
+        conn.close()
+        print(f"🟢 Estado actualizado en DB: médico {medico_id} conectado")
+    except Exception as e:
+        print(f"⚠️ No se pudo actualizar el estado del médico {medico_id}: {e}")
 
     try:
         while True:
@@ -1850,17 +1861,28 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
 
             if tipo == "ping":
                 await websocket.send_text("pong")
-                await asyncio.sleep(0.05)  # 👈 pequeña pausa de seguridad
+                await asyncio.sleep(0.05)  # pequeña pausa
                 continue
 
     except Exception as e:
         print(f"❌ Médico desconectado: {medico_id} → {e}")
+
+        # ❌ Marcar como desconectado en memoria y DB
         if medico_id in active_medicos:
             del active_medicos[medico_id]
+
+        try:
+            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            cur = conn.cursor()
+            cur.execute("UPDATE medicos SET conectado = FALSE WHERE id = %s;", (medico_id,))
+            conn.commit()
+            cur.close()
+            conn.close()
+            print(f"🔴 Estado actualizado en DB: médico {medico_id} desconectado")
+        except Exception as e2:
+            print(f"⚠️ No se pudo marcar como desconectado al médico {medico_id}: {e2}")
+
         print(f"🔻 Total conectados ahora: {len(active_medicos)}")
-
-
-
 
 
 # --- Función para enviar notificaciones push ---
