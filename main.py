@@ -242,14 +242,14 @@ def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
     """
     Devuelve los datos del paciente, cantidad de consultas médicas y meses activo en DocYa.
     """
-    # Buscar usuario por ID
+    # Buscar usuario
     user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
     data = dict(user._mapping)
 
-    # 🧮 Calcular meses en DocYa desde la fecha de registro
+    # Calcular meses desde el registro
     meses = 0
     if data.get("created_at"):
         try:
@@ -257,7 +257,7 @@ def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
         except Exception:
             meses = 0
 
-    # 🧾 Contar consultas médicas del paciente (según tu tabla)
+    # Contar consultas asociadas
     try:
         total_consultas = db.execute(
             "SELECT COUNT(*) FROM consultas WHERE user_id = :id OR paciente_id = :id",
@@ -278,34 +278,39 @@ async def subir_foto_paciente(
     db: Session = Depends(get_db)
 ):
     """
-    Sube la foto del paciente a Cloudinary y actualiza la URL en la tabla users.
+    📸 Sube la foto del paciente a Cloudinary y actualiza la URL en la tabla users.
+    Usa las variables de entorno configuradas en Railway.
     """
     try:
-        # 📸 Subir imagen a Cloudinary
-        result = cloudinary.uploader.upload(
+        # Validar archivo
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="El archivo debe ser una imagen válida")
+
+        # Subir a Cloudinary
+        upload_result = cloudinary.uploader.upload(
             file.file,
             folder="docya/pacientes",
             public_id=f"paciente_{user_id}",
             overwrite=True,
             resource_type="image"
         )
-        foto_url = result.get("secure_url")
 
+        foto_url = upload_result.get("secure_url")
         if not foto_url:
-            raise HTTPException(status_code=500, detail="Error al obtener la URL de Cloudinary")
+            raise HTTPException(status_code=500, detail="No se pudo obtener la URL de Cloudinary")
 
-        # 💾 Guardar la URL en la tabla users
+        # Actualizar base de datos
         db.execute(
             "UPDATE users SET foto_url = :url WHERE id = :id",
             {"url": foto_url, "id": user_id}
         )
         db.commit()
 
-        return {"foto_url": foto_url, "message": "Foto actualizada correctamente"}
+        return {"foto_url": foto_url, "message": "Foto subida correctamente"}
 
     except Exception as e:
+        print(f"⚠️ Error al subir foto de paciente {user_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error al subir la foto: {str(e)}")
-
 
 # ====================================================
 # 🟢 MÉDICOS CONECTADOS (ENDPOINT)
