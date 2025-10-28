@@ -1836,17 +1836,23 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     active_medicos[medico_id] = websocket
     print(f"✅ Médico conectado: {medico_id} | Total: {len(active_medicos)}")
 
-    # 🔄 Marcar médico como disponible en la base de datos
+    # 🔄 Marcar como disponible en la DB
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
         cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s;", (medico_id,))
+        print(f"🔍 Filas actualizadas: {cur.rowcount}")
         conn.commit()
+
+        # 🔎 Verificar inmediatamente el estado
+        cur.execute("SELECT disponible FROM medicos WHERE id = %s;", (medico_id,))
+        estado = cur.fetchone()
+        print(f"🧩 Estado actual en DB médico {medico_id}: {estado}")
+
         cur.close()
         conn.close()
-        print(f"🟢 Médico {medico_id} marcado como disponible en la DB")
     except Exception as e:
-        print(f"⚠️ Error actualizando disponibilidad: {e}")
+        print(f"⚠️ Error actualizando disponibilidad del médico {medico_id}: {e}")
 
     try:
         while True:
@@ -1868,18 +1874,21 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
         print(f"❌ Médico desconectado: {medico_id} → {e}")
         if medico_id in active_medicos:
             del active_medicos[medico_id]
-        print(f"🔻 Total conectados ahora: {len(active_medicos)}")
 
+        # 🔴 Marcar como no disponible al desconectarse
         try:
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
             cur = conn.cursor()
             cur.execute("UPDATE medicos SET disponible = FALSE WHERE id = %s;", (medico_id,))
+            print(f"🔍 Filas actualizadas al desconectar: {cur.rowcount}")
             conn.commit()
             cur.close()
             conn.close()
             print(f"🔴 Médico {medico_id} marcado como NO disponible en la DB")
         except Exception as e2:
-            print(f"⚠️ Error marcando como no disponible: {e2}")
+            print(f"⚠️ Error al marcar desconexión del médico {medico_id}: {e2}")
+
+        print(f"🔻 Total conectados ahora: {len(active_medicos)}")
 
 
 # --- Función para enviar notificaciones push ---
