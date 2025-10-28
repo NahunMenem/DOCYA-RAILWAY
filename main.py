@@ -232,62 +232,53 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "full_name": full_name,
         "role": "patient"
     }
-from sqlalchemy.orm import Session
-from fastapi import UploadFile, File, Depends, HTTPException
-from datetime import datetime
-import cloudinary.uploader
 
+# 🩺 Obtener datos del usuario/paciente
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
-    """
-    Devuelve los datos del paciente, cantidad de consultas médicas y meses activo en DocYa.
-    """
-    # Buscar usuario
-    user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
-    if not user:
-        raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-    data = dict(user._mapping)
-
-    # Calcular meses desde el registro
-    meses = 0
-    if data.get("created_at"):
-        try:
-            meses = (datetime.utcnow() - data["created_at"]).days // 30
-        except Exception:
-            meses = 0
-
-    # Contar consultas asociadas
     try:
+        user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
+        if not user:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        data = dict(user._mapping)
+
+        # Calcular meses desde registro
+        meses = 0
+        if data.get("created_at"):
+            try:
+                meses = (datetime.utcnow() - data["created_at"]).days // 30
+            except Exception:
+                meses = 0
+
+        # Contar consultas asociadas al usuario
         total_consultas = db.execute(
             "SELECT COUNT(*) FROM consultas WHERE user_id = :id OR paciente_id = :id",
             {"id": user_id}
         ).scalar() or 0
-    except Exception:
-        total_consultas = 0
 
-    data["consultas_count"] = total_consultas
-    data["meses_en_docya"] = meses
-    return data
+        data["consultas_count"] = total_consultas
+        data["meses_en_docya"] = meses
+        return data
+
+    except Exception as e:
+        print(f"⚠️ Error en get_user_by_id: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
+# 📸 Subir foto de perfil del paciente a Cloudinary
 @app.post("/users/{user_id}/foto")
 async def subir_foto_paciente(
     user_id: str,
     file: UploadFile = File(...),
     db: Session = Depends(get_db)
 ):
-    """
-    📸 Sube la foto del paciente a Cloudinary y actualiza la URL en la tabla users.
-    Usa las variables de entorno configuradas en Railway.
-    """
     try:
-        # Validar archivo
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="El archivo debe ser una imagen válida")
 
-        # Subir a Cloudinary
-        upload_result = cloudinary.uploader.upload(
+        # Subir imagen a Cloudinary
+        result = cloudinary.uploader.upload(
             file.file,
             folder="docya/pacientes",
             public_id=f"paciente_{user_id}",
@@ -295,18 +286,18 @@ async def subir_foto_paciente(
             resource_type="image"
         )
 
-        foto_url = upload_result.get("secure_url")
+        foto_url = result.get("secure_url")
         if not foto_url:
             raise HTTPException(status_code=500, detail="No se pudo obtener la URL de Cloudinary")
 
-        # Actualizar base de datos
+        # Guardar URL en la base de datos
         db.execute(
             "UPDATE users SET foto_url = :url WHERE id = :id",
             {"url": foto_url, "id": user_id}
         )
         db.commit()
 
-        return {"foto_url": foto_url, "message": "Foto subida correctamente"}
+        return {"foto_url": foto_url, "message": "Foto actualizada correctamente"}
 
     except Exception as e:
         print(f"⚠️ Error al subir foto de paciente {user_id}: {e}")
