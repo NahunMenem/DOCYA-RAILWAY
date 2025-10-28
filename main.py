@@ -1871,6 +1871,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
             del active_medicos[medico_id]
 
         # 🔴 Marcar como no disponible al desconectarse
+        await asyncio.sleep(10)
         try:
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
             cur = conn.cursor()
