@@ -3,9 +3,9 @@
 # ====================================================
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from psycopg2.extras import RealDictCursor
-from main import get_db
 import json
 import asyncio
+from database import get_db
 
 router = APIRouter(prefix="/monitoreo", tags=["Monitoreo"])
 
