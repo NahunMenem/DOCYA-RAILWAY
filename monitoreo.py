@@ -8,11 +8,42 @@ import asyncio
 from database import get_db
 import psycopg2
 from os import getenv
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/monitoreo", tags=["Monitoreo"])
 
 # Lista de conexiones WebSocket activas (admins)
 active_admins: list[WebSocket] = []
+
+
+# ====================================================
+# 🧹 LIMPIADOR AUTOMÁTICO DE MÉDICOS INACTIVOS
+# ====================================================
+async def limpiar_medicos_inactivos():
+    """Marca como NO disponibles los médicos que no enviaron ping hace más de 60 segundos."""
+    DATABASE_URL = getenv("DATABASE_URL")
+    while True:
+        try:
+            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            cur = conn.cursor()
+            cur.execute("""
+                UPDATE medicos
+                SET disponible = FALSE
+                WHERE ultimo_ping IS NOT NULL
+                AND ultimo_ping < NOW() - INTERVAL '60 seconds'
+                AND disponible = TRUE;
+            """)
+            afectados = cur.rowcount
+            conn.commit()
+            cur.close()
+            conn.close()
+
+            if afectados > 0:
+                print(f"🧹 {afectados} médicos marcados como NO disponibles por inactividad.")
+        except Exception as e:
+            print(f"⚠️ Error en limpieza automática: {e}")
+
+        await asyncio.sleep(60)  # Ejecutar cada minuto
 
 
 # ====================================================
@@ -23,16 +54,28 @@ def resumen_monitoreo(db=Depends(get_db)):
     try:
         cur = db.cursor()
 
+        # Total médicos registrados
         cur.execute("SELECT COUNT(*) FROM medicos;")
         total_medicos = cur.fetchone()[0]
 
-        # ✅ Usar 'disponible' (tu campo real)
-        cur.execute("SELECT COUNT(*) FROM medicos WHERE disponible = TRUE;")
+        # ✅ Conectados (último ping menor a 30 s)
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM medicos
+            WHERE disponible = TRUE
+            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '30 seconds');
+        """)
         medicos_conectados = cur.fetchone()[0]
 
-        cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_domicilio';")
+        # Consultas activas
+        cur.execute("""
+            SELECT COUNT(*) 
+            FROM consultas 
+            WHERE estado IN ('aceptada', 'en_camino', 'en_domicilio');
+        """)
         consultas_en_curso = cur.fetchone()[0]
 
+        # Consultas de hoy
         cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
         consultas_hoy = cur.fetchone()[0]
 
@@ -57,9 +100,10 @@ def medicos_conectados(db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
-            SELECT id, full_name, especialidad, latitud, longitud
+            SELECT id, full_name, especialidad, latitud, longitud, ultimo_ping
             FROM medicos
-            WHERE disponible = TRUE;
+            WHERE disponible = TRUE
+            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '30 seconds');
         """)
         data = cur.fetchall()
         cur.close()
@@ -105,7 +149,8 @@ async def tiempo_real(websocket: WebSocket):
             data = await obtener_estado_general()
             await websocket.send_text(json.dumps(data))
     except WebSocketDisconnect:
-        active_admins.remove(websocket)
+        if websocket in active_admins:
+            active_admins.remove(websocket)
         print(f"🔴 Admin desconectado del monitoreo ({len(active_admins)} restantes)")
     except Exception as e:
         print("❌ Error en tiempo_real:", e)
@@ -121,11 +166,19 @@ async def obtener_estado_general():
     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
     cur = conn.cursor()
 
-    cur.execute("SELECT COUNT(*) FROM medicos WHERE disponible = TRUE;")
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM medicos
+        WHERE disponible = TRUE
+        AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '30 seconds');
+    """)
     medicos_conectados = cur.fetchone()[0]
 
-    # ✅ cambiar aquí:
-    cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_domicilio';")
+    cur.execute("""
+        SELECT COUNT(*) 
+        FROM consultas 
+        WHERE estado IN ('aceptada', 'en_camino', 'en_domicilio');
+    """)
     consultas_en_curso = cur.fetchone()[0]
 
     cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
@@ -139,3 +192,12 @@ async def obtener_estado_general():
         "consultas_en_curso": consultas_en_curso,
         "consultas_hoy": consultas_hoy
     }
+
+
+# ====================================================
+# 🚀 LANZAR LIMPIADOR AUTOMÁTICO AL INICIAR
+# ====================================================
+@router.on_event("startup")
+async def iniciar_limpieza_automatica():
+    asyncio.create_task(limpiar_medicos_inactivos())
+    print("🧭 Limpieza automática de médicos inactivos iniciada cada 60 s.")
