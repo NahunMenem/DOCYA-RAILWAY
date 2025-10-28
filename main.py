@@ -2451,7 +2451,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionMedicoIn, db=Depends(get
     cur = db.cursor()
     cur.execute("""
         UPDATE medicos 
-        SET latitud = %s, longitud = %s, disponible = %s, updated_at = NOW()
+        SET latitud = %s, longitud = %s, disponible = %s, updated_at = NOW(),ultimo_ping = NOW()
         WHERE id = %s
     """, (data.lat, data.lng, data.disponible, medico_id))
     db.commit()
@@ -2502,7 +2502,7 @@ def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         UPDATE medicos
-        SET latitud=%s, longitud=%s, disponible=%s, updated_at=NOW()
+        SET latitud=%s, longitud=%s, disponible=%s, updated_at=NOW(),ultimo_ping = NOW()
         WHERE id=%s RETURNING id
     """, (data.lat, data.lng, data.disponible, medico_id))
     row = cur.fetchone(); db.commit()
