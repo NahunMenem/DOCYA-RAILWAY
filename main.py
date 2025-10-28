@@ -1,99 +1,82 @@
 # ====================================================
 # 📌 IMPORTS Y CONFIGURACIÓN INICIAL
-# ==================================================
+# ====================================================
 import os
-import jwt
-from sqlalchemy.orm import Session
-import psycopg2
-from fastapi import UploadFile, File, Depends, HTTPException
-from weasyprint import HTML, CSS
-from fastapi.templating import Jinja2Templates
 import json
 import math
-from datetime import datetime
+import jwt
+import psycopg2
 import requests
-from datetime import datetime, timedelta, date
-from typing import Optional, Dict
 from uuid import UUID
+from typing import Optional, Dict
+from datetime import datetime, timedelta, date
 from zoneinfo import ZoneInfo
+
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
-
-
-# ====================================================
-# 🌐 CONEXIONES ACTIVAS (WEBSOCKETS)
-# ====================================================
-active_medicos: Dict[int, WebSocket] = {}
-active_chats: Dict[int, list[WebSocket]] = {}
-from fastapi import Request
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
-import cloudinary
-import cloudinary.uploader
-
+# Google & Email
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from google.oauth2 import service_account
-
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
-from zoneinfo import ZoneInfo
 
-    
+# Cloudinary
+import cloudinary
+import cloudinary.uploader
 
-
-def format_datetime_arg(dt):
-    if not dt:
-        return None
-    # Convertir a Argentina
-    dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
-    # Formato DD/MM/YYYY HH:MM
-    return dt.strftime("%d/%m/%Y %H:%M")
-
+# ====================================================
+# 🌐 VARIABLES GLOBALES Y CONFIGURACIONES
+# ====================================================
+active_medicos: Dict[int, WebSocket] = {}
+active_chats: Dict[int, list[WebSocket]] = {}
 
 load_dotenv()
-
-# ====================================================
-# 🔧 CONFIGURACIONES GENERALES
-# ====================================================
 DATABASE_URL = os.getenv("DATABASE_URL")
 JWT_SECRET = os.getenv("JWT_SECRET", "change_me")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
-
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-#def get_db():
- #   conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-  #  try:
-   #     yield conn
-    #finally:
-     #   conn.close()
-app.include_router(monitoreo_router)
+
+# ====================================================
+# ⚙️ FUNCIONES UTILITARIAS
+# ====================================================
+def now_argentina():
+    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+
+def format_datetime_arg(dt):
+    if not dt:
+        return None
+    dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    return dt.strftime("%d/%m/%Y %H:%M")
+
 def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES):
     to_encode = payload.copy()
     expire = now_argentina() + timedelta(minutes=expires_minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
-def now_argentina():
-    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
 
-# Configuración Cloudinary
+# ====================================================
+# ☁️ CONFIGURACIÓN CLOUDINARY / FIREBASE
+# ====================================================
 cloudinary.config(
     cloud_name=os.getenv("CLOUDINARY_CLOUD_NAME"),
     api_key=os.getenv("CLOUDINARY_API_KEY"),
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-# Configuración Firebase FCM
 service_account_info = json.loads(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"))
 credentials = service_account.Credentials.from_service_account_info(
     service_account_info,
@@ -105,11 +88,13 @@ def get_access_token():
     credentials.refresh(request)
     return credentials.token
 
+
 # ====================================================
-# 🚀 APP PRINCIPAL
+# 🚀 CREAR APP FASTAPI
 # ====================================================
 app = FastAPI(title="DocYa API", version="1.0.0")
 
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
@@ -119,9 +104,26 @@ app.add_middleware(
 )
 
 
+# ====================================================
+# 🧩 CONEXIÓN BASE DE DATOS
+# ====================================================
+def get_db():
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    try:
+        yield conn
+    finally:
+        conn.close()
+
 
 # ====================================================
-# 🔑 AUTENTICACIÓN (PACIENTES)
+# 🩺 INCLUIR RUTA DE MONITOREO
+# ====================================================
+from monitoreo import router as monitoreo_router
+app.include_router(monitoreo_router)
+
+
+# ====================================================
+# 🔑 MODELOS Pydantic (Auth y Valoraciones)
 # ====================================================
 class RegisterIn(BaseModel):
     email: EmailStr
@@ -150,7 +152,7 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
-# --- Valoraciones ---
+
 class ValoracionIn(BaseModel):
     paciente_uuid: str
     medico_id: Optional[int] = None
@@ -159,17 +161,13 @@ class ValoracionIn(BaseModel):
     comentario: Optional[str] = None
 
 
-from monitoreo import router as monitoreo_router
-app.include_router(monitoreo_router)
-
+# ====================================================
+# 🩻 ENDPOINTS BASE / AUTH / USERS
+# ====================================================
 @app.get("/health")
 def health():
     return {"ok": True, "service": "docya-auth"}
 
-
-from datetime import datetime
-from zoneinfo import ZoneInfo
-from fastapi import HTTPException, Depends
 
 @app.post("/auth/register")
 def register(data: RegisterIn, db=Depends(get_db)):
@@ -184,8 +182,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
             INSERT INTO users (
                 email, full_name, password_hash,
                 dni, telefono, pais, provincia, localidad, fecha_nacimiento,
-                acepto_condiciones, fecha_aceptacion, version_texto, validado,
-                role
+                acepto_condiciones, fecha_aceptacion, version_texto, validado, role
             )
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)
             RETURNING id, full_name
@@ -193,9 +190,8 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.email.lower(), data.full_name.strip(), password_hash,
             data.dni, data.telefono, data.pais, data.provincia, data.localidad,
             data.fecha_nacimiento, data.acepto_condiciones,
-            datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")) if data.acepto_condiciones else None,
-            "v1.0",
-            "patient"   # 👈 importante: rol fijo para pacientes
+            now_argentina() if data.acepto_condiciones else None,
+            "v1.0", "patient"
         ))
         user_id, full_name = cur.fetchone()
         db.commit()
@@ -203,7 +199,6 @@ def register(data: RegisterIn, db=Depends(get_db)):
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error interno en registro: {e}")
 
-    # 👇 Enviar mail de activación
     try:
         enviar_email_validacion_paciente(data.email.lower(), user_id, full_name)
     except Exception as e:
@@ -212,23 +207,21 @@ def register(data: RegisterIn, db=Depends(get_db)):
     return {
         "ok": True,
         "mensaje": "✅ Registro exitoso. Revisa tu correo para activar la cuenta.",
-        "user_id": str(user_id),  # lo mando como string por si es UUID
+        "user_id": str(user_id),
         "full_name": full_name,
         "role": "patient"
     }
+
 
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
-
-        # 🧾 Buscar datos del usuario
         cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         user = cur.fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-        # 📅 Calcular meses desde que se creó la cuenta
         meses = 0
         if user.get("created_at"):
             try:
@@ -236,7 +229,6 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
             except Exception:
                 meses = 0
 
-        # 📊 Contar cantidad de consultas del usuario (usa paciente_uuid)
         cur.execute(
             "SELECT COUNT(*) AS total FROM consultas WHERE paciente_uuid = %s",
             (user_id,),
@@ -244,7 +236,6 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
         consultas = cur.fetchone()
         total_consultas = consultas["total"] if consultas else 0
 
-        # 🧩 Agregar los campos calculados
         user["consultas_count"] = total_consultas
         user["meses_en_docya"] = meses
 
