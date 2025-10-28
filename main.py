@@ -241,16 +241,23 @@ from fastapi import HTTPException, Depends
 
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
-    """
-    Retorna la información del paciente (user) según su ID o UUID.
-    """
-    query = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id})
-    user = query.fetchone()
-
+    user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    return dict(user._mapping)
+    # Calcular meses en DocYa desde la fecha de registro
+    meses = 0
+    if user._mapping.get("created_at"):
+        meses = (datetime.utcnow() - user._mapping["created_at"]).days // 30
+
+    # Contar consultas médicas (si existe tabla 'consultas')
+    count = db.execute("SELECT COUNT(*) FROM consultas WHERE user_id = :id", {"id": user_id}).scalar() or 0
+
+    data = dict(user._mapping)
+    data["consultas_count"] = count
+    data["meses_en_docya"] = meses
+    return data
+
 
 @app.post("/users/{user_id}/foto")
 async def subir_foto_paciente(
