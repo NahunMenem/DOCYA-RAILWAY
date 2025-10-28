@@ -1836,17 +1836,17 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     active_medicos[medico_id] = websocket
     print(f"✅ Médico conectado: {medico_id} | Total: {len(active_medicos)}")
 
-    # 🔄 Marcar médico como conectado en la base de datos
+    # 🔄 Marcar médico como disponible en la base de datos
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
-        cur.execute("UPDATE medicos SET conectado = TRUE WHERE id = %s;", (medico_id,))
+        cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s;", (medico_id,))
         conn.commit()
         cur.close()
         conn.close()
-        print(f"🟢 Estado actualizado en DB: médico {medico_id} conectado")
+        print(f"🟢 Médico {medico_id} marcado como disponible en la DB")
     except Exception as e:
-        print(f"⚠️ No se pudo actualizar el estado del médico {medico_id}: {e}")
+        print(f"⚠️ Error actualizando disponibilidad: {e}")
 
     try:
         while True:
@@ -1861,28 +1861,25 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
 
             if tipo == "ping":
                 await websocket.send_text("pong")
-                await asyncio.sleep(0.05)  # pequeña pausa
+                await asyncio.sleep(0.05)
                 continue
 
     except Exception as e:
         print(f"❌ Médico desconectado: {medico_id} → {e}")
-
-        # ❌ Marcar como desconectado en memoria y DB
         if medico_id in active_medicos:
             del active_medicos[medico_id]
+        print(f"🔻 Total conectados ahora: {len(active_medicos)}")
 
         try:
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
             cur = conn.cursor()
-            cur.execute("UPDATE medicos SET conectado = FALSE WHERE id = %s;", (medico_id,))
+            cur.execute("UPDATE medicos SET disponible = FALSE WHERE id = %s;", (medico_id,))
             conn.commit()
             cur.close()
             conn.close()
-            print(f"🔴 Estado actualizado en DB: médico {medico_id} desconectado")
+            print(f"🔴 Médico {medico_id} marcado como NO disponible en la DB")
         except Exception as e2:
-            print(f"⚠️ No se pudo marcar como desconectado al médico {medico_id}: {e2}")
-
-        print(f"🔻 Total conectados ahora: {len(active_medicos)}")
+            print(f"⚠️ Error marcando como no disponible: {e2}")
 
 
 # --- Función para enviar notificaciones push ---
