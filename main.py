@@ -2441,21 +2441,54 @@ def historial_paciente(paciente_uuid: str, db=Depends(get_db)):
     ]
 
 # ---------- UBICACIÓN MÉDICO ----------
-class UbicacionMedicoIn(BaseModel):
+from zoneinfo import ZoneInfo
+from datetime import datetime
+from fastapi import HTTPException
+
+class UbicacionIn(BaseModel):
     lat: float
     lng: float
-    disponible: bool
+    disponible: bool = True
 
 @app.post("/medico/{medico_id}/ubicacion")
-def actualizar_ubicacion(medico_id: int, data: UbicacionMedicoIn, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        UPDATE medicos 
-        SET latitud = %s, longitud = %s, disponible = %s, updated_at = NOW(),ultimo_ping = NOW()
-        WHERE id = %s
-    """, (data.lat, data.lng, data.disponible, medico_id))
-    db.commit()
-    return {"status": "ok"}
+def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
+    try:
+        ahora_arg = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+
+        cur = db.cursor()
+        cur.execute("""
+            UPDATE medicos
+            SET latitud = %s,
+                longitud = %s,
+                disponible = %s,
+                updated_at = %s,
+                ultimo_ping = %s
+            WHERE id = %s
+            RETURNING id;
+        """, (data.lat, data.lng, True, ahora_arg, ahora_arg, medico_id))
+
+        row = cur.fetchone()
+        db.commit()
+        cur.close()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+        print(f"📍 Médico {medico_id} actualizado → disponible=TRUE, ping={ahora_arg}")
+        return {
+            "ok": True,
+            "medico_id": medico_id,
+            "lat": data.lat,
+            "lng": data.lng,
+            "disponible": True,
+            "ultimo_ping": ahora_arg.isoformat()
+        }
+
+    except Exception as e:
+        db.rollback()
+        print(f"⚠️ Error en actualizar_ubicacion: {e}")
+        raise HTTPException(status_code=500, detail="Error actualizando ubicación del médico")
+
 
 # ====================================================
 # 🔄 ALIAS DE COMPATIBILIDAD (para no romper el frontend)
@@ -2491,30 +2524,6 @@ def alias_stats(medico_id: int, db=Depends(get_db)):
 def alias_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
     return actualizar_disponibilidad(medico_id, disponible, db)
 
-# --- Ubicación alias ---
-class UbicacionIn(BaseModel):
-    lat: float
-    lng: float
-    disponible: bool
-
-@app.post("/medico/{medico_id}/ubicacion")
-def alias_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        UPDATE medicos
-        SET latitud=%s, longitud=%s, disponible=%s, updated_at=NOW(),ultimo_ping = NOW()
-        WHERE id=%s RETURNING id
-    """, (data.lat, data.lng, data.disponible, medico_id))
-    row = cur.fetchone(); db.commit()
-    if not row:
-        raise HTTPException(status_code=404, detail="Médico no encontrado")
-    return {
-        "ok": True,
-        "medico_id": medico_id,
-        "lat": data.lat,
-        "lng": data.lng,
-        "disponible": data.disponible
-    }
 
 # Carpeta de plantillas HTML
 templates = Jinja2Templates(directory="templates")
