@@ -3191,4 +3191,22 @@ async def inversores(request: Request):
 async def flujo(request: Request):
     return templates.TemplateResponse("flujo.html", {"request": request})
 
+
+
+
+@app.get("/monitoreo/resumen")
+def resumen_monitoreo(db: Session = Depends(get_db)):
+    total_medicos = db.query(Medico).count()
+    conectados = db.query(Medico).filter(Medico.conectado == True).count()
+    consultas_en_curso = db.query(Consulta).filter(Consulta.estado == 'en_curso').count()
+    consultas_hoy = db.query(Consulta).filter(func.date(Consulta.fecha_creacion) == func.current_date()).count()
+    
+    return {
+        "total_medicos": total_medicos,
+        "medicos_conectados": conectados,
+        "consultas_en_curso": consultas_en_curso,
+        "consultas_hoy": consultas_hoy
+    }
+
+
     
