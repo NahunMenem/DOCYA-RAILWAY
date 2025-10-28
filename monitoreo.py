@@ -1,11 +1,17 @@
 # ====================================================
 # 🩺 MÓDULO DE MONITOREO – DOCYA
 # ====================================================
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from psycopg2.extras import RealDictCursor
-from database import get_db  # si get_db está en el mismo main.py, podés importarlo directo
+from database import get_db
+import json
+import asyncio
 
 router = APIRouter(prefix="/monitoreo", tags=["Monitoreo"])
+
+# Lista de conexiones WebSocket activas
+active_admins: list[WebSocket] = []
+
 
 
 # ====================================================
@@ -41,8 +47,42 @@ def resumen_monitoreo(db=Depends(get_db)):
 
 
 # ====================================================
-# 📍 MÉDICOS CONECTADOS CON UBICACIÓN
+# 🩺 MÓDULO DE MONITOREO – DOCYA (Tiempo real)
 # ====================================================
+
+
+# ====================================================
+# 📊 ENDPOINTS DE MONITOREO (igual que antes)
+# ====================================================
+@router.get("/resumen")
+def resumen_monitoreo(db=Depends(get_db)):
+    try:
+        cur = db.cursor()
+        cur.execute("SELECT COUNT(*) FROM medicos;")
+        total_medicos = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM medicos WHERE conectado = TRUE;")
+        medicos_conectados = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_curso';")
+        consultas_en_curso = cur.fetchone()[0]
+
+        cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(fecha_creacion) = CURRENT_DATE;")
+        consultas_hoy = cur.fetchone()[0]
+        cur.close()
+
+        return {
+            "total_medicos": total_medicos,
+            "medicos_conectados": medicos_conectados,
+            "consultas_en_curso": consultas_en_curso,
+            "consultas_hoy": consultas_hoy
+        }
+
+    except Exception as e:
+        print("Error en resumen_monitoreo:", e)
+        return {"error": str(e)}
+
+
 @router.get("/medicos_conectados")
 def medicos_conectados(db=Depends(get_db)):
     try:
@@ -52,17 +92,14 @@ def medicos_conectados(db=Depends(get_db)):
             FROM medicos
             WHERE conectado = TRUE;
         """)
-        medicos = cur.fetchall()
+        data = cur.fetchall()
         cur.close()
-        return medicos
+        return data
     except Exception as e:
         print("Error en medicos_conectados:", e)
         return {"error": str(e)}
 
 
-# ====================================================
-# 🗺️ MÉDICOS AGRUPADOS POR ZONA
-# ====================================================
 @router.get("/zonas")
 def medicos_por_zona(db=Depends(get_db)):
     try:
@@ -73,9 +110,62 @@ def medicos_por_zona(db=Depends(get_db)):
             GROUP BY provincia, localidad
             ORDER BY provincia, localidad;
         """)
-        zonas = cur.fetchall()
+        data = cur.fetchall()
         cur.close()
-        return zonas
+        return data
     except Exception as e:
         print("Error en medicos_por_zona:", e)
         return {"error": str(e)}
+
+
+# ====================================================
+# 🔴 MONITOREO EN TIEMPO REAL (WebSocket)
+# ====================================================
+@router.websocket("/tiempo_real")
+async def tiempo_real(websocket: WebSocket):
+    await websocket.accept()
+    active_admins.append(websocket)
+    print(f"🟢 Admin conectado al monitoreo ({len(active_admins)} totales)")
+
+    try:
+        # Enviamos cada 5 segundos el estado actualizado
+        while True:
+            await asyncio.sleep(5)
+            data = await obtener_estado_general()
+            await websocket.send_text(json.dumps(data))
+    except WebSocketDisconnect:
+        active_admins.remove(websocket)
+        print(f"🔴 Admin desconectado del monitoreo ({len(active_admins)} restantes)")
+    except Exception as e:
+        print("Error en tiempo_real:", e)
+        if websocket in active_admins:
+            active_admins.remove(websocket)
+
+
+# ====================================================
+# 🔁 FUNCIÓN AUXILIAR PARA OBTENER ESTADO ACTUAL
+# ====================================================
+async def obtener_estado_general():
+    import psycopg2
+    from os import getenv
+    DATABASE_URL = getenv("DATABASE_URL")
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    cur = conn.cursor()
+
+    cur.execute("SELECT COUNT(*) FROM medicos WHERE conectado = TRUE;")
+    medicos_conectados = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_curso';")
+    consultas_en_curso = cur.fetchone()[0]
+
+    cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(fecha_creacion) = CURRENT_DATE;")
+    consultas_hoy = cur.fetchone()[0]
+
+    cur.close()
+    conn.close()
+
+    return {
+        "medicos_conectados": medicos_conectados,
+        "consultas_en_curso": consultas_en_curso,
+        "consultas_hoy": consultas_hoy
+    }
