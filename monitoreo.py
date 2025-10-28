@@ -33,7 +33,7 @@ def resumen_monitoreo(db=Depends(get_db)):
         cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_domicilio';")
         consultas_en_curso = cur.fetchone()[0]
 
-        cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(fecha_creacion) = CURRENT_DATE;")
+        cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
         consultas_hoy = cur.fetchone()[0]
 
         cur.close()
@@ -128,7 +128,7 @@ async def obtener_estado_general():
     cur.execute("SELECT COUNT(*) FROM consultas WHERE estado = 'en_domicilio';")
     consultas_en_curso = cur.fetchone()[0]
 
-    cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(fecha_creacion) = CURRENT_DATE;")
+    cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
     consultas_hoy = cur.fetchone()[0]
 
     cur.close()
