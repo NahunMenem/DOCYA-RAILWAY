@@ -44,31 +44,7 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from zoneinfo import ZoneInfo
 
-
-# ====================================================
-# 📊 EVENTOS / MONITOREO DOCYA
-# ====================================================
-import requests
-
-MONITORING_URL = os.getenv("MONITORING_URL", "https://docya-monitoreo-production.up.railway.app/api/events")
-
-def send_event(event_type: str, payload: dict):
-    """Envía un evento al microservicio DocYa-Monitoreo."""
-    try:
-        data = {
-            "event_type": event_type,
-            "payload": payload,
-            "source": "docya-backend"
-        }
-        r = requests.post(MONITORING_URL, json=data, timeout=3)
-        if r.status_code != 200:
-            print(f"⚠️ Error enviando evento {event_type}: {r.text}")
-        else:
-            print(f"✅ Evento enviado: {event_type}")
-    except Exception as e:
-        print(f"⚠️ Error conectando con monitor: {e}")
-
-# ====================================================        
+    
 
 
 def format_datetime_arg(dt):
@@ -235,69 +211,72 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "role": "patient"
     }
 
-# 🩺 Obtener datos del usuario/paciente
 @app.get("/users/{user_id}")
-def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
+def get_user_by_id(user_id: str, db=Depends(get_db)):
     try:
-        user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
+        cur = db.cursor(cursor_factory=RealDictCursor)
+
+        # 🧾 Buscar datos del usuario
+        cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+        user = cur.fetchone()
         if not user:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-        data = dict(user._mapping)
-
-        # Calcular meses desde registro
+        # 📅 Calcular meses desde que se creó la cuenta
         meses = 0
-        if data.get("created_at"):
+        if user.get("created_at"):
             try:
-                meses = (datetime.utcnow() - data["created_at"]).days // 30
+                meses = (datetime.utcnow() - user["created_at"]).days // 30
             except Exception:
                 meses = 0
 
-        # Contar consultas asociadas al usuario
-        total_consultas = db.execute(
-            "SELECT COUNT(*) FROM consultas WHERE user_id = :id OR paciente_id = :id",
-            {"id": user_id}
-        ).scalar() or 0
+        # 📊 Contar cantidad de consultas del usuario
+        cur.execute(
+            "SELECT COUNT(*) AS total FROM consultas WHERE user_id = %s OR paciente_id = %s",
+            (user_id, user_id),
+        )
+        consultas = cur.fetchone()
+        total_consultas = consultas["total"] if consultas else 0
 
-        data["consultas_count"] = total_consultas
-        data["meses_en_docya"] = meses
-        return data
+        # 🧩 Agregar los campos calculados
+        user["consultas_count"] = total_consultas
+        user["meses_en_docya"] = meses
+
+        cur.close()
+        return user
 
     except Exception as e:
         print(f"⚠️ Error en get_user_by_id: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# 📸 Subir foto de perfil del paciente a Cloudinary
+# ====================================================
+# 📸 ENDPOINT: Subir foto de perfil del paciente
+# ====================================================
 @app.post("/users/{user_id}/foto")
-async def subir_foto_paciente(
-    user_id: str,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
+async def subir_foto_paciente(user_id: str, file: UploadFile = File(...), db=Depends(get_db)):
     try:
         if not file.content_type or not file.content_type.startswith("image/"):
             raise HTTPException(status_code=400, detail="El archivo debe ser una imagen válida")
 
-        # Subir imagen a Cloudinary
+        # 📤 Subir imagen a Cloudinary
         result = cloudinary.uploader.upload(
             file.file,
             folder="docya/pacientes",
             public_id=f"paciente_{user_id}",
             overwrite=True,
-            resource_type="image"
+            resource_type="image",
         )
 
         foto_url = result.get("secure_url")
         if not foto_url:
-            raise HTTPException(status_code=500, detail="No se pudo obtener la URL de Cloudinary")
+            raise HTTPException(status_code=500, detail="Error al obtener la URL de Cloudinary")
 
-        # Guardar URL en la base de datos
-        db.execute(
-            "UPDATE users SET foto_url = :url WHERE id = :id",
-            {"url": foto_url, "id": user_id}
-        )
+        # 💾 Actualizar en la base de datos
+        cur = db.cursor()
+        cur.execute("UPDATE users SET foto_url = %s WHERE id = %s", (foto_url, user_id))
         db.commit()
+        cur.close()
 
         return {"foto_url": foto_url, "message": "Foto actualizada correctamente"}
 
