@@ -1803,31 +1803,41 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     print(f"🟢 Nuevo WebSocket aceptado para médico {medico_id}")
     active_medicos[medico_id] = websocket
 
-    # 🔄 Intentar marcar al médico como disponible
+    # 🔄 Marcar médico como disponible al conectarse
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
-        cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s;", (medico_id,))
-        print(f"🔍 Filas actualizadas: {cur.rowcount}")
+        cur.execute("UPDATE medicos SET disponible = TRUE, ultimo_ping = NOW() WHERE id = %s;", (medico_id,))
         conn.commit()
-
-        cur.execute("SELECT disponible FROM medicos WHERE id = %s;", (medico_id,))
-        estado = cur.fetchone()
-        print(f"🧩 Estado actual en DB médico {medico_id}: {estado}")
-
         cur.close()
         conn.close()
+        print(f"✅ Médico {medico_id} marcado como disponible (ping inicial registrado)")
     except Exception as e:
-        print(f"⚠️ Error actualizando disponibilidad del médico {medico_id}: {e}")
-
-    print(f"✅ Médico conectado: {medico_id} | Total en memoria: {len(active_medicos)}")
+        print(f"⚠️ Error al marcar médico disponible: {e}")
 
     try:
         while True:
             data = await websocket.receive_text()
             print(f"📩 Mensaje recibido de médico {medico_id}: {data}")
 
-            if data.strip().lower() == "ping":
+            try:
+                msg = json.loads(data)
+                tipo = msg.get("tipo", "").lower()
+            except json.JSONDecodeError:
+                tipo = data.strip().lower()
+
+            # 🕒 Actualizar timestamp del último ping
+            if tipo == "ping":
+                try:
+                    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+                    cur = conn.cursor()
+                    cur.execute("UPDATE medicos SET ultimo_ping = NOW() WHERE id = %s;", (medico_id,))
+                    conn.commit()
+                    cur.close()
+                    conn.close()
+                except Exception as e2:
+                    print(f"⚠️ Error guardando ultimo_ping de médico {medico_id}: {e2}")
+                
                 await websocket.send_text("pong")
                 await asyncio.sleep(0.05)
                 continue
@@ -1837,20 +1847,21 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
         if medico_id in active_medicos:
             del active_medicos[medico_id]
 
-        # 🔴 Marcar como no disponible al desconectarse
+        # 🔴 Esperar unos segundos antes de marcarlo como no disponible (por si se reconecta)
         await asyncio.sleep(10)
         try:
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
             cur = conn.cursor()
             cur.execute("UPDATE medicos SET disponible = FALSE WHERE id = %s;", (medico_id,))
-            print(f"🔍 Filas actualizadas al desconectar: {cur.rowcount}")
             conn.commit()
             cur.close()
             conn.close()
+            print(f"🔴 Médico {medico_id} marcado como NO disponible en la DB")
         except Exception as e2:
-            print(f"⚠️ Error al marcar desconexión: {e2}")
+            print(f"⚠️ Error al marcar desconexión del médico {medico_id}: {e2}")
 
         print(f"🔻 Total conectados ahora: {len(active_medicos)}")
+
 
 
 # --- Función para enviar notificaciones push ---
