@@ -514,14 +514,6 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         enviar_email_validacion(data.email.lower(), medico_id, full_name)
     except Exception as e:
         print("⚠️ Error enviando email validación:", e)
-    send_event("medico_registrado", {
-        "medico_id": medico_id,
-        "nombre": full_name,
-        "email": data.email.lower(),
-        "especialidad": data.especialidad,
-        "tipo": tipo
-    })
-    
 
     return {
         "ok": True,
@@ -956,18 +948,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             print(f"⚠️ Error push: {e}")
 
     # Evento global
-    send_event("consulta_creada", {
-        "consulta_id": consulta_id,
-        "paciente_uuid": str(data.paciente_uuid),
-        "direccion": data.direccion,
-        "lat": data.lat,
-        "lng": data.lng,
-        "tipo": data.tipo,
-        "profesional_id": profesional_id,
-        "metodo_pago": data.metodo_pago,
-        "distancia_km": round(distancia, 2)
-    })
-
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -1230,12 +1210,6 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
         )
 
     db.commit()
-    send_event("consulta_finalizada", {
-        "consulta_id": consulta_id,
-        "medico_id": medico_id,
-        "estado": "finalizada",
-        "fecha_fin": datetime.now().isoformat()
-    })
 
     return {
         "msg": "Consulta finalizada",
@@ -1630,13 +1604,6 @@ def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
         """, (receta_id, m["nombre"], m["dosis"], m["frecuencia"], m["duracion"]))
 
     db.commit()
-    send_event("receta_creada", {
-        "receta_id": receta_id,
-        "consulta_id": consulta_id,
-        "medico_id": data.medico_id,
-        "paciente_uuid": data.paciente_uuid,
-        "diagnostico": data.diagnostico
-    })
 
     return {"ok": True, "receta_id": receta_id}
 
