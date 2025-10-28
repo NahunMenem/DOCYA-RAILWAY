@@ -230,10 +230,10 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
             except Exception:
                 meses = 0
 
-        # 📊 Contar cantidad de consultas del usuario
+        # 📊 Contar cantidad de consultas del usuario (usa paciente_uuid)
         cur.execute(
-            "SELECT COUNT(*) AS total FROM consultas WHERE user_id = %s OR paciente_id = %s",
-            (user_id, user_id),
+            "SELECT COUNT(*) AS total FROM consultas WHERE paciente_uuid = %s",
+            (user_id,),
         )
         consultas = cur.fetchone()
         total_consultas = consultas["total"] if consultas else 0
@@ -248,6 +248,7 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
     except Exception as e:
         print(f"⚠️ Error en get_user_by_id: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ====================================================
