@@ -236,24 +236,35 @@ from fastapi import UploadFile, File, Depends
 import cloudinary.uploader
 
 
+from fastapi import UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
-from fastapi import HTTPException, Depends
+from datetime import datetime
+import cloudinary.uploader
 
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db: Session = Depends(get_db)):
+    """
+    Devuelve los datos del paciente, cantidad de consultas y meses en DocYa.
+    """
     user = db.execute("SELECT * FROM users WHERE id = :id", {"id": user_id}).fetchone()
     if not user:
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-    # Calcular meses en DocYa desde la fecha de registro
-    meses = 0
-    if user._mapping.get("created_at"):
-        meses = (datetime.utcnow() - user._mapping["created_at"]).days // 30
-
-    # Contar consultas médicas (si existe tabla 'consultas')
-    count = db.execute("SELECT COUNT(*) FROM consultas WHERE user_id = :id", {"id": user_id}).scalar() or 0
-
     data = dict(user._mapping)
+
+    # Calcular meses desde el registro
+    meses = 0
+    if data.get("created_at"):
+        meses = (datetime.utcnow() - data["created_at"]).days // 30
+
+    # Contar consultas médicas si existe tabla 'consultas'
+    try:
+        count = db.execute(
+            "SELECT COUNT(*) FROM consultas WHERE user_id = :id", {"id": user_id}
+        ).scalar() or 0
+    except Exception:
+        count = 0
+
     data["consultas_count"] = count
     data["meses_en_docya"] = meses
     return data
@@ -277,18 +288,17 @@ async def subir_foto_paciente(
             resource_type="image"
         )
 
-        url_publica = result.get("secure_url")
-
-        if not url_publica:
-            raise HTTPException(status_code=500, detail="Error al obtener la URL de Cloudinary")
+        foto_url = result.get("secure_url")
+        if not foto_url:
+            raise HTTPException(status_code=500, detail="Error al obtener URL de Cloudinary")
 
         db.execute(
             "UPDATE users SET foto_url = :url WHERE id = :id",
-            {"url": url_publica, "id": user_id}
+            {"url": foto_url, "id": user_id}
         )
         db.commit()
 
-        return {"message": "Foto subida correctamente", "foto_url": url_publica}
+        return {"foto_url": foto_url, "message": "Foto actualizada correctamente"}
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error al subir la foto: {str(e)}")
