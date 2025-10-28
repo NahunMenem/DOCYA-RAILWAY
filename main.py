@@ -71,12 +71,12 @@ ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
-def get_db():
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    try:
-        yield conn
-    finally:
-        conn.close()
+#def get_db():
+ #   conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+  #  try:
+   #     yield conn
+    #finally:
+     #   conn.close()
 
 def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES):
     to_encode = payload.copy()
