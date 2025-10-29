@@ -3277,6 +3277,7 @@ def validar_matricula(medico_id: int, db=Depends(get_db)):
     cur.execute("UPDATE medicos SET matricula_validada = TRUE WHERE id = %s", (medico_id,))
     db.commit()
     return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} validada ✅"}
+
 @app.put("/admin/desvalidar_matricula/{medico_id}")
 def desvalidar_matricula(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
