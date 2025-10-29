@@ -201,3 +201,75 @@ async def obtener_estado_general():
 async def iniciar_limpieza_automatica():
     asyncio.create_task(limpiar_medicos_inactivos())
     print("🧭 Limpieza automática de médicos inactivos iniciada cada 60 s.")
+
+
+
+# ====================================================
+# 📋 MÉDICOS REGISTRADOS – Listado completo
+# ====================================================
+@router.get("/medicos_registrados")
+def medicos_registrados(db=Depends(get_db)):
+    """
+    Devuelve todos los médicos registrados con sus datos principales y fotos.
+    Ideal para panel de administración / monitoreo.
+    """
+    try:
+        cur = db.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                id,
+                full_name,
+                email,
+                telefono,
+                matricula,
+                especialidad,
+                provincia,
+                localidad,
+                dni,
+                foto_perfil,
+                foto_dni_frente,
+                foto_dni_dorso,
+                selfie_dni,
+                validado,
+                matricula_validada,
+                created_at
+            FROM medicos
+            ORDER BY created_at DESC;
+        """)
+        medicos = cur.fetchall()
+        cur.close()
+        return {"ok": True, "medicos": medicos}
+    except Exception as e:
+        print("❌ Error en medicos_registrados:", e)
+        return {"ok": False, "error": str(e)}
+# ====================================================
+# ✅ VALIDAR / ❌ DESVALIDAR MATRÍCULA
+# ====================================================
+@router.put("/validar_matricula/{medico_id}")
+def validar_matricula(medico_id: int, db=Depends(get_db)):
+    """
+    Alterna el estado de matricula_validada (True/False)
+    """
+    try:
+        cur = db.cursor()
+        # Obtener valor actual
+        cur.execute("SELECT matricula_validada FROM medicos WHERE id = %s", (medico_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+        nuevo_estado = not row[0]
+        cur.execute(
+            "UPDATE medicos SET matricula_validada = %s WHERE id = %s",
+            (nuevo_estado, medico_id)
+        )
+        db.commit()
+        cur.close()
+
+        estado_str = "validada ✅" if nuevo_estado else "desvalidada ❌"
+        return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} {estado_str}"}
+
+    except Exception as e:
+        print("❌ Error en validar_matricula:", e)
+        return {"ok": False, "error": str(e)}
+
