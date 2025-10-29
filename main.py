@@ -702,18 +702,31 @@ class LoginMedicoIn(BaseModel):
 @app.post("/auth/login_medico")
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute(
-        "SELECT id, full_name, password_hash, validado, tipo FROM medicos WHERE email=%s",
-        (data.email.lower(),)
-    )
+
+    # 🔍 Buscar por email o DNI (según lo que el usuario ingresó)
+    input_value = data.email.strip().lower()
+
+    cur.execute("""
+        SELECT id, full_name, password_hash, validado, tipo
+        FROM medicos
+        WHERE email = %s OR dni = %s
+    """, (input_value, input_value))
+
     row = cur.fetchone()
-    if not row or not pwd_context.verify(data.password, row[2]):
-        raise HTTPException(status_code=400, detail="Credenciales inválidas")
+
+    if not row:
+        raise HTTPException(status_code=400, detail="Usuario no encontrado")
+
+    # 🔐 Verificar contraseña
+    if not pwd_context.verify(data.password, row[2]):
+        raise HTTPException(status_code=400, detail="Contraseña incorrecta")
+
     if not row[3]:
         raise HTTPException(status_code=403, detail="Cuenta aún no validada")
 
+    # 🔑 Generar token
     token = create_access_token(
-        {"sub": str(row[0]), "email": data.email.lower(), "role": row[4]}  # 👈 role = tipo
+        {"sub": str(row[0]), "email": input_value, "role": row[4]}
     )
 
     return {
@@ -721,7 +734,7 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         "token_type": "bearer",
         "medico_id": row[0],
         "full_name": row[1],
-        "tipo": row[4],   # 👈 ahora llega al frontend
+        "tipo": row[4],
         "medico": {
             "id": row[0],
             "full_name": row[1],
@@ -729,6 +742,7 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
             "tipo": row[4]
         }
     }
+
 @app.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
