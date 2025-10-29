@@ -703,31 +703,35 @@ class LoginMedicoIn(BaseModel):
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 🔍 Buscar por email o DNI (según lo que el usuario ingresó)
+    # Limpieza del input: elimina espacios y pone todo en minúsculas
     input_value = data.email.strip().lower()
+    password = data.password.strip()
 
+    # Buscar por email o por DNI
     cur.execute("""
-        SELECT id, full_name, password_hash, validado, tipo
+        SELECT id, full_name, password_hash, validado, tipo, email, dni
         FROM medicos
-        WHERE email = %s OR dni = %s
+        WHERE lower(email) = %s OR trim(lower(dni)) = %s
     """, (input_value, input_value))
 
     row = cur.fetchone()
-
     if not row:
         raise HTTPException(status_code=400, detail="Usuario no encontrado")
 
-    # 🔐 Verificar contraseña
-    if not pwd_context.verify(data.password, row[2]):
+    # Verificar contraseña
+    if not pwd_context.verify(password, row[2]):
         raise HTTPException(status_code=400, detail="Contraseña incorrecta")
 
+    # Verificar si la cuenta fue validada
     if not row[3]:
         raise HTTPException(status_code=403, detail="Cuenta aún no validada")
 
-    # 🔑 Generar token
-    token = create_access_token(
-        {"sub": str(row[0]), "email": input_value, "role": row[4]}
-    )
+    # Generar token
+    token = create_access_token({
+        "sub": str(row[0]),
+        "email": row[5],
+        "role": row[4]
+    })
 
     return {
         "access_token": token,
@@ -735,13 +739,18 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         "medico_id": row[0],
         "full_name": row[1],
         "tipo": row[4],
+        "email": row[5],
+        "dni": row[6],
         "medico": {
             "id": row[0],
             "full_name": row[1],
             "validado": True,
-            "tipo": row[4]
+            "tipo": row[4],
+            "email": row[5],
+            "dni": row[6]
         }
     }
+
 
 @app.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
