@@ -3267,4 +3267,16 @@ async def inversores(request: Request):
 async def flujo(request: Request):
     return templates.TemplateResponse("flujo.html", {"request": request})
 
-    
+@app.put("/admin/validar_matricula/{medico_id}")
+def validar_matricula(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("UPDATE medicos SET matricula_validada = TRUE WHERE id = %s", (medico_id,))
+    db.commit()
+    return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} validada ✅"}
+@app.put("/admin/desvalidar_matricula/{medico_id}")
+def desvalidar_matricula(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("UPDATE medicos SET matricula_validada = FALSE WHERE id = %s", (medico_id,))
+    db.commit()
+    return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} marcada como NO válida 🚫"}
+
