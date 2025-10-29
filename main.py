@@ -703,34 +703,36 @@ class LoginMedicoIn(BaseModel):
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Limpieza del input: elimina espacios y pone todo en minúsculas
     input_value = data.email.strip().lower()
     password = data.password.strip()
 
-    # Buscar por email o por DNI
+    # Buscar por email o DNI
     cur.execute("""
-        SELECT id, full_name, password_hash, validado, tipo, email, dni
+        SELECT id, full_name, password_hash, validado, tipo, email, dni, matricula_validada
         FROM medicos
         WHERE lower(email) = %s OR trim(lower(dni)) = %s
     """, (input_value, input_value))
-
     row = cur.fetchone()
+
     if not row:
         raise HTTPException(status_code=400, detail="Usuario no encontrado")
 
-    # Verificar contraseña
     if not pwd_context.verify(password, row[2]):
         raise HTTPException(status_code=400, detail="Contraseña incorrecta")
 
-    # Verificar si la cuenta fue validada
+    # ⚠️ Email aún no validado
     if not row[3]:
-        raise HTTPException(status_code=403, detail="Cuenta aún no validada")
+        raise HTTPException(status_code=403, detail="Cuenta aún no validada por correo")
 
-    # Generar token
+    # ⚠️ Matrícula aún no validada por el administrador
+    if not row[7]:
+        raise HTTPException(status_code=403, detail="Matrícula aún no validada por el equipo DocYa")
+
+    # ✅ Generar token si todo está bien
     token = create_access_token({
         "sub": str(row[0]),
         "email": row[5],
-        "role": row[4]
+        "role": row[4],
     })
 
     return {
@@ -741,13 +743,15 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         "tipo": row[4],
         "email": row[5],
         "dni": row[6],
+        "matricula_validada": row[7],
         "medico": {
             "id": row[0],
             "full_name": row[1],
             "validado": True,
             "tipo": row[4],
             "email": row[5],
-            "dni": row[6]
+            "dni": row[6],
+            "matricula_validada": row[7]
         }
     }
 
