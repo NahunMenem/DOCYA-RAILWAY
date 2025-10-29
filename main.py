@@ -487,26 +487,43 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     cur.execute("SELECT id FROM medicos WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
+
     cur.execute("SELECT id FROM medicos WHERE matricula=%s", (data.matricula,))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
 
     password_hash = pwd_context.hash(data.password)
 
-    # ✅ Subir imágenes a Cloudinary (si vienen como base64 o URL temporal)
+    # 🔹 Primero insertamos el médico sin las fotos
+    cur.execute("""
+        INSERT INTO medicos (
+            full_name,email,password_hash,matricula,especialidad,tipo,telefono,
+            provincia,localidad,dni,validado
+        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+        RETURNING id, full_name, tipo
+    """, (
+        data.full_name.strip(), data.email.lower(), password_hash,
+        data.matricula, data.especialidad, data.tipo, data.telefono,
+        data.provincia, data.localidad, data.dni
+    ))
+
+    medico_id, full_name, tipo = cur.fetchone()
+    db.commit()
+
+    # 🔹 Subir imágenes a Cloudinary usando el ID del médico
     def subir_a_cloudinary(imagen_base64, carpeta):
         if not imagen_base64:
             return None
         try:
-            # Si el frontend envía base64
             if imagen_base64.startswith("data:image"):
                 res = cloudinary.uploader.upload(
                     imagen_base64,
-                    folder=f"docya/medicos/{carpeta}",
+                    folder=f"docya/medicos/{medico_id}",
+                    public_id=f"{carpeta}",
+                    overwrite=True,
                     resource_type="image"
                 )
                 return res["secure_url"]
-            # Si ya es una URL (por ejemplo, si Flutter sube primero)
             elif imagen_base64.startswith("http"):
                 return imagen_base64
         except Exception as e:
@@ -518,24 +535,20 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     foto_dni_dorso_url = subir_a_cloudinary(data.foto_dni_dorso, "dni_dorso")
     selfie_dni_url = subir_a_cloudinary(data.selfie_dni, "selfie_dni")
 
-    # Guardar en DB
+    # 🔹 Actualizar el registro con las URLs
     cur.execute("""
-        INSERT INTO medicos (
-            full_name,email,password_hash,matricula,especialidad,tipo,telefono,
-            provincia,localidad,dni,foto_perfil,foto_dni_frente,foto_dni_dorso,selfie_dni,validado
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
-        RETURNING id, full_name, tipo
+        UPDATE medicos
+        SET foto_perfil=%s,
+            foto_dni_frente=%s,
+            foto_dni_dorso=%s,
+            selfie_dni=%s
+        WHERE id=%s
     """, (
-        data.full_name.strip(), data.email.lower(), password_hash,
-        data.matricula, data.especialidad, data.tipo, data.telefono,
-        data.provincia, data.localidad, data.dni,
-        foto_perfil_url, foto_dni_frente_url, foto_dni_dorso_url, selfie_dni_url
+        foto_perfil_url, foto_dni_frente_url, foto_dni_dorso_url, selfie_dni_url, medico_id
     ))
-
-    medico_id, full_name, tipo = cur.fetchone()
     db.commit()
 
-    # Enviar mail validación
+    # 🔹 Enviar mail validación
     try:
         enviar_email_validacion(data.email.lower(), medico_id, full_name)
     except Exception as e:
