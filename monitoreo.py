@@ -273,3 +273,38 @@ def validar_matricula(medico_id: int, db=Depends(get_db)):
         print("❌ Error en validar_matricula:", e)
         return {"ok": False, "error": str(e)}
 
+# ====================================================
+# 🗺️ UBICACIONES DE TODOS LOS MÉDICOS CONECTADOS
+# ====================================================
+@router.get("/medicos_ubicacion")
+def medicos_ubicacion(db=Depends(get_db)):
+    """
+    Devuelve la ubicación actual (latitud, longitud) de todos los médicos disponibles
+    que están conectados recientemente (último ping < 1 minuto).
+    """
+    try:
+        cur = db.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                id,
+                full_name AS nombre,
+                latitud AS lat,
+                longitud AS lng,
+                telefono,
+                especialidad,
+                provincia,
+                localidad
+            FROM medicos
+            WHERE disponible = TRUE
+              AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '1 minute')
+              AND latitud IS NOT NULL
+              AND longitud IS NOT NULL
+            ORDER BY id;
+        """)
+        medicos = cur.fetchall()
+        cur.close()
+        return {"ok": True, "medicos": medicos}
+    except Exception as e:
+        print("❌ Error en medicos_ubicacion:", e)
+        return {"ok": False, "error": str(e)}
+
