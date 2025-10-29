@@ -309,39 +309,60 @@ def medicos_ubicacion(db=Depends(get_db)):
         return {"ok": False, "error": str(e)}
 
 
-@app.get("/consultas/")
+# ====================================================
+# 📋 CONSULTAS – LISTADO Y KPIs
+# ====================================================
+@router.get("/consultas/")
 async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_db)):
-    cur = db.cursor()
-    filtros = []
-    params = []
+    """
+    Devuelve todas las consultas registradas, con filtros opcionales por fecha
+    y KPIs por estado.
+    """
+    try:
+        cur = db.cursor()
+        filtros = []
+        params = []
 
-    if desde:
-        filtros.append("c.creado_en >= %s")
-        params.append(desde)
-    if hasta:
-        filtros.append("c.creado_en <= %s")
-        params.append(hasta)
+        if desde:
+            filtros.append("c.creado_en >= %s")
+            params.append(desde)
+        if hasta:
+            filtros.append("c.creado_en <= %s")
+            params.append(hasta)
 
-    where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
+        where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
 
-    cur.execute(f"""
-        SELECT c.id, c.creado_en, c.estado, c.motivo, c.metodo_pago,
-               c.direccion, p.full_name AS paciente, m.full_name AS profesional, m.tipo
-        FROM consultas c
-        JOIN pacientes p ON p.uuid = c.paciente_uuid
-        JOIN medicos m ON m.id = c.medico_id
-        {where_clause}
-        ORDER BY c.creado_en DESC
-    """, params)
-    consultas = cur.fetchall()
+        cur.execute(f"""
+            SELECT 
+                c.id, 
+                c.creado_en, 
+                c.estado, 
+                c.motivo, 
+                c.metodo_pago,
+                c.direccion, 
+                p.full_name AS paciente, 
+                m.full_name AS profesional, 
+                m.tipo
+            FROM consultas c
+            JOIN pacientes p ON p.uuid = c.paciente_uuid
+            JOIN medicos m ON m.id = c.medico_id
+            {where_clause}
+            ORDER BY c.creado_en DESC;
+        """, params)
+        consultas = cur.fetchall()
 
-    # KPIs
-    cur.execute("""
-        SELECT estado, COUNT(*) 
-        FROM consultas 
-        GROUP BY estado
-    """)
-    kpis = cur.fetchall()
+        # KPIs
+        cur.execute("""
+            SELECT estado, COUNT(*) 
+            FROM consultas 
+            GROUP BY estado;
+        """)
+        kpis = cur.fetchall()
 
-    db.close()
-    return {"consultas": consultas, "kpis": kpis}
+        cur.close()
+        return {"consultas": consultas, "kpis": kpis}
+
+    except Exception as e:
+        print("❌ Error en listar_consultas:", e)
+        return {"error": str(e)}
+
