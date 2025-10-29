@@ -308,3 +308,40 @@ def medicos_ubicacion(db=Depends(get_db)):
         print("❌ Error en medicos_ubicacion:", e)
         return {"ok": False, "error": str(e)}
 
+
+@app.get("/consultas/")
+async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_db)):
+    cur = db.cursor()
+    filtros = []
+    params = []
+
+    if desde:
+        filtros.append("c.creado_en >= %s")
+        params.append(desde)
+    if hasta:
+        filtros.append("c.creado_en <= %s")
+        params.append(hasta)
+
+    where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
+
+    cur.execute(f"""
+        SELECT c.id, c.creado_en, c.estado, c.motivo, c.metodo_pago,
+               c.direccion, p.full_name AS paciente, m.full_name AS profesional, m.tipo
+        FROM consultas c
+        JOIN pacientes p ON p.uuid = c.paciente_uuid
+        JOIN medicos m ON m.id = c.medico_id
+        {where_clause}
+        ORDER BY c.creado_en DESC
+    """, params)
+    consultas = cur.fetchall()
+
+    # KPIs
+    cur.execute("""
+        SELECT estado, COUNT(*) 
+        FROM consultas 
+        GROUP BY estado
+    """)
+    kpis = cur.fetchall()
+
+    db.close()
+    return {"consultas": consultas, "kpis": kpis}
