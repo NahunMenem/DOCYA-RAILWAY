@@ -696,7 +696,7 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
 
 
 class LoginMedicoIn(BaseModel):
-    email: EmailStr
+    email: str   # 👈 antes era EmailStr
     password: str
 
 @app.post("/auth/login_medico")
