@@ -493,6 +493,32 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
 
     password_hash = pwd_context.hash(data.password)
 
+    # ✅ Subir imágenes a Cloudinary (si vienen como base64 o URL temporal)
+    def subir_a_cloudinary(imagen_base64, carpeta):
+        if not imagen_base64:
+            return None
+        try:
+            # Si el frontend envía base64
+            if imagen_base64.startswith("data:image"):
+                res = cloudinary.uploader.upload(
+                    imagen_base64,
+                    folder=f"docya/medicos/{carpeta}",
+                    resource_type="image"
+                )
+                return res["secure_url"]
+            # Si ya es una URL (por ejemplo, si Flutter sube primero)
+            elif imagen_base64.startswith("http"):
+                return imagen_base64
+        except Exception as e:
+            print(f"⚠️ Error subiendo {carpeta}:", e)
+        return None
+
+    foto_perfil_url = subir_a_cloudinary(data.foto_perfil, "perfil")
+    foto_dni_frente_url = subir_a_cloudinary(data.foto_dni_frente, "dni_frente")
+    foto_dni_dorso_url = subir_a_cloudinary(data.foto_dni_dorso, "dni_dorso")
+    selfie_dni_url = subir_a_cloudinary(data.selfie_dni, "selfie_dni")
+
+    # Guardar en DB
     cur.execute("""
         INSERT INTO medicos (
             full_name,email,password_hash,matricula,especialidad,tipo,telefono,
@@ -503,13 +529,13 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         data.full_name.strip(), data.email.lower(), password_hash,
         data.matricula, data.especialidad, data.tipo, data.telefono,
         data.provincia, data.localidad, data.dni,
-        data.foto_perfil, data.foto_dni_frente, data.foto_dni_dorso, data.selfie_dni
+        foto_perfil_url, foto_dni_frente_url, foto_dni_dorso_url, selfie_dni_url
     ))
 
     medico_id, full_name, tipo = cur.fetchone()
     db.commit()
 
-    # 👇 Enviar mail validación
+    # Enviar mail validación
     try:
         enviar_email_validacion(data.email.lower(), medico_id, full_name)
     except Exception as e:
@@ -520,8 +546,15 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         "mensaje": f"Registro exitoso como {tipo}. ✅ Revisa tu correo para activar tu cuenta.",
         "medico_id": medico_id,
         "full_name": full_name,
-        "tipo": tipo
+        "tipo": tipo,
+        "fotos": {
+            "perfil": foto_perfil_url,
+            "dni_frente": foto_dni_frente_url,
+            "dni_dorso": foto_dni_dorso_url,
+            "selfie_dni": selfie_dni_url
+        }
     }
+
 
 
 
