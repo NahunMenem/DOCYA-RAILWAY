@@ -319,7 +319,7 @@ from psycopg2.extras import RealDictCursor
 @router.get("/consultas/")
 async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_db)):
     try:
-        cur = db.cursor(cursor_factory=RealDictCursor)  # ✅ devuelve dicts en lugar de tuplas
+        cur = db.cursor(cursor_factory=RealDictCursor)
         filtros = []
         params = []
 
@@ -340,11 +340,11 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
                 c.motivo, 
                 c.metodo_pago,
                 c.direccion, 
-                COALESCE(p.nombre || ' ' || p.apellido, 'Sin paciente') AS paciente,
+                COALESCE(u.full_name, 'Sin paciente') AS paciente,
                 COALESCE(m.full_name, 'Sin profesional') AS profesional, 
                 COALESCE(m.tipo, '-') AS tipo
             FROM consultas c
-            LEFT JOIN pacientes p ON c.paciente_uuid = p.paciente_uuid
+            LEFT JOIN users u ON c.paciente_uuid = u.id  -- ✅ Cambio aquí
             LEFT JOIN medicos m ON m.id = c.medico_id
             {where_clause}
             ORDER BY c.creado_en DESC;
@@ -352,6 +352,7 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 
         consultas = cur.fetchall()
 
+        # KPIs
         cur.execute("""
             SELECT estado, COUNT(*) 
             FROM consultas 
@@ -366,3 +367,4 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
     except Exception as e:
         print("❌ Error en listar_consultas:", e)
         return {"error": str(e)}
+
