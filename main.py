@@ -177,6 +177,10 @@ def register(data: RegisterIn, db=Depends(get_db)):
         raise HTTPException(status_code=409, detail="El email ya está registrado")
 
     password_hash = pwd_context.hash(data.password)
+
+    # 👉 Convertir nombre a formato capitalizado (primera letra de cada palabra en mayúscula)
+    full_name = data.full_name.strip().title()
+
     try:
         cur.execute("""
             INSERT INTO users (
@@ -187,7 +191,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
             VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)
             RETURNING id, full_name
         """, (
-            data.email.lower(), data.full_name.strip(), password_hash,
+            data.email.lower(), full_name, password_hash,
             data.dni, data.telefono, data.pais, data.provincia, data.localidad,
             data.fecha_nacimiento, data.acepto_condiciones,
             now_argentina() if data.acepto_condiciones else None,
@@ -211,6 +215,7 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "full_name": full_name,
         "role": "patient"
     }
+
 
 
 @app.get("/users/{user_id}")
@@ -494,15 +499,18 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
 
     password_hash = pwd_context.hash(data.password)
 
-    # 🔹 Primero insertamos el médico sin las fotos
+    # 🔹 Convertir el nombre a formato con mayúsculas iniciales
+    full_name = data.full_name.strip().title()
+
+    # 🔹 Insertar el médico sin las fotos
     cur.execute("""
         INSERT INTO medicos (
-            full_name,email,password_hash,matricula,especialidad,tipo,telefono,
-            provincia,localidad,dni,validado
+            full_name, email, password_hash, matricula, especialidad, tipo, telefono,
+            provincia, localidad, dni, validado
         ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
         RETURNING id, full_name, tipo
     """, (
-        data.full_name.strip(), data.email.lower(), password_hash,
+        full_name, data.email.lower(), password_hash,
         data.matricula, data.especialidad, data.tipo, data.telefono,
         data.provincia, data.localidad, data.dni
     ))
@@ -548,7 +556,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     ))
     db.commit()
 
-    # 🔹 Enviar mail validación
+    # 🔹 Enviar mail de validación
     try:
         enviar_email_validacion(data.email.lower(), medico_id, full_name)
     except Exception as e:
@@ -567,9 +575,6 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             "selfie_dni": selfie_dni_url
         }
     }
-
-
-
 
 
 
