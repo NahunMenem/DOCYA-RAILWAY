@@ -384,3 +384,32 @@ async def tiempo_promedio_consultas(db=Depends(get_db)):
     cur.close()
     return {"tiempo_promedio_min": promedio}
 
+@router.get("/usuarios")
+async def listar_usuarios(db=Depends(get_db)):
+    try:
+        cur = db.cursor(cursor_factory=RealDictCursor)
+        cur.execute("""
+            SELECT 
+                email,
+                full_name,
+                password_hash,
+                dni,
+                telefono,
+                pais,
+                provincia,
+                localidad,
+                fecha_nacimiento,
+                acepto_condiciones,
+                fecha_aceptacion,
+                version_texto,
+                validado,
+                role
+            FROM users
+            ORDER BY created_at DESC;
+        """)
+        usuarios = cur.fetchall()
+        cur.close()
+        return usuarios
+    except Exception as e:
+        print("❌ Error listando usuarios:", e)
+        return {"error": str(e)}
