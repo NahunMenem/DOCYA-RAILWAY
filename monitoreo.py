@@ -314,8 +314,6 @@ def medicos_ubicacion(db=Depends(get_db)):
 # ====================================================
 # 📋 CONSULTAS – LISTADO Y KPIs
 # ====================================================
-from psycopg2.extras import RealDictCursor
-
 @router.get("/consultas/")
 async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_db)):
     try:
@@ -323,6 +321,7 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
         filtros = []
         params = []
 
+        # 🔹 Filtros por fecha
         if desde:
             filtros.append("c.creado_en >= %s")
             params.append(desde)
@@ -332,6 +331,7 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 
         where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
 
+        # 🔹 Consulta principal con duración
         cur.execute(f"""
             SELECT 
                 c.id, 
@@ -342,9 +342,12 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
                 c.direccion, 
                 COALESCE(u.full_name, 'Sin paciente') AS paciente,
                 COALESCE(m.full_name, 'Sin profesional') AS profesional, 
-                COALESCE(m.tipo, '-') AS tipo
+                COALESCE(m.tipo, '-') AS tipo,
+                c.inicio_atencion,
+                c.fin_atencion,
+                ROUND(EXTRACT(EPOCH FROM (c.fin_atencion - c.inicio_atencion)) / 60, 1) AS duracion_min
             FROM consultas c
-            LEFT JOIN users u ON c.paciente_uuid = u.id  -- ✅ Cambio aquí
+            LEFT JOIN users u ON c.paciente_uuid = u.id
             LEFT JOIN medicos m ON m.id = c.medico_id
             {where_clause}
             ORDER BY c.creado_en DESC;
@@ -352,7 +355,7 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 
         consultas = cur.fetchall()
 
-        # KPIs
+        # 🔹 KPIs por estado
         cur.execute("""
             SELECT estado, COUNT(*) 
             FROM consultas 
@@ -362,6 +365,7 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
         kpis = cur.fetchall()
 
         cur.close()
+
         return {"consultas": consultas, "kpis": kpis}
 
     except Exception as e:
