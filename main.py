@@ -10,6 +10,7 @@ import requests
 from uuid import UUID
 from typing import Optional, Dict
 from datetime import datetime, timedelta, date
+from unidecode import unidecode
 from zoneinfo import ZoneInfo
 
 from fastapi import (
@@ -488,7 +489,7 @@ class RegisterMedicoIn(BaseModel):
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Validar email y matrícula únicos
+    # 🔍 Validar email y matrícula únicos
     cur.execute("SELECT id FROM medicos WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="El email ya está registrado")
@@ -499,26 +500,28 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
 
     password_hash = pwd_context.hash(data.password)
 
-    # 🔹 Convertir el nombre a formato con mayúsculas iniciales
+    # ✨ Formatear nombre y tipo antes de guardar
     full_name = data.full_name.strip().title()
+    tipo_normalizado = unidecode(data.tipo.strip().lower())
 
-    # 🔹 Insertar el médico sin las fotos
+    # 🧠 Insertar el médico sin las fotos
     cur.execute("""
         INSERT INTO medicos (
             full_name, email, password_hash, matricula, especialidad, tipo, telefono,
             provincia, localidad, dni, validado
-        ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+        )
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
         RETURNING id, full_name, tipo
     """, (
         full_name, data.email.lower(), password_hash,
-        data.matricula, data.especialidad, data.tipo, data.telefono,
+        data.matricula, data.especialidad, tipo_normalizado, data.telefono,
         data.provincia, data.localidad, data.dni
     ))
 
     medico_id, full_name, tipo = cur.fetchone()
     db.commit()
 
-    # 🔹 Subir imágenes a Cloudinary usando el ID del médico
+    # ☁️ Subir imágenes a Cloudinary
     def subir_a_cloudinary(imagen_base64, carpeta):
         if not imagen_base64:
             return None
@@ -535,7 +538,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             elif imagen_base64.startswith("http"):
                 return imagen_base64
         except Exception as e:
-            print(f"⚠️ Error subiendo {carpeta}:", e)
+            print(f"⚠️ Error subiendo {carpeta}: {e}")
         return None
 
     foto_perfil_url = subir_a_cloudinary(data.foto_perfil, "perfil")
@@ -543,7 +546,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     foto_dni_dorso_url = subir_a_cloudinary(data.foto_dni_dorso, "dni_dorso")
     selfie_dni_url = subir_a_cloudinary(data.selfie_dni, "selfie_dni")
 
-    # 🔹 Actualizar el registro con las URLs
+    # 🧾 Actualizar URLs de fotos
     cur.execute("""
         UPDATE medicos
         SET foto_perfil=%s,
@@ -556,11 +559,11 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     ))
     db.commit()
 
-    # 🔹 Enviar mail de validación
+    # 📧 Enviar mail de validación
     try:
         enviar_email_validacion(data.email.lower(), medico_id, full_name)
     except Exception as e:
-        print("⚠️ Error enviando email validación:", e)
+        print(f"⚠️ Error enviando email validación: {e}")
 
     return {
         "ok": True,
