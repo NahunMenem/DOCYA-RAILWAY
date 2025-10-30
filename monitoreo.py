@@ -372,14 +372,16 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
         print("❌ Error en listar_consultas:", e)
         return {"error": str(e)}
 
-from fastapi import APIRouter, Depends
-from psycopg2.extras import RealDictCursor
-from app.database import get_db
-
-router = APIRouter()
-
-@router.get("/monitoreo/tiempo_promedio")
+# ====================================================
+# ⏱ TIEMPO PROMEDIO DE ATENCIÓN
+# ====================================================
+@router.get("/tiempo_promedio")
 async def tiempo_promedio_consultas(db=Depends(get_db)):
+    """
+    Devuelve el tiempo promedio de atención (en minutos)
+    calculado como la diferencia entre fin_atencion e inicio_atencion
+    para todas las consultas finalizadas.
+    """
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
@@ -387,15 +389,16 @@ async def tiempo_promedio_consultas(db=Depends(get_db)):
                 ROUND(AVG(EXTRACT(EPOCH FROM (fin_atencion - inicio_atencion)) / 60), 1) 
                 AS tiempo_promedio_min
             FROM consultas
-            WHERE fin_atencion IS NOT NULL;
+            WHERE fin_atencion IS NOT NULL
+              AND inicio_atencion IS NOT NULL;
         """)
         resultado = cur.fetchone()
         cur.close()
 
-        # Si no hay consultas finalizadas, devolver 0
         promedio = resultado["tiempo_promedio_min"] or 0
         return {"tiempo_promedio_min": promedio}
 
     except Exception as e:
         print("❌ Error en tiempo_promedio_consultas:", e)
         return {"tiempo_promedio_min": 0}
+
