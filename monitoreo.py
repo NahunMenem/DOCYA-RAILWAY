@@ -226,6 +226,7 @@ def medicos_registrados(db=Depends(get_db)):
                 provincia,
                 localidad,
                 dni,
+                tipo ,
                 foto_perfil,
                 foto_dni_frente,
                 foto_dni_dorso,
