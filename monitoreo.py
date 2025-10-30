@@ -319,14 +319,14 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
     """
     Devuelve todas las consultas registradas, con filtros opcionales por fecha
     y KPIs por estado.
-    Corrige el JOIN (usa p.id en lugar de p.uuid) y permite mostrar aunque falte paciente o médico.
+    Corrige el JOIN para usar paciente_uuid y permite mostrar aunque falte paciente o médico.
     """
     try:
         cur = db.cursor()
         filtros = []
         params = []
 
-        # Filtros opcionales por fecha
+        # 📅 Filtros opcionales por fecha
         if desde:
             filtros.append("c.creado_en >= %s")
             params.append(desde)
@@ -336,7 +336,7 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 
         where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
 
-        # Consulta principal (LEFT JOIN para evitar errores si falta paciente o médico)
+        # 📋 Consulta principal (JOIN correcto usando paciente_uuid)
         cur.execute(f"""
             SELECT 
                 c.id, 
@@ -345,18 +345,19 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
                 c.motivo, 
                 c.metodo_pago,
                 c.direccion, 
-                COALESCE(p.full_name, 'Sin paciente') AS paciente, 
+                COALESCE(p.nombre || ' ' || p.apellido, 'Sin paciente') AS paciente,
                 COALESCE(m.full_name, 'Sin profesional') AS profesional, 
                 COALESCE(m.tipo, '-') AS tipo
             FROM consultas c
-            LEFT JOIN pacientes p ON CAST(p.id AS TEXT) = c.paciente_uuid
+            LEFT JOIN pacientes p ON c.paciente_uuid = p.paciente_uuid
             LEFT JOIN medicos m ON m.id = c.medico_id
             {where_clause}
             ORDER BY c.creado_en DESC;
         """, params)
+
         consultas = cur.fetchall()
 
-        # KPIs por estado
+        # 📊 KPIs por estado
         cur.execute("""
             SELECT estado, COUNT(*) 
             FROM consultas 
@@ -371,4 +372,3 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
     except Exception as e:
         print("❌ Error en listar_consultas:", e)
         return {"error": str(e)}
-
