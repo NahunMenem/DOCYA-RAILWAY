@@ -372,3 +372,15 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
         print("❌ Error en listar_consultas:", e)
         return {"error": str(e)}
 
+@router.get("/monitoreo/tiempo_promedio")
+async def tiempo_promedio_consultas(db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT ROUND(AVG(EXTRACT(EPOCH FROM (fin_atencion - inicio_atencion)) / 60), 1)
+        FROM consultas
+        WHERE fin_atencion IS NOT NULL;
+    """)
+    promedio = cur.fetchone()[0] or 0
+    cur.close()
+    return {"tiempo_promedio_min": promedio}
+
