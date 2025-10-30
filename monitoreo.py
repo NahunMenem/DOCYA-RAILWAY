@@ -49,16 +49,19 @@ async def limpiar_medicos_inactivos():
 # ====================================================
 # 📊 RESUMEN GENERAL
 # ====================================================
+# ====================================================
+# 📊 RESUMEN GENERAL (Dashboard)
+# ====================================================
 @router.get("/resumen")
 def resumen_monitoreo(db=Depends(get_db)):
     try:
         cur = db.cursor()
 
-        # Total médicos registrados
+        # 🩺 Total médicos registrados
         cur.execute("SELECT COUNT(*) FROM medicos;")
         total_medicos = cur.fetchone()[0]
 
-        # ✅ Conectados (último ping menor a 30 s)
+        # 👨‍⚕️ Médicos conectados (último ping menor a 1 min)
         cur.execute("""
             SELECT COUNT(*)
             FROM medicos
@@ -67,7 +70,7 @@ def resumen_monitoreo(db=Depends(get_db)):
         """)
         medicos_conectados = cur.fetchone()[0]
 
-        # Consultas activas
+        # 💬 Consultas activas
         cur.execute("""
             SELECT COUNT(*) 
             FROM consultas 
@@ -75,16 +78,21 @@ def resumen_monitoreo(db=Depends(get_db)):
         """)
         consultas_en_curso = cur.fetchone()[0]
 
-        # Consultas de hoy
+        # 📅 Consultas de hoy
         cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
         consultas_hoy = cur.fetchone()[0]
+
+        # 👥 Total de usuarios registrados
+        cur.execute("SELECT COUNT(*) FROM users WHERE role = 'patient';")
+        total_usuarios = cur.fetchone()[0]
 
         cur.close()
         return {
             "total_medicos": total_medicos,
             "medicos_conectados": medicos_conectados,
             "consultas_en_curso": consultas_en_curso,
-            "consultas_hoy": consultas_hoy
+            "consultas_hoy": consultas_hoy,
+            "total_usuarios": total_usuarios
         }
 
     except Exception as e:
