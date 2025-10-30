@@ -226,7 +226,7 @@ def medicos_registrados(db=Depends(get_db)):
                 provincia,
                 localidad,
                 dni,
-                tipo ,
+                tipo,
                 foto_perfil,
                 foto_dni_frente,
                 foto_dni_dorso,
@@ -237,6 +237,7 @@ def medicos_registrados(db=Depends(get_db)):
             FROM medicos
             ORDER BY created_at DESC;
         """)
+
         medicos = cur.fetchall()
         cur.close()
         return {"ok": True, "medicos": medicos}
