@@ -314,19 +314,15 @@ def medicos_ubicacion(db=Depends(get_db)):
 # ====================================================
 # 📋 CONSULTAS – LISTADO Y KPIs
 # ====================================================
+from psycopg2.extras import RealDictCursor
+
 @router.get("/consultas/")
 async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_db)):
-    """
-    Devuelve todas las consultas registradas, con filtros opcionales por fecha
-    y KPIs por estado.
-    Corrige el JOIN para usar paciente_uuid y permite mostrar aunque falte paciente o médico.
-    """
     try:
-        cur = db.cursor()
+        cur = db.cursor(cursor_factory=RealDictCursor)  # ✅ devuelve dicts en lugar de tuplas
         filtros = []
         params = []
 
-        # 📅 Filtros opcionales por fecha
         if desde:
             filtros.append("c.creado_en >= %s")
             params.append(desde)
@@ -336,7 +332,6 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 
         where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
 
-        # 📋 Consulta principal (JOIN correcto usando paciente_uuid)
         cur.execute(f"""
             SELECT 
                 c.id, 
@@ -357,7 +352,6 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 
         consultas = cur.fetchall()
 
-        # 📊 KPIs por estado
         cur.execute("""
             SELECT estado, COUNT(*) 
             FROM consultas 
