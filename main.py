@@ -3292,4 +3292,44 @@ def desvalidar_matricula(medico_id: int, db=Depends(get_db)):
     cur.execute("UPDATE medicos SET matricula_validada = FALSE WHERE id = %s", (medico_id,))
     db.commit()
     return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} marcada como NO válida 🚫"}
+# ====================================================
+# 🗺️ LOCALIDADES (cacheadas en base de datos)
+# ====================================================
+
+@app.get("/localidades/{provincia}")
+def obtener_localidades(provincia: str, db=Depends(get_db)):
+    """
+    Devuelve las localidades de una provincia.
+    Si no están en la base, las obtiene desde georef y las guarda.
+    """
+    cur = db.cursor()
+
+    # 🔍 Buscar en base de datos
+    cur.execute("SELECT nombre FROM localidades WHERE provincia = %s ORDER BY nombre ASC", (provincia,))
+    results = cur.fetchall()
+
+    if results:
+        return {"provincia": provincia, "localidades": [r[0] for r in results]}
+
+    # 🌐 Si no hay registros, traer de la API del gobierno
+    url = f"https://apis.datos.gob.ar/georef/api/v2.0/localidades.json?nombre_provincia={provincia}&max=1000"
+    try:
+        res = requests.get(url, timeout=15)
+        if res.status_code != 200:
+            raise Exception(f"Error HTTP {res.status_code}")
+        data = res.json()
+        localidades = [l["nombre"] for l in data.get("localidades", [])]
+
+        # 💾 Guardar en la base
+        for nombre in localidades:
+            cur.execute("INSERT INTO localidades (nombre, provincia) VALUES (%s, %s)", (nombre, provincia))
+        db.commit()
+
+        print(f"📍 {len(localidades)} localidades guardadas para {provincia}")
+        return {"provincia": provincia, "localidades": localidades}
+
+    except Exception as e:
+        print(f"⚠️ Error al obtener localidades de {provincia}: {e}")
+        raise HTTPException(status_code=500, detail=f"No se pudieron cargar las localidades de {provincia}")
+
 
