@@ -3292,16 +3292,11 @@ def desvalidar_matricula(medico_id: int, db=Depends(get_db)):
     cur.execute("UPDATE medicos SET matricula_validada = FALSE WHERE id = %s", (medico_id,))
     db.commit()
     return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} marcada como NO válida 🚫"}
-# ====================================================
-# 🗺️ LOCALIDADES (filtradas correctamente)
-# ====================================================
+# =========================================================
+# 🗺️ LOCALIDADES - API DOCYA
+# =========================================================
 
-import requests
-from fastapi import APIRouter, Depends, HTTPException
-
-router = APIRouter()
-
-@router.get("/localidades/{provincia}")
+@app.get("/localidades/{provincia}")
 def obtener_localidades(provincia: str, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT nombre FROM localidades WHERE provincia = %s ORDER BY nombre ASC", (provincia,))
@@ -3310,6 +3305,7 @@ def obtener_localidades(provincia: str, db=Depends(get_db)):
         return {"provincia": provincia, "localidades": [r[0] for r in results]}
 
     try:
+        # 🔗 API nacional (trae todas, filtramos por provincia)
         url = "https://apis.datos.gob.ar/georef/api/v2.0/localidades.json?campos=nombre,provincia&max=5000"
         res = requests.get(url, timeout=20)
         if res.status_code != 200:
@@ -3317,14 +3313,20 @@ def obtener_localidades(provincia: str, db=Depends(get_db)):
 
         data = res.json()
         localidades = data.get("localidades", [])
+
+        # 🔍 Filtrar solo las que pertenecen a la provincia solicitada
         localidades_filtradas = [
             l["nombre"]
             for l in localidades
             if l.get("provincia", {}).get("nombre", "").lower() == provincia.lower()
         ]
 
+        # 💾 Guardar en BD
         for nombre in localidades_filtradas:
-            cur.execute("INSERT INTO localidades (nombre, provincia) VALUES (%s, %s)", (nombre, provincia))
+            cur.execute(
+                "INSERT INTO localidades (nombre, provincia) VALUES (%s, %s)",
+                (nombre, provincia),
+            )
         db.commit()
 
         print(f"📍 {len(localidades_filtradas)} localidades guardadas para {provincia}")
@@ -3333,7 +3335,6 @@ def obtener_localidades(provincia: str, db=Depends(get_db)):
     except Exception as e:
         print(f"⚠️ Error al obtener localidades de {provincia}: {e}")
         raise HTTPException(status_code=500, detail=f"No se pudieron cargar las localidades de {provincia}")
-
 
 
 
