@@ -3293,43 +3293,55 @@ def desvalidar_matricula(medico_id: int, db=Depends(get_db)):
     db.commit()
     return {"ok": True, "mensaje": f"Matrícula del médico {medico_id} marcada como NO válida 🚫"}
 # ====================================================
-# 🗺️ LOCALIDADES (cacheadas en base de datos)
+# 🗺️ LOCALIDADES (filtradas correctamente)
 # ====================================================
+
+import requests
+from fastapi import Depends, HTTPException
+from db import get_db
 
 @app.get("/localidades/{provincia}")
 def obtener_localidades(provincia: str, db=Depends(get_db)):
     """
-    Devuelve las localidades de una provincia.
-    Si no están en la base, las obtiene desde georef y las guarda.
+    Devuelve solo las localidades que pertenecen a la provincia solicitada.
+    Si no existen en la base, las trae de la API nacional, filtra y guarda.
     """
     cur = db.cursor()
-
-    # 🔍 Buscar en base de datos
     cur.execute("SELECT nombre FROM localidades WHERE provincia = %s ORDER BY nombre ASC", (provincia,))
     results = cur.fetchall()
 
     if results:
         return {"provincia": provincia, "localidades": [r[0] for r in results]}
 
-    # 🌐 Si no hay registros, traer de la API del gobierno
-    url = f"https://apis.datos.gob.ar/georef/api/v2.0/localidades.json?nombre_provincia={provincia}&max=1000"
     try:
-        res = requests.get(url, timeout=15)
+        # 🔗 Consultar a la API nacional (todas las localidades)
+        url = "https://apis.datos.gob.ar/georef/api/v2.0/localidades.json?campos=nombre,provincia&max=5000"
+        res = requests.get(url, timeout=20)
         if res.status_code != 200:
-            raise Exception(f"Error HTTP {res.status_code}")
-        data = res.json()
-        localidades = [l["nombre"] for l in data.get("localidades", [])]
+            raise HTTPException(status_code=500, detail="Error en la API externa")
 
-        # 💾 Guardar en la base
-        for nombre in localidades:
+        data = res.json()
+        localidades = data.get("localidades", [])
+
+        # 🔍 Filtrar SOLO las de la provincia indicada
+        localidades_filtradas = [
+            l["nombre"]
+            for l in localidades
+            if l.get("provincia", {}).get("nombre", "").lower() == provincia.lower()
+        ]
+
+        # 💾 Guardar en base
+        for nombre in localidades_filtradas:
             cur.execute("INSERT INTO localidades (nombre, provincia) VALUES (%s, %s)", (nombre, provincia))
         db.commit()
 
-        print(f"📍 {len(localidades)} localidades guardadas para {provincia}")
-        return {"provincia": provincia, "localidades": localidades}
+        print(f"📍 {len(localidades_filtradas)} localidades guardadas para {provincia}")
+        return {"provincia": provincia, "localidades": localidades_filtradas}
 
     except Exception as e:
         print(f"⚠️ Error al obtener localidades de {provincia}: {e}")
         raise HTTPException(status_code=500, detail=f"No se pudieron cargar las localidades de {provincia}")
+
+
 
 
