@@ -3336,6 +3336,43 @@ def obtener_localidades(provincia: str, db=Depends(get_db)):
         print(f"⚠️ Error al obtener localidades de {provincia}: {e}")
         raise HTTPException(status_code=500, detail=f"No se pudieron cargar las localidades de {provincia}")
 
+@app.post("/auth/medico/{medico_id}/firma")
+def subir_firma_digital(medico_id: int, file: UploadFile = File(...), db=Depends(get_db)):
+    """
+    Sube una imagen de firma digital del médico a Cloudinary y la guarda en la base.
+    """
+    try:
+        if not file.content_type or not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="El archivo debe ser una imagen válida (PNG/JPG)")
+
+        result = cloudinary.uploader.upload(
+            file.file,
+            folder=f"docya/firmas/{medico_id}",
+            public_id=f"firma_{medico_id}",
+            overwrite=True,
+            resource_type="image"
+        )
+
+        firma_url = result.get("secure_url")
+        if not firma_url:
+            raise HTTPException(status_code=500, detail="Error al obtener URL de Cloudinary")
+
+        cur = db.cursor()
+        cur.execute("""
+            UPDATE medicos 
+            SET firma_url = %s, updated_at = NOW()
+            WHERE id = %s
+            RETURNING id, firma_url
+        """, (firma_url, medico_id))
+        row = cur.fetchone()
+        db.commit()
+        if not row:
+            raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+        return {"ok": True, "firma_url": row[1]}
+    except Exception as e:
+        print(f"⚠️ Error al subir firma del médico {medico_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al subir la firma: {str(e)}")
 
 
 
