@@ -1350,42 +1350,18 @@ class CertificadoIn(BaseModel):
     observaciones: str | None = None
 
 
-# --- POST: crear certificado y guardarlo en la base ---
-@app.post("/consultas/{consulta_id}/certificado")
-def crear_certificado(consulta_id: int, data: CertificadoIn, db: Session = Depends(get_db)):
-    """
-    Guarda un nuevo certificado médico en la base de datos
-    y devuelve el ID generado.
-    """
-    cur = db.cursor()
-    cur.execute("""
-        INSERT INTO certificados (consulta_id, medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING id
-    """, (consulta_id, data.medico_id, data.paciente_uuid, data.diagnostico, data.reposo_dias, data.observaciones))
-    certificado_id = cur.fetchone()[0]
-    db.commit()
-    return {"ok": True, "certificado_id": certificado_id}
-
-
-# --- GET: ver certificado real en navegador ---
-from fastapi import Depends, Response, HTTPException
-from sqlalchemy.orm import Session
-from weasyprint import HTML, CSS
-from datetime import datetime
-import tempfile, os
-
 @app.get("/consultas/{consulta_id}/certificado")
 def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
     """
     Genera un certificado médico profesional DocYa,
     con firma digital del médico y validez conforme a la Ley 25.506.
+    Solo muestra la sección de certificación.
     """
     cur = db.cursor()
     cur.execute("""
         SELECT c.medico_id, c.paciente_uuid, c.diagnostico, c.reposo_dias, c.observaciones, c.creado_en,
                m.full_name AS medico_nombre, m.matricula, m.especialidad, m.firma_url,
-               u.full_name AS paciente_nombre, u.dni, u.fecha_nacimiento
+               u.full_name AS paciente_nombre, u.dni
         FROM certificados c
         JOIN medicos m ON c.medico_id = m.id
         JOIN users u ON c.paciente_uuid = u.id::text
@@ -1401,16 +1377,14 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
     (
         medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones, creado_en,
         medico_nombre, matricula, especialidad, firma_url,
-        paciente_nombre, paciente_dni, paciente_nac
+        paciente_nombre, paciente_dni
     ) = row
 
     logo_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
     qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://docya-railway-production.up.railway.app/ver_certificado/{consulta_id}"
-
-    fecha_nac = paciente_nac.strftime("%d/%m/%Y") if paciente_nac else "—"
     fecha_emision = creado_en.strftime("%d/%m/%Y %H:%M")
 
-    # Redacción formal
+    # 🧾 Redacción formal y válida
     texto_certificacion = f"""
     <p style="text-align:justify;">
       Por medio del presente, <b>certifico que {paciente_nombre}</b>,
@@ -1430,14 +1404,14 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
         <p style="text-align:justify;"><b>Observaciones:</b> {observaciones}</p>
         """
 
-    texto_certificacion += f"""
+    texto_certificacion += """
     <p style="text-align:justify;">
       Se expide el presente certificado a pedido del/la interesado/a,
       para ser presentado ante quien corresponda.
     </p>
     """
 
-    # Bloque de firma digital
+    # 🔏 Firma digital
     firma_html = f"""
     <div class="firma">
       <p><b>Firma digital:</b></p>
@@ -1447,7 +1421,7 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
     </div>
     """
 
-    # --- HTML completo del certificado ---
+    # --- HTML completo ---
     html = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -1480,19 +1454,12 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
           margin-top: 20px;
           margin-bottom: 40px;
         }}
-        .section-title {{
-          color: #14B8A6;
-          font-weight: bold;
-          font-size: 17px;
-          margin-top: 20px;
-          margin-bottom: 8px;
-        }}
         .box {{
           border: 1px solid #14B8A6;
           border-radius: 10px;
           background: #f9fdfc;
-          padding: 20px 25px;
-          margin-bottom: 20px;
+          padding: 25px 30px;
+          margin-bottom: 25px;
         }}
         .firma {{
           margin-top: 60px;
@@ -1528,14 +1495,6 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
 
       <h1>CERTIFICADO MÉDICO</h1>
 
-      <div class="section-title">Datos del Paciente</div>
-      <div class="box">
-        <p><b>Nombre:</b> {paciente_nombre}</p>
-        <p><b>DNI:</b> {paciente_dni or '—'}</p>
-        <p><b>Fecha de Nacimiento:</b> {fecha_nac}</p>
-      </div>
-
-      <div class="section-title">Certificación</div>
       <div class="box">
         {texto_certificacion}
       </div>
@@ -1544,7 +1503,8 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
 
       <div class="qr">
         <img src="{qr_url}" alt="QR de verificación"><br>
-        <small>Verificar autenticidad:<br>docya-railway-production.up.railway.app/ver_certificado/{consulta_id}</small>
+        <small>Verificar autenticidad:<br>
+        docya-railway-production.up.railway.app/ver_certificado/{consulta_id}</small>
       </div>
 
       <footer>
@@ -1555,7 +1515,7 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
     </html>
     """
 
-    # 🧾 Generar PDF temporal
+    # 📄 Generar PDF temporal
     tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     HTML(string=html).write_pdf(tmp_pdf.name, stylesheets=[
         CSS(string="body { font-family: Helvetica; }")
