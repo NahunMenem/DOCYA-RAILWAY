@@ -3381,12 +3381,12 @@ def subir_firma_digital(medico_id: int, file: UploadFile = File(...), db=Depends
 @app.get("/pacientes/{paciente_uuid}/archivos")
 def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     """
-    Devuelve todas las recetas y certificados asociados al paciente.
-    Incluye tipo, fecha, médico, especialidad y enlace de visualización.
+    Devuelve todas las recetas y certificados del paciente
+    en formato compatible con el frontend Flutter.
     """
     cur = db.cursor()
 
-    # 🩺 Recetas
+    # 🧾 Recetas
     cur.execute("""
         SELECT r.id, r.consulta_id, r.creado_en,
                m.full_name AS medico, m.especialidad
@@ -3395,18 +3395,18 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
         JOIN medicos m ON m.id = c.medico_id
         WHERE r.paciente_uuid = %s
     """, (paciente_uuid,))
-    recetas = [
-        {
-            "tipo": "receta",
+    recetas = []
+    for r in cur.fetchall():
+        fecha = r[2].strftime("%d/%m/%Y %H:%M") if r[2] else "—"
+        recetas.append({
+            "tipo": "Receta",  # 👈 con mayúscula
             "id": r[0],
             "consulta_id": r[1],
-            "fecha": r[2].isoformat() if r[2] else None,
-            "medico": r[3],
+            "fecha": fecha,
+            "doctor": r[3],    # 👈 el front usa "doctor"
             "especialidad": r[4],
             "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/receta"
-        }
-        for r in cur.fetchall()
-    ]
+        })
 
     # 📄 Certificados
     cur.execute("""
@@ -3416,24 +3416,25 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
         JOIN medicos m ON m.id = c.medico_id
         WHERE c.paciente_uuid = %s
     """, (paciente_uuid,))
-    certificados = [
-        {
-            "tipo": "certificado",
+    certificados = []
+    for c in cur.fetchall():
+        fecha = c[2].strftime("%d/%m/%Y %H:%M") if c[2] else "—"
+        certificados.append({
+            "tipo": "Certificado",  # 👈 con mayúscula
             "id": c[0],
             "consulta_id": c[1],
-            "fecha": c[2].isoformat() if c[2] else None,
-            "medico": c[3],
+            "fecha": fecha,
+            "doctor": c[3],        # 👈 coincide con tu ListTile
             "especialidad": c[4],
             "url": f"https://docya-railway-production.up.railway.app/consultas/{c[1]}/certificado"
-        }
-        for c in cur.fetchall()
-    ]
+        })
 
-    # 🔄 Unificar y ordenar por fecha
+    # 🔄 Unificar y ordenar por fecha (más recientes primero)
     archivos = recetas + certificados
-    archivos.sort(key=lambda x: x["fecha"] or "", reverse=True)
+    archivos.sort(key=lambda x: x["fecha"], reverse=True)
 
     return archivos
+
 
 
 
