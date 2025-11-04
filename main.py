@@ -1381,7 +1381,7 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
     ) = row
 
     logo_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://docya-railway-production.up.railway.app/ver_certificado/{consulta_id}"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://docya-railway-production.up.railway.app/consultas/{consulta_id}/certificado"
     fecha_emision = creado_en.strftime("%d/%m/%Y %H:%M")
 
     # 🧾 Redacción formal y válida
@@ -1504,7 +1504,7 @@ def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
       <div class="qr">
         <img src="{qr_url}" alt="QR de verificación"><br>
         <small>Verificar autenticidad:<br>
-        docya-railway-production.up.railway.app/ver_certificado/{consulta_id}</small>
+        docya-railway-production.up.railway.app/consultas/{consulta_id}/certificado</small>
       </div>
 
       <footer>
@@ -1788,7 +1788,9 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
         {firma_html}
 
         <div class="qr" style="text-align:right;margin-top:30px;">
-          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_receta/{receta_id}">
+          <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/consultas/{consulta_id}/receta">
+          <small>Verificar autenticidad:<br>
+          docya-railway-production.up.railway.app/consultas/{consulta_id}/receta</small>
         </div>
       </div>
       <footer>© {datetime.now().year} DocYa — Atención médica a domicilio</footer>
