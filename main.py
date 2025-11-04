@@ -1661,6 +1661,7 @@ class RecetaIn(BaseModel):
     diagnostico: Optional[str] = None
     medicamentos: list[dict]
 
+# --- POST: crear receta ---
 @app.post("/consultas/{consulta_id}/receta")
 def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
     cur = db.cursor()
@@ -1686,17 +1687,16 @@ def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
         """, (receta_id, m["nombre"], m["dosis"], m["frecuencia"], m["duracion"]))
 
     db.commit()
-
     return {"ok": True, "receta_id": receta_id}
 
-# --- GET: ver receta de una consulta (PDF/HTML) ---
-# --- GET: ver receta de una consulta en HTML ---
+
+# --- GET: ver receta de una consulta (HTML DocYa con firma digital) ---
 from fastapi.responses import HTMLResponse
 
 @app.get("/consultas/{consulta_id}/receta", response_class=HTMLResponse)
 def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
     """
-    Muestra la receta de una consulta (última generada) en formato HTML DocYa.
+    Muestra la receta de una consulta (última generada) en formato HTML DocYa, incluyendo la firma digital real del médico.
     """
     cur = db.cursor()
     cur.execute("""
@@ -1713,12 +1713,11 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
 
     receta_id = row[0]
 
-    # 🔁 Reutiliza directamente el HTML de /ver_receta/{receta_id}
-    cur = db.cursor()
+    # Obtener datos completos incluyendo firma del médico
     cur.execute("""
         SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
                c.id AS consulta_id,
-               m.full_name AS medico_nombre, m.especialidad, m.matricula,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula, m.firma_url,
                u.full_name AS paciente_nombre, u.dni
         FROM recetas r
         JOIN consultas c ON c.id = r.consulta_id
@@ -1737,8 +1736,30 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
     """, (receta_id,))
     medicamentos = cur.fetchall()
 
-    fecha = receta[4].strftime("%d/%m/%Y %H:%M") if receta[4] else "—"
+    # Asignar variables legibles
+    obra_social = receta[1]
+    nro_credencial = receta[2]
+    diagnostico = receta[3]
+    creado_en = receta[4]
+    medico_nombre = receta[6]
+    especialidad = receta[7]
+    matricula = receta[8]
+    firma_url = receta[9]
+    paciente_nombre = receta[10]
+    dni = receta[11]
 
+    fecha = creado_en.strftime("%d/%m/%Y %H:%M") if creado_en else "—"
+
+    # Generar bloque de firma dinámico
+    firma_html = f"""
+    <div class="firma" style="margin-top: 40px;">
+      <p><b>Firma digital:</b></p>
+      {"<img src='" + firma_url + "' alt='Firma del médico'>" if firma_url else "<p><i>Firma no registrada</i></p>"}
+      <p style='font-size:13px;color:#4b5563;'>Documento firmado electrónicamente conforme Ley 25.506.</p>
+    </div>
+    """
+
+    # --- HTML FINAL ---
     html = f"""
     <html lang="es">
     <head>
@@ -1806,26 +1827,27 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
           <div class="title">Receta Médica Digital</div>
         </div>
         <hr>
-        <p><b>Médico:</b> {receta[6]}<br>
-           <b>Especialidad:</b> {receta[7]}<br>
-           <b>Matrícula:</b> {receta[8]}<br>
+        <p><b>Médico:</b> {medico_nombre}<br>
+           <b>Especialidad:</b> {especialidad}<br>
+           <b>Matrícula:</b> {matricula}<br>
            <b>Fecha:</b> {fecha}</p>
+
         <div class="section-title">Paciente</div>
-        <p><b>Nombre:</b> {receta[9]}<br>
-           <b>DNI:</b> {receta[10]}<br>
-           <b>Obra social:</b> {receta[1] or '—'}<br>
-           <b>Credencial:</b> {receta[2] or '—'}</p>
+        <p><b>Nombre:</b> {paciente_nombre}<br>
+           <b>DNI:</b> {dni}<br>
+           <b>Obra social:</b> {obra_social or '—'}<br>
+           <b>Credencial:</b> {nro_credencial or '—'}</p>
+
         <div class="section-title">Diagnóstico</div>
-        <p>{receta[3] or '—'}</p>
+        <p>{diagnostico or '—'}</p>
+
         <div class="section-title">Rp / Indicaciones</div>
         <ul>
           {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
         </ul>
-        <div class="firma">
-          <p><b>Firma digital:</b></p>
-          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png">
-          <p style="font-size:13px;color:#4b5563;">Documento firmado electrónicamente conforme Ley 25.506.</p>
-        </div>
+
+        {firma_html}
+
         <div class="qr" style="text-align:right;margin-top:30px;">
           <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_receta/{receta_id}">
         </div>
@@ -1834,7 +1856,9 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
     </body>
     </html>
     """
+
     return HTMLResponse(html)
+
 
 
 # --- Notas ---
