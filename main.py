@@ -939,7 +939,8 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "alias_cbu": row[5],
         "matricula": row[6],
         "foto_perfil": row[7],
-        "tipo": row[8]
+        "tipo": row[8],
+        "firma_url": row[9],   # 👈 agregar esto
     }
 
 
