@@ -1376,15 +1376,15 @@ from datetime import datetime
 import tempfile, os
 
 @app.get("/consultas/{consulta_id}/certificado")
-def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
+def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
     """
-    Genera un certificado médico DocYa con datos del paciente y médico,
-    formato profesional, firma electrónica y QR de verificación.
+    Genera un certificado médico profesional DocYa,
+    con firma digital del médico y validez conforme a la Ley 25.506.
     """
     cur = db.cursor()
     cur.execute("""
         SELECT c.medico_id, c.paciente_uuid, c.diagnostico, c.reposo_dias, c.observaciones, c.creado_en,
-               m.full_name AS medico_nombre, m.matricula, m.especialidad,
+               m.full_name AS medico_nombre, m.matricula, m.especialidad, m.firma_url,
                u.full_name AS paciente_nombre, u.dni, u.fecha_nacimiento
         FROM certificados c
         JOIN medicos m ON c.medico_id = m.id
@@ -1395,22 +1395,59 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
     """, (consulta_id,))
 
     row = cur.fetchone()
-
     if not row:
         raise HTTPException(status_code=404, detail="❌ No existe certificado para esta consulta")
 
     (
         medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones, creado_en,
-        medico_nombre, matricula, especialidad, paciente_nombre, paciente_dni, paciente_nac
+        medico_nombre, matricula, especialidad, firma_url,
+        paciente_nombre, paciente_dni, paciente_nac
     ) = row
 
     logo_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
-    firma_url = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png"
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=https://docya-railway-production.up.railway.app/ver_certificado/{consulta_id}"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=https://docya-railway-production.up.railway.app/ver_certificado/{consulta_id}"
 
     fecha_nac = paciente_nac.strftime("%d/%m/%Y") if paciente_nac else "—"
     fecha_emision = creado_en.strftime("%d/%m/%Y %H:%M")
 
+    # Redacción formal
+    texto_certificacion = f"""
+    <p style="text-align:justify;">
+      Por medio del presente, <b>certifico que {paciente_nombre}</b>,
+      identificado/a con DNI <b>{paciente_dni or '—'}</b>,
+      fue evaluado/a en esta fecha, constatándose el siguiente diagnóstico:
+      <b>{diagnostico or 'sin diagnóstico especificado'}</b>.
+    </p>
+    <p style="text-align:justify;">
+      Se recomienda reposo por <b>{reposo_dias or '—'}</b> día(s),
+      a partir de la fecha del presente certificado,
+      debiendo evitar actividades laborales y/o físicas durante dicho período.
+    </p>
+    """
+
+    if observaciones:
+        texto_certificacion += f"""
+        <p style="text-align:justify;"><b>Observaciones:</b> {observaciones}</p>
+        """
+
+    texto_certificacion += f"""
+    <p style="text-align:justify;">
+      Se expide el presente certificado a pedido del/la interesado/a,
+      para ser presentado ante quien corresponda.
+    </p>
+    """
+
+    # Bloque de firma digital
+    firma_html = f"""
+    <div class="firma">
+      <p><b>Firma digital:</b></p>
+      {"<img src='" + firma_url + "' alt='Firma del médico'>" if firma_url else "<p><i>Firma no registrada</i></p>"}
+      <p><b>{medico_nombre}</b><br>{especialidad}<br>M.P. {matricula}</p>
+      <p style="color:#14B8A6;font-size:13px;">Documento firmado electrónicamente conforme Ley 25.506</p>
+    </div>
+    """
+
+    # --- HTML completo del certificado ---
     html = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -1420,10 +1457,10 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
       <style>
         body {{
           font-family: 'Helvetica', Arial, sans-serif;
-          background-color: #fff;
+          background-color: #ffffff;
           color: #1f2937;
-          padding: 40px 60px;
-          line-height: 1.6;
+          padding: 60px 70px;
+          line-height: 1.7;
         }}
         .header {{
           display: flex;
@@ -1439,35 +1476,35 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
         h1 {{
           color: #14B8A6;
           text-align: center;
-          font-size: 24px;
-          margin-top: 10px;
-        }}
-        .section {{
-          margin-top: 25px;
+          font-size: 26px;
+          margin-top: 20px;
+          margin-bottom: 40px;
         }}
         .section-title {{
           color: #14B8A6;
           font-weight: bold;
-          font-size: 16px;
+          font-size: 17px;
+          margin-top: 20px;
           margin-bottom: 8px;
         }}
         .box {{
           border: 1px solid #14B8A6;
           border-radius: 10px;
           background: #f9fdfc;
-          padding: 18px 25px;
+          padding: 20px 25px;
+          margin-bottom: 20px;
         }}
         .firma {{
-          margin-top: 70px;
+          margin-top: 60px;
           text-align: right;
         }}
         .firma img {{
-          height: 80px;
-          margin-bottom: -10px;
+          height: 85px;
+          margin-bottom: -5px;
         }}
         .qr {{
           text-align: left;
-          margin-top: 25px;
+          margin-top: 40px;
         }}
         .qr img {{
           height: 100px;
@@ -1476,7 +1513,7 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
           text-align: center;
           color: #6b7280;
           font-size: 12px;
-          margin-top: 50px;
+          margin-top: 60px;
         }}
       </style>
     </head>
@@ -1491,31 +1528,19 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
 
       <h1>CERTIFICADO MÉDICO</h1>
 
-      <div class="section">
-        <div class="section-title">Datos del Paciente</div>
-        <div class="box">
-          <p><b>Nombre:</b> {paciente_nombre}</p>
-          <p><b>DNI:</b> {paciente_dni or '—'}</p>
-          <p><b>Fecha de Nacimiento:</b> {fecha_nac}</p>
-        </div>
+      <div class="section-title">Datos del Paciente</div>
+      <div class="box">
+        <p><b>Nombre:</b> {paciente_nombre}</p>
+        <p><b>DNI:</b> {paciente_dni or '—'}</p>
+        <p><b>Fecha de Nacimiento:</b> {fecha_nac}</p>
       </div>
 
-      <div class="section">
-        <div class="section-title">Detalle Médico</div>
-        <div class="box">
-          <p><b>Diagnóstico:</b> {diagnostico}</p>
-          <p><b>Reposo indicado:</b> {reposo_dias} días</p>
-          <p><b>Observaciones:</b> {observaciones or 'Sin observaciones adicionales.'}</p>
-        </div>
+      <div class="section-title">Certificación</div>
+      <div class="box">
+        {texto_certificacion}
       </div>
 
-      <div class="firma">
-        <img src="{firma_url}" alt="Firma digital">
-        <p><b>{medico_nombre}</b></p>
-        <p>{especialidad}</p>
-        <p>M.P. {matricula}</p>
-        <p style="color:#14B8A6;">Firma electrónica certificada</p>
-      </div>
+      {firma_html}
 
       <div class="qr">
         <img src="{qr_url}" alt="QR de verificación"><br>
@@ -1523,12 +1548,14 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
       </div>
 
       <footer>
-        Documento firmado electrónicamente conforme Ley 25.506 — DocYa © {datetime.now().year}
+        Certificado emitido digitalmente mediante la plataforma DocYa — Ley 25.506 de Firma Digital<br>
+        © {datetime.now().year} DocYa — Atención médica a domicilio
       </footer>
     </body>
     </html>
     """
 
+    # 🧾 Generar PDF temporal
     tmp_pdf = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
     HTML(string=html).write_pdf(tmp_pdf.name, stylesheets=[
         CSS(string="body { font-family: Helvetica; }")
@@ -1543,54 +1570,6 @@ def ver_certificado_docya(consulta_id: int, db: Session = Depends(get_db)):
         media_type="application/pdf",
         headers={"Content-Disposition": f"inline; filename=certificado_{consulta_id}.pdf"}
     )
-
-
-# --- Certificados medicos fin  -------------------------------------------------------
-# ✅ NUEVO ENDPOINT UNIFICADO
-# ✅ NUEVO ENDPOINT UNIFICADO CON FILTRO OPCIONAL
-@app.get("/pacientes/{paciente_uuid}/archivos")
-def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
-    """
-    Devuelve todas las recetas y certificados del paciente.
-    Soporta filtro opcional con ?tipo=receta o ?tipo=certificado
-    """
-    cur = db.cursor()
-
-    # --- Recetas ---
-    cur.execute("""
-        SELECT id, consulta_id, medico_id, creado_en
-        FROM recetas
-        WHERE paciente_uuid = %s
-        ORDER BY creado_en DESC
-    """, (paciente_uuid,))
-    recetas = [
-        {
-            "tipo": "Receta médica",
-            "doctor": str(r[2]),
-            "fecha": r[3].strftime('%d/%m/%Y'),
-            "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/receta"
-        }
-        for r in cur.fetchall()
-    ]
-
-    # --- Certificados ---
-    cur.execute("""
-        SELECT id, consulta_id, medico_id, creado_en
-        FROM certificados
-        WHERE paciente_uuid = %s
-        ORDER BY creado_en DESC
-    """, (paciente_uuid,))
-    certificados = [
-        {
-            "tipo": "Certificado médico",
-            "doctor": str(r[2]),
-            "fecha": r[3].strftime('%d/%m/%Y'),
-            "url": f"https://docya-railway-production.up.railway.app/consultas/{r[1]}/certificado"
-        }
-        for r in cur.fetchall()
-    ]
-
-    return recetas + certificados
 
 
 
