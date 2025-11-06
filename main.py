@@ -1250,12 +1250,73 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
 
 @app.post("/consultas/{consulta_id}/rechazar")
-def rechazar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
+def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
+    """
+    Cuando un médico rechaza una consulta:
+    - Se marca como disponible nuevamente.
+    - La consulta vuelve a estado 'pendiente'.
+    - Se reasigna automáticamente al médico disponible más cercano.
+    """
     cur = db.cursor()
-    cur.execute("UPDATE consultas SET estado='pendiente', medico_id=NULL WHERE id=%s AND estado='pendiente' RETURNING id", (consulta_id,))
-    row = cur.fetchone(); db.commit()
-    if not row: raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    return {"ok": True, "consulta_id": row[0], "estado": "pendiente"}
+
+    medico_id = int(data.get("medico_id"))
+
+    # 1️⃣ Dejar al médico disponible otra vez
+    cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s", (medico_id,))
+
+    # 2️⃣ Obtener ubicación del paciente (lat/lng) de la consulta
+    cur.execute("SELECT lat, lng FROM consultas WHERE id = %s", (consulta_id,))
+    pos = cur.fetchone()
+    if not pos or pos[0] is None or pos[1] is None:
+        db.commit()
+        return {"ok": True, "mensaje": "Consulta sin ubicación para reasignar"}
+
+    paciente_lat, paciente_lng = float(pos[0]), float(pos[1])
+
+    # 3️⃣ Buscar otro médico disponible más cercano
+    cur.execute("""
+        SELECT id, latitud, longitud,
+            (6371 * acos(
+                cos(radians(%s)) * cos(radians(latitud)) *
+                cos(radians(longitud) - radians(%s)) +
+                sin(radians(%s)) * sin(radians(latitud))
+            )) AS distancia
+        FROM medicos
+        WHERE disponible = TRUE
+        ORDER BY distancia ASC
+        LIMIT 1
+    """, (paciente_lat, paciente_lng, paciente_lat))
+
+    nuevo = cur.fetchone()
+    if not nuevo:
+        # 4️⃣ Si no hay médicos disponibles, dejar pendiente
+        cur.execute(
+            "UPDATE consultas SET estado = 'pendiente', medico_id = NULL WHERE id = %s",
+            (consulta_id,),
+        )
+        db.commit()
+        return {"ok": True, "mensaje": "Consulta pendiente, sin médicos disponibles"}
+
+    nuevo_medico_id, nuevo_lat, nuevo_lng, distancia = nuevo
+
+    # 5️⃣ Reasignar la consulta al nuevo médico
+    cur.execute("""
+        UPDATE consultas
+        SET medico_id = %s, estado = 'pendiente'
+        WHERE id = %s
+    """, (nuevo_medico_id, consulta_id))
+
+    db.commit()
+
+    print(f"🔄 Consulta {consulta_id} reasignada al médico {nuevo_medico_id} ({distancia:.2f} km)")
+
+    return {
+        "ok": True,
+        "mensaje": f"Consulta {consulta_id} reasignada al médico {nuevo_medico_id}",
+        "nuevo_medico_id": nuevo_medico_id,
+        "distancia_km": round(distancia, 2),
+    }
+
 
 @app.post("/consultas/{consulta_id}/encamino")
 def medico_encamino(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
