@@ -923,7 +923,7 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         SELECT id, full_name, email, especialidad, telefono, 
-               alias_cbu, matricula, foto_perfil, tipo
+               alias_cbu, matricula, foto_perfil, tipo, firma_url
         FROM medicos 
         WHERE id=%s
     """, (medico_id,))
@@ -940,7 +940,7 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "matricula": row[6],
         "foto_perfil": row[7],
         "tipo": row[8],
-        "firma_url": row[9],   # 👈 agregar esto
+        "firma_url": row[9],  # ✅ ahora sí existe
     }
 
 
