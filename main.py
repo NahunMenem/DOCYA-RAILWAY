@@ -1110,11 +1110,11 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
 GOOGLE_API_KEY = "AIzaSyB5sBLD81Hg3MRIggPhqL1a_57tjOo7vAk"  # 🔒 Reemplazá con tu API Key real de Google Cloud
 
 
-@router.get("/consultas/asignadas/{medico_id}")
+@app.get("/consultas/asignadas/{medico_id}")
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id, c.paciente_uuid, 
+        SELECT c.id, c.paciente_uuid,
                COALESCE(u.full_name, 'Paciente') AS paciente_nombre,
                COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
                c.motivo, c.direccion, c.lat, c.lng, c.estado,
@@ -1141,7 +1141,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         if all(v is not None for v in [lat, lng, med_lat, med_lng]):
             lat, lng, med_lat, med_lng = float(lat), float(lng), float(med_lat), float(med_lng)
 
-            # 🌍 Llamada a Google Directions API
+            # 🌍 Google Directions API
             directions_url = (
                 f"https://maps.googleapis.com/maps/api/directions/json?"
                 f"origin={med_lat},{med_lng}&destination={lat},{lng}"
@@ -1152,13 +1152,13 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
 
             if data.get("status") == "OK":
                 leg = data["routes"][0]["legs"][0]
-                distancia_km = leg["distance"]["value"] / 1000  # metros → km
-                tiempo_min = leg["duration"]["value"] / 60       # segundos → minutos
+                distancia_km = leg["distance"]["value"] / 1000
+                tiempo_min = leg["duration"]["value"] / 60
             else:
-                print("⚠️ Google Directions error:", data.get("status"))
+                print("⚠️ Error Google Directions:", data.get("status"))
 
     except Exception as e:
-        print("❌ Error en cálculo de distancia:", e)
+        print("❌ Error cálculo distancia:", e)
 
     return {
         "id": consulta_id,
