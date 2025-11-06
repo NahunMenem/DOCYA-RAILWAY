@@ -1107,12 +1107,14 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
     ]
 
 # --- Consulta asignada ---
-@app.get("/consultas/asignadas/{medico_id}")
+GOOGLE_API_KEY = "AIzaSyB5sBLD81Hg3MRIggPhqL1a_57tjOo7vAk"  # 🔒 Reemplazá con tu API Key real de Google Cloud
+
+
+@router.get("/consultas/asignadas/{medico_id}")
 def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id,
-               c.paciente_uuid,
+        SELECT c.id, c.paciente_uuid, 
                COALESCE(u.full_name, 'Paciente') AS paciente_nombre,
                COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
                c.motivo, c.direccion, c.lat, c.lng, c.estado,
@@ -1132,17 +1134,31 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     (consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
      motivo, direccion, lat, lng, estado, med_lat, med_lng) = row
 
-    distancia = None
-    tiempo = None
-    if med_lat and med_lng and lat and lng:
-        dlat = math.radians(lat - med_lat)
-        dlon = math.radians(lng - med_lng)
-        a = (math.sin(dlat/2)**2 +
-             math.cos(math.radians(med_lat)) *
-             math.cos(math.radians(lat)) *
-             math.sin(dlon/2)**2)
-        distancia = 6371 * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-        tiempo = (distancia / 40) * 60  # 🚗 promedio 40km/h
+    distancia_km = None
+    tiempo_min = None
+
+    try:
+        if all(v is not None for v in [lat, lng, med_lat, med_lng]):
+            lat, lng, med_lat, med_lng = float(lat), float(lng), float(med_lat), float(med_lng)
+
+            # 🌍 Llamada a Google Directions API
+            directions_url = (
+                f"https://maps.googleapis.com/maps/api/directions/json?"
+                f"origin={med_lat},{med_lng}&destination={lat},{lng}"
+                f"&mode=driving&units=metric&key={GOOGLE_API_KEY}"
+            )
+            resp = requests.get(directions_url)
+            data = resp.json()
+
+            if data.get("status") == "OK":
+                leg = data["routes"][0]["legs"][0]
+                distancia_km = leg["distance"]["value"] / 1000  # metros → km
+                tiempo_min = leg["duration"]["value"] / 60       # segundos → minutos
+            else:
+                print("⚠️ Google Directions error:", data.get("status"))
+
+    except Exception as e:
+        print("❌ Error en cálculo de distancia:", e)
 
     return {
         "id": consulta_id,
@@ -1154,8 +1170,8 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "lat": lat,
         "lng": lng,
         "estado": estado,
-        "distancia_km": round(distancia, 2) if distancia else None,
-        "tiempo_estimado_min": round(tiempo) if tiempo else None
+        "distancia_km": round(distancia_km, 2) if distancia_km else None,
+        "tiempo_estimado_min": round(tiempo_min) if tiempo_min else None
     }
 
 
