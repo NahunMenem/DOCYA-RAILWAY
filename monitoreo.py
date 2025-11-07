@@ -440,3 +440,49 @@ async def listar_usuarios(db=Depends(get_db)):
         print("❌ Error listando usuarios:", e)
         return {"error": str(e)}
 
+# ====================================================
+# 📍 MÉDICOS POR COMUNA (CABA)
+# ====================================================
+@router.get("/medicos_por_comuna")
+def medicos_por_comuna(db=Depends(get_db)):
+    """
+    Devuelve un resumen por comuna basado en las localidades de CABA.
+    """
+    comuna_map = {
+        1: ['Retiro', 'San Nicolás', 'Puerto Madero', 'San Telmo', 'Montserrat', 'Constitución'],
+        2: ['Recoleta'],
+        3: ['Balvanera', 'San Cristóbal'],
+        4: ['La Boca', 'Barracas', 'Parque Patricios', 'Nueva Pompeya'],
+        5: ['Almagro', 'Boedo'],
+        6: ['Caballito'],
+        7: ['Flores', 'Parque Chacabuco'],
+        8: ['Villa Soldati', 'Villa Riachuelo', 'Villa Lugano'],
+        9: ['Parque Avellaneda', 'Mataderos', 'Liniers'],
+        10: ['Villa Real', 'Monte Castro', 'Versalles', 'Floresta', 'Vélez Sarsfield', 'Villa Luro'],
+        11: ['Villa Devoto', 'Villa del Parque', 'Villa Santa Rita'],
+        12: ['Coghlan', 'Saavedra', 'Villa Urquiza'],
+        13: ['Núñez', 'Belgrano', 'Colegiales'],
+        14: ['Palermo'],
+        15: ['Chacarita', 'Villa Crespo', 'La Paternal', 'Villa Ortúzar', 'Agronomía', 'Parque Chas']
+    }
+
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT localidad, COUNT(*) AS total
+        FROM medicos
+        WHERE provincia ILIKE 'CABA'
+        GROUP BY localidad;
+    """)
+    data = cur.fetchall()
+
+    # Agrupar por comuna
+    resultado = {str(i): {"total": 0, "barrios": comuna_map[i]} for i in comuna_map}
+
+    for row in data:
+        loc = row["localidad"]
+        for comuna, barrios in comuna_map.items():
+            if loc in barrios:
+                resultado[str(comuna)]["total"] += row["total"]
+
+    cur.close()
+    return {"ok": True, "comunas": resultado}
