@@ -1145,7 +1145,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
             directions_url = (
                 f"https://maps.googleapis.com/maps/api/directions/json?"
                 f"origin={med_lat},{med_lng}&destination={lat},{lng}"
-                f"&mode=driving&units=metric&key={GOOGLE_API_KEY}"
+                f"&mode=driving&departure_time=now&traffic_model=best_guess&units=metric&key={GOOGLE_API_KEY}"
             )
             resp = requests.get(directions_url)
             data = resp.json()
@@ -1153,7 +1153,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
             if data.get("status") == "OK":
                 leg = data["routes"][0]["legs"][0]
                 distancia_km = leg["distance"]["value"] / 1000
-                tiempo_min = leg["duration"]["value"] / 60
+                tiempo_min = (     leg.get("duration_in_traffic", leg["duration"])["value"] / 60 )
             else:
                 print("⚠️ Error Google Directions:", data.get("status"))
 
@@ -1171,7 +1171,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "lng": lng,
         "estado": estado,
         "distancia_km": round(distancia_km, 2) if distancia_km else None,
-        "tiempo_estimado_min": round(tiempo_min) if tiempo_min else None
+        "tiempo_estimado_min": int(round(tiempo_min)) if tiempo_min else None
     }
 
 
