@@ -2854,6 +2854,88 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
 
 
+@app.post("/auth/reset_password")
+def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
+    """
+     Permite al paciente restablecer su contraseña desde el enlace recibido por email
+    """
+    try:
+        # 🔍 Verificar token JWT
+        payload = verify_token(data.token)
+        medico_id = payload.get("sub")
+        if not medico_id:
+            raise HTTPException(status_code=400, detail="Token inválido")
+
+        # 🔐 Encriptar nueva contraseña
+        hashed = get_password_hash(data.new_password)
+
+        cur = db.cursor()
+        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s RETURNING id", (hashed, medico_id))
+        db.commit()
+
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+        # 📨 Correo de confirmación
+        cur.execute("SELECT full_name, email FROM medicos WHERE id = %s", (medico_id,))
+        full_name, email = cur.fetchone()
+
+        html_confirm = f"""
+        <html>
+        <body style="font-family: Arial, sans-serif; background-color:#F4F6F8; margin:0; padding:0;">
+          <table align="center" width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
+            <tr>
+              <td align="center">
+                <table width="600" bgcolor="#ffffff" style="border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); padding:30px;">
+                  <tr>
+                    <td align="center">
+                      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" 
+                           alt="DocYa" style="max-width:160px; margin-bottom:20px;">
+                      <h2 style="color:#14B8A6;">Contraseña actualizada con éxito</h2>
+                      <p style="font-size:15px; color:#333333;">
+                        Hola <b>{full_name}</b>, tu contraseña fue cambiada correctamente.<br>
+                        Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa Pro</b>.
+                      </p>
+                      <a href="https://docya-railway-production.up.railway.app/login" 
+                         style="display:inline-block; margin-top:20px; padding:12px 24px;
+                                background-color:#14B8A6; color:#fff; text-decoration:none; border-radius:6px;">
+                        Ir al inicio de sesión
+                      </a>
+                      <p style="color:#999; font-size:13px; margin-top:30px;">
+                        Si no realizaste este cambio, comunicate con soporte inmediatamente.
+                      </p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
+        """
+
+        configuration = sib_api_v3_sdk.Configuration()
+        configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+        confirm_email = SendSmtpEmail(
+            to=[{"email": email, "name": full_name}],
+            sender={"email": "soporte@docya-railway-production.up.railway.app", "name": "DocYa Pro"},
+            subject="Contraseña actualizada – DocYa Pro",
+            html_content=html_confirm,
+        )
+
+        api_instance.send_transac_email(confirm_email)
+
+        return {"ok": True, "message": "Contraseña actualizada correctamente."}
+
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print("⚠️ Error en reset_password:", e)
+        raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
+
+
 # ====================================================
 # 🌐 Página pública: Restablecer contraseña (HTML)
 # ====================================================
