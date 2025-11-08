@@ -2857,29 +2857,29 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
 @app.post("/auth/reset_password")
 def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
     """
-     Permite al paciente restablecer su contraseña desde el enlace recibido por email
+    Permite al paciente restablecer su contraseña desde el enlace recibido por email.
     """
     try:
         # 🔍 Verificar token JWT
         payload = verify_token(data.token)
-        medico_id = payload.get("sub")
-        if not medico_id:
+        user_id = payload.get("sub")
+        if not user_id:
             raise HTTPException(status_code=400, detail="Token inválido")
 
         # 🔐 Encriptar nueva contraseña
         hashed = get_password_hash(data.new_password)
 
         cur = db.cursor()
-        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s RETURNING id", (hashed, medico_id))
+        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s RETURNING full_name, email", (hashed, user_id))
+        row = cur.fetchone()
         db.commit()
 
-        if cur.rowcount == 0:
-            raise HTTPException(status_code=404, detail="Profesional no encontrado")
+        if not row:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        full_name, email = row
 
         # 📨 Correo de confirmación
-        cur.execute("SELECT full_name, email FROM medicos WHERE id = %s", (medico_id,))
-        full_name, email = cur.fetchone()
-
         html_confirm = f"""
         <html>
         <body style="font-family: Arial, sans-serif; background-color:#F4F6F8; margin:0; padding:0;">
@@ -2894,7 +2894,7 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
                       <h2 style="color:#14B8A6;">Contraseña actualizada con éxito</h2>
                       <p style="font-size:15px; color:#333333;">
                         Hola <b>{full_name}</b>, tu contraseña fue cambiada correctamente.<br>
-                        Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa Pro</b>.
+                        Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa</b>.
                       </p>
                       <a href="https://docya-railway-production.up.railway.app/login" 
                          style="display:inline-block; margin-top:20px; padding:12px 24px;
@@ -2916,12 +2916,14 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
 
         configuration = sib_api_v3_sdk.Configuration()
         configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
-        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+            sib_api_v3_sdk.ApiClient(configuration)
+        )
 
         confirm_email = SendSmtpEmail(
             to=[{"email": email, "name": full_name}],
-            sender={"email": "soporte@docya-railway-production.up.railway.app", "name": "DocYa Pro"},
-            subject="Contraseña actualizada – DocYa Pro",
+            sender={"email": "soporte@docya-railway-production.up.railway.app", "name": "DocYa"},
+            subject="Contraseña actualizada – DocYa",
             html_content=html_confirm,
         )
 
@@ -2932,8 +2934,9 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
     except HTTPException as e:
         raise e
     except Exception as e:
-        print("⚠️ Error en reset_password:", e)
+        print("⚠️ Error en reset_password (paciente):", e)
         raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
+
 
 
 # ====================================================
