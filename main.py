@@ -2451,6 +2451,153 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
 def alias_usuario(user_id: str, db=Depends(get_db)):
     return obtener_paciente(user_id, db)
 
+
+
+#PAGOS MP -------------------------------------------------------------------------------------------------------------------------
+@app.get("/consultas/hay_profesional")
+async def hay_profesional(
+    lat: str,
+    lng: str,
+    tipo: str,
+    db=Depends(get_db)
+):
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+    except:
+        raise HTTPException(status_code=400, detail="Lat/Lng inválidos")
+
+    cur = db.cursor()
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM medicos
+        WHERE disponible = TRUE
+          AND tipo = %s
+          AND latitud IS NOT NULL
+          AND longitud IS NOT NULL
+    """, (tipo,))
+
+    count = cur.fetchone()[0]
+
+    return {"disponibles": count > 0}
+
+
+import mercadopago
+
+sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
+
+@app.post("/pagos/crear_preferencia")
+async def crear_preferencia(data: PagoIn):
+    preference_data = {
+        "items": [
+            {
+                "title": data.descripcion,
+                "quantity": 1,
+                "currency_id": "ARS",
+                "unit_price": float(data.monto),
+            }
+        ],
+        "metadata": {
+            "paciente_uuid": data.paciente_uuid,
+            "tipo": data.tipo,
+            "lat": data.lat,
+            "lng": data.lng
+        },
+        "back_urls": {
+            "success": "https://docya.com/success",
+            "failure": "https://docya.com/failure",
+            "pending": "https://docya.com/pending"
+        },
+        "auto_return": "approved",
+        "notification_url": "https://docya-railway-production.up.railway.app/pagos/notificacion"
+    }
+
+    preference_response = sdk.preference().create(preference_data)
+    return {
+        "init_point": preference_response["response"]["init_point"],
+        "preference_id": preference_response["response"]["id"]
+    }
+
+@app.post("/pagos/notificacion")
+async def pagos_notificacion(request: Request, db=Depends(get_db)):
+    body = await request.json()
+    
+    if body.get("type") != "payment":
+        return {"status": "ignored"}
+
+    payment_id = body["data"]["id"]
+
+    # Obtener info del pago
+    payment_info = sdk.payment().get(payment_id)["response"]
+
+    if payment_info["status"] != "approved":
+        return {"status": "not_approved"}
+
+    metadata = payment_info["metadata"]
+    paciente_uuid = metadata["paciente_uuid"]
+    tipo = metadata["tipo"]
+    lat = metadata["lat"]
+    lng = metadata["lng"]
+
+    cur = db.cursor()
+
+    # BUSCAR PROFESIONAL DISPONIBLE
+    cur.execute("""
+        SELECT id, full_name, latitud, longitud,
+        (6371 * acos(
+            cos(radians(%s)) * cos(radians(latitud)) *
+            cos(radians(longitud) - radians(%s)) +
+            sin(radians(%s)) * sin(radians(latitud))
+        )) AS distancia
+        FROM medicos
+        WHERE disponible = TRUE
+        AND tipo = %s
+        ORDER BY distancia ASC
+        LIMIT 1
+    """, (lat, lng, lat, tipo))
+
+    row = cur.fetchone()
+
+    if not row:
+        # NO HAY PROFESIONAL —> REEMBOLSO AUTOMÁTICO
+        sdk.payment().refund(payment_id)
+
+        print("⚠️ Pago devuelto automáticamente, sin profesionales.")
+        return {"status": "refunded_no_professional"}
+
+    medico_id, nombre, mlat, mlng, distancia = row
+
+    # CREAR CONSULTA
+    cur.execute("""
+        INSERT INTO consultas (paciente_uuid, medico_id, motivo, direccion, lat, lng, estado, metodo_pago)
+        VALUES (%s,%s,'Pago aprobado', 'Dirección desde MP', %s, %s,'pendiente','tarjeta')
+        RETURNING id, creado_en
+    """, (paciente_uuid, medico_id, lat, lng))
+    
+    consulta_id, creado_en = cur.fetchone()
+    db.commit()
+
+    # WS + PUSH (igual que en tu back actual)
+    if medico_id in active_medicos:
+        try:
+            await active_medicos[medico_id].send_json({
+                "tipo": "consulta_nueva",
+                "consulta_id": consulta_id,
+                "paciente_uuid": paciente_uuid
+            })
+        except:
+            print("WS error")
+
+    cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
+    row = cur.fetchone()
+    if row and row[0]:
+        enviar_push(row[0], "📢 Nueva consulta", "Tienes una nueva solicitud", {
+            "consulta_id": consulta_id
+        })
+
+    return {"status": "consulta_creada", "consulta_id": consulta_id}
+
+    
 # ---------- CONSULTAS DETALLE ----------
 @app.get("/consultas/{consulta_id}")
 def obtener_consulta(consulta_id: int, db=Depends(get_db)):
@@ -3680,151 +3827,7 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 
     return archivos
 
-#PAGOS MP -------------------------------------------------------------------------------------------------------------------------
-@app.get("/consultas/hay_profesional")
-async def hay_profesional(
-    lat: str,
-    lng: str,
-    tipo: str,
-    db=Depends(get_db)
-):
-    try:
-        lat_f = float(lat)
-        lng_f = float(lng)
-    except:
-        raise HTTPException(status_code=400, detail="Lat/Lng inválidos")
 
-    cur = db.cursor()
-    cur.execute("""
-        SELECT COUNT(*)
-        FROM medicos
-        WHERE disponible = TRUE
-          AND tipo = %s
-          AND latitud IS NOT NULL
-          AND longitud IS NOT NULL
-    """, (tipo,))
-
-    count = cur.fetchone()[0]
-
-    return {"disponibles": count > 0}
-
-
-import mercadopago
-
-sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
-
-@app.post("/pagos/crear_preferencia")
-async def crear_preferencia(data: PagoIn):
-    preference_data = {
-        "items": [
-            {
-                "title": data.descripcion,
-                "quantity": 1,
-                "currency_id": "ARS",
-                "unit_price": float(data.monto),
-            }
-        ],
-        "metadata": {
-            "paciente_uuid": data.paciente_uuid,
-            "tipo": data.tipo,
-            "lat": data.lat,
-            "lng": data.lng
-        },
-        "back_urls": {
-            "success": "https://docya.com/success",
-            "failure": "https://docya.com/failure",
-            "pending": "https://docya.com/pending"
-        },
-        "auto_return": "approved",
-        "notification_url": "https://docya-railway-production.up.railway.app/pagos/notificacion"
-    }
-
-    preference_response = sdk.preference().create(preference_data)
-    return {
-        "init_point": preference_response["response"]["init_point"],
-        "preference_id": preference_response["response"]["id"]
-    }
-
-@app.post("/pagos/notificacion")
-async def pagos_notificacion(request: Request, db=Depends(get_db)):
-    body = await request.json()
-    
-    if body.get("type") != "payment":
-        return {"status": "ignored"}
-
-    payment_id = body["data"]["id"]
-
-    # Obtener info del pago
-    payment_info = sdk.payment().get(payment_id)["response"]
-
-    if payment_info["status"] != "approved":
-        return {"status": "not_approved"}
-
-    metadata = payment_info["metadata"]
-    paciente_uuid = metadata["paciente_uuid"]
-    tipo = metadata["tipo"]
-    lat = metadata["lat"]
-    lng = metadata["lng"]
-
-    cur = db.cursor()
-
-    # BUSCAR PROFESIONAL DISPONIBLE
-    cur.execute("""
-        SELECT id, full_name, latitud, longitud,
-        (6371 * acos(
-            cos(radians(%s)) * cos(radians(latitud)) *
-            cos(radians(longitud) - radians(%s)) +
-            sin(radians(%s)) * sin(radians(latitud))
-        )) AS distancia
-        FROM medicos
-        WHERE disponible = TRUE
-        AND tipo = %s
-        ORDER BY distancia ASC
-        LIMIT 1
-    """, (lat, lng, lat, tipo))
-
-    row = cur.fetchone()
-
-    if not row:
-        # NO HAY PROFESIONAL —> REEMBOLSO AUTOMÁTICO
-        sdk.payment().refund(payment_id)
-
-        print("⚠️ Pago devuelto automáticamente, sin profesionales.")
-        return {"status": "refunded_no_professional"}
-
-    medico_id, nombre, mlat, mlng, distancia = row
-
-    # CREAR CONSULTA
-    cur.execute("""
-        INSERT INTO consultas (paciente_uuid, medico_id, motivo, direccion, lat, lng, estado, metodo_pago)
-        VALUES (%s,%s,'Pago aprobado', 'Dirección desde MP', %s, %s,'pendiente','tarjeta')
-        RETURNING id, creado_en
-    """, (paciente_uuid, medico_id, lat, lng))
-    
-    consulta_id, creado_en = cur.fetchone()
-    db.commit()
-
-    # WS + PUSH (igual que en tu back actual)
-    if medico_id in active_medicos:
-        try:
-            await active_medicos[medico_id].send_json({
-                "tipo": "consulta_nueva",
-                "consulta_id": consulta_id,
-                "paciente_uuid": paciente_uuid
-            })
-        except:
-            print("WS error")
-
-    cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
-    row = cur.fetchone()
-    if row and row[0]:
-        enviar_push(row[0], "📢 Nueva consulta", "Tienes una nueva solicitud", {
-            "consulta_id": consulta_id
-        })
-
-    return {"status": "consulta_creada", "consulta_id": consulta_id}
-
-    
 
 
 
