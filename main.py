@@ -3681,13 +3681,16 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     return archivos
 
 #PAGOS MP -------------------------------------------------------------------------------------------------------------------------
+from fastapi import Query
+
 @app.get("/consultas/hay_profesional")
 async def hay_profesional(
-    lat: float,
-    lng: float,
-    tipo: str,
+    lat: float = Query(..., description="Latitud"),
+    lng: float = Query(..., description="Longitud"),
+    tipo: str = Query(..., description="Tipo de profesional"),
     db=Depends(get_db)
 ):
+
     cur = db.cursor()
 
     cur.execute("""
