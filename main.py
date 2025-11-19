@@ -2484,7 +2484,8 @@ async def hay_profesional(
 
 import mercadopago
 
-sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN"))
+sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN").strip())
+
 
 @app.post("/pagos/crear_preferencia")
 async def crear_preferencia(data: PagoIn):
