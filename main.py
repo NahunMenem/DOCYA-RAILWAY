@@ -2454,6 +2454,18 @@ def alias_usuario(user_id: str, db=Depends(get_db)):
 
 
 #PAGOS MP -------------------------------------------------------------------------------------------------------------------------
+@app.get("/consultas/post_pago")
+async def post_pago(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id FROM consultas
+        WHERE paciente_uuid=%s
+        ORDER BY creado_en DESC
+        LIMIT 1
+    """, (paciente_uuid,))
+    row = cur.fetchone()
+    return {"consulta_id": row[0] if row else None}
+
 @app.get("/consultas/hay_profesional")
 async def hay_profesional(
     lat: str,
