@@ -3681,18 +3681,20 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     return archivos
 
 #PAGOS MP -------------------------------------------------------------------------------------------------------------------------
-from fastapi import Query
-
 @app.get("/consultas/hay_profesional")
 async def hay_profesional(
-    lat: float = Query(..., description="Latitud"),
-    lng: float = Query(..., description="Longitud"),
-    tipo: str = Query(..., description="Tipo de profesional"),
+    lat: str,
+    lng: str,
+    tipo: str,
     db=Depends(get_db)
 ):
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+    except:
+        raise HTTPException(status_code=400, detail="Lat/Lng inválidos")
 
     cur = db.cursor()
-
     cur.execute("""
         SELECT COUNT(*)
         FROM medicos
@@ -3703,7 +3705,9 @@ async def hay_profesional(
     """, (tipo,))
 
     count = cur.fetchone()[0]
+
     return {"disponibles": count > 0}
+
 
 import mercadopago
 
