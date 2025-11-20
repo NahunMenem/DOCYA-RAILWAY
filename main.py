@@ -3883,7 +3883,7 @@ from fastapi import APIRouter, HTTPException
 
 router = APIRouter()
 
-ACCESS_TOKEN = "APP_USR-4761542454728810-111914-0f813bbe0b909569a515bc2ac836a051-2404979593"  # 🔥 Tu token real
+ACCESS_TOKEN = "TEST-1283715201688491-111914-f6b44560371df235c8338df2e1deffdb-69224828"  # 🔥 Tu token real
 # ===============================================
 # 💾 GUARDAR PAYMENT EN CONSULTA (preautorización)
 # ===============================================
