@@ -990,7 +990,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     """, (data.lat, data.lng, data.lat, data.tipo))
     row = cur.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail=f"No hay {data.tipo}s disponibles")
+        cancelar_payment(data.payment_id)
+        raise HTTPException(status_code=404, detail=f"No hay médicos disponibles")
+
 
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
@@ -3883,6 +3885,37 @@ from fastapi import APIRouter, HTTPException
 router = APIRouter()
 
 ACCESS_TOKEN = "APP_USR-4761542454728810-111914-0f813bbe0b909569a515bc2ac836a051-2404979593"  # 🔥 Tu token real
+# ===============================================
+# 💾 GUARDAR PAYMENT EN CONSULTA (preautorización)
+# ===============================================
+def guardar_payment(consulta_id, payment_id):
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET payment_id = %s
+        WHERE id = %s
+    """, (payment_id, consulta_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+#cancelar el pago cuando NO HAY médicos o todos rechazan-----------------
+def cancelar_payment(payment_id):
+    import httpx
+    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+
+    headers = {
+        "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {"status": "cancelled"}
+
+    with httpx.Client() as client:
+        r = client.put(url, headers=headers, json=payload)
+
+    print("Cancelación MercadoPago:", r.text)
+
 
 @router.post("/pagos/preautorizar")
 def preautorizar_pago(data: dict):
@@ -3984,20 +4017,47 @@ def cancelar_pago(data: dict):
 
     return {"status": "cancelado"}
 
+def actualizar_estado_payment(payment_id, estado):
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET mp_status = %s
+        WHERE payment_id = %s
+    """, (estado, payment_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+
 @router.post("/webhook/mp")
 async def mercadopago_webhook(payload: dict):
+
+    # Verificamos si viene el ID de pago
     payment_id = payload.get("data", {}).get("id")
+    if not payment_id:
+        return {"received": False}
 
-    # Llamar al propio MP para obtener el estado final
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    r = requests.get(url, headers=headers).json()
+    try:
+        # Consultamos el estado actual en Mercado Pago
+        url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+        headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+        response = requests.get(url, headers=headers).json()
 
-    estado = r.get("status")
+        estado = response.get("status")
 
-    actualizar_estado_payment(payment_id, estado)
+        # Guardar en BD
+        actualizar_estado_payment(payment_id, estado)
 
-    return {"received": True}
+        # LOG
+        print(f"Webhook MP → payment {payment_id} → {estado}")
+
+        return {"received": True}
+
+    except Exception as e:
+        print("Error webhook MP:", e)
+        return {"received": False}
+
 
 
 
