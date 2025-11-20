@@ -3987,7 +3987,8 @@ def preautorizar_pago(data: dict):
             }
         ],
         "payer": {
-            "email": data["email"]   # usás el email del paciente
+            #"email": data["email"]   # usás el email del paciente
+            "email": "test_user@testuser.com"
         },
         "back_urls": {
             "success": "docya://pago_exitoso",
