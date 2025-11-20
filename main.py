@@ -4044,6 +4044,19 @@ async def mercadopago_webhook(payload: dict):
         print("Error webhook MP:", e)
         return {"received": False}
 
+def marcar_consulta_cancelada(consulta_id):
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    cur = conn.cursor()
+
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'cancelada'
+        WHERE id = %s
+    """, (consulta_id,))
+
+    conn.commit()
+    cur.close()
+    conn.close()
 
 
 
