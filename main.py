@@ -3957,7 +3957,7 @@ def preautorizar_pago(data: dict):
     }
 
 
-#CAPTURAR PAGO CUANDO EL MÉDICO ACEPTA-----------------------------------------
+#CAPTURAR PAGO CUANDO EL MÉDICO ACEPTA-------------------------------------
 @app.post("/pagos/capturar")
 def capturar_pago(data: dict):
     """
