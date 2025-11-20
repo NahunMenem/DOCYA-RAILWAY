@@ -1,5 +1,5 @@
 # ====================================================
-# 📌 IMPORTS Y CONFIGURACIÓN INICIAL
+# 📌 IMPORTS Y CONFIGURACIÓN INICIAL.
 # ====================================================
 import os
 import json
