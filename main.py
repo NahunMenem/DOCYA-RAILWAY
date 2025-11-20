@@ -3873,36 +3873,30 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 
 # --------------------------------------------------------------------------------
 # PAGOS - DOCYA
-# Preautorización con MercadoPago + Webhook + Cancelación
+# Pago normal con MercadoPago (sin preautorización)
+# Se cobra recién cuando el MÉDICO ACEPTA la consulta
 # --------------------------------------------------------------------------------
-# ------- PAGOS MP -------
-router_pagos = APIRouter(prefix="/pagos", tags=["Pagos"])
-from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel
-import httpx
-import json
-import os
 
+from fastapi import HTTPException, Request, Depends
 from database import get_db
-
-# TOKEN MP (variable de entorno)
-MERCADO_PAGO_TOKEN = os.getenv("MP_ACCESS_TOKEN")
-
-# ===========================
-# PAGOS MERCADO PAGO
-# ===========================
-from fastapi import Request
+import httpx
+import os
+import json
 
 MERCADOPAGO_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
 
-@app.post("/pagos/crear_intento")
-async def crear_intento_pago(data: dict):
+# ===========================
+# 1) Crear pago REAL (capture=True)
+# ===========================
+
+@app.post("/pagos/crear_pago")
+def crear_pago(data: dict, db=Depends(get_db)):
+    consulta_id = data.get("consulta_id")
     paciente_uuid = data.get("paciente_uuid")
     monto = data.get("monto", 30000)
-    descripcion = data.get("descripcion", "Consulta médica domiciliaria")
 
-    if not paciente_uuid:
-        raise HTTPException(status_code=400, detail="Falta paciente_uuid")
+    if not consulta_id or not paciente_uuid:
+        raise HTTPException(status_code=400, detail="Faltan datos para crear pago")
 
     mp_url = "https://api.mercadopago.com/v1/payments"
 
@@ -3911,59 +3905,56 @@ async def crear_intento_pago(data: dict):
         "Content-Type": "application/json"
     }
 
-    body = {
+    payload = {
         "transaction_amount": monto,
-        "description": descripcion,
+        "description": f"Pago consulta #{consulta_id}",
         "payment_method_id": "visa",
         "payer": {
             "email": f"{paciente_uuid}@docya.app"
         },
-        "capture": False  # PREAUTORIZACIÓN
-    }
-
-    async with httpx.AsyncClient() as client:
-        r = await client.post(mp_url, json=body, headers=headers)
-
-    if r.status_code not in (200, 201):
-        print("❌ Error MP:", r.text)
-        raise HTTPException(status_code=400, detail="Error al crear intento")
-
-    data_mp = r.json()
-
-    return {
-        "payment_id": data_mp["id"],
-        "init_point": data_mp["transaction_details"]["external_resource_url"]
-    }
-
-
-@app.post("/pagos/webhook")
-async def pagos_webhook(request: Request):
-    body = await request.json()
-
-    print("🟦 Webhook recibido:", body)
-
-    return {"ok": True}
-
-
-@app.post("/pagos/cancelar/{payment_id}")
-async def cancelar_preautorizacion(payment_id: str):
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-
-    headers = {
-        "Authorization": f"Bearer {MERCADOPAGO_ACCESS_TOKEN}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "status": "cancelled"
+        "capture": True  # ⚠️ AHORA SÍ COBRA DIRECTO — 100% permitido
     }
 
     with httpx.Client() as client:
-        r = client.put(url, json=payload, headers=headers)
+        r = client.post(mp_url, json=payload, headers=headers)
 
     if r.status_code not in (200, 201):
-        print("❌ Error MP:", r.text)
-        raise HTTPException(status_code=400, detail="Error cancelando preautorización")
+        print("❌ Error MercadoPago:", r.text)
+        raise HTTPException(status_code=400, detail="Error creando el pago")
+
+    mp_data = r.json()
+
+    payment_id = mp_data["id"]
+    init_point = mp_data["transaction_details"]["external_resource_url"]
+
+    # Guardar payment_id en la consulta
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE consultas SET payment_id=%s WHERE id=%s
+    """, (str(payment_id), consulta_id))
+    db.commit()
+
+    return {
+        "ok": True,
+        "payment_id": payment_id,
+        "init_point": init_point
+    }
+
+
+# ===========================
+# 2) Webhook de MercadoPago
+# ===========================
+@app.post("/pagos/webhook")
+async def pagos_webhook(request: Request, db=Depends(get_db)):
+    body = await request.json()
+
+    print("🟦 Webhook recibido:", json.dumps(body))
+
+    # Si querés después: actualizar consulta cuando payment.approved
+    # Ej:
+    # if body.get("type") == "payment":
+    #     payment_id = body["data"]["id"]
+    #     actualizar_estado_pago(payment_id)
 
     return {"ok": True}
 
