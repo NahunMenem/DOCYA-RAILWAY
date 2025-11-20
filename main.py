@@ -3916,7 +3916,7 @@ def cancelar_payment(payment_id):
     print("Cancelación MercadoPago:", r.text)
 
 
-@router.post("/pagos/preautorizar")
+@app.post("/pagos/preautorizar")
 def preautorizar_pago(data: dict):
     """
     data = {
@@ -3957,7 +3957,7 @@ def preautorizar_pago(data: dict):
 
 
 #CAPTURAR PAGO CUANDO EL MÉDICO ACEPTA-----------------------------------------
-@router.post("/pagos/capturar")
+@app.post("/pagos/capturar")
 def capturar_pago(data: dict):
     """
     data = {
@@ -3990,7 +3990,7 @@ def capturar_pago(data: dict):
     }
 
 #CANCELAR LA PREAUTORIZACIÓN SI NO HAY MÉDICOS  Si buscaste por 60 segundos y nadie aceptó: -------------------------------------
-@router.post("/pagos/cancelar")
+@app.post("/pagos/cancelar")
 def cancelar_pago(data: dict):
     """
     data = {
@@ -4029,7 +4029,7 @@ def actualizar_estado_payment(payment_id, estado):
     conn.close()
 
 
-@router.post("/webhook/mp")
+@app.post("/webhook/mp")
 async def mercadopago_webhook(payload: dict):
 
     # Verificamos si viene el ID de pago
