@@ -1450,6 +1450,48 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
 
 
 # --- Certificados ---
+# ------------------------------------------------------------
+# 🚀 CREAR CERTIFICADO MÉDICO (POST)
+# ------------------------------------------------------------
+@app.post("/consultas/{consulta_id}/certificado")
+def crear_certificado_docya(
+    consulta_id: int,
+    data: CertificadoIn,
+    db = Depends(get_db)
+):
+
+    cur = db.cursor()
+
+    # Verificar si la consulta existe
+    cur.execute("SELECT id FROM consultas WHERE id = %s", (consulta_id,))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="La consulta no existe")
+
+    # Guardar certificado
+    cur.execute("""
+        INSERT INTO certificados (consulta_id, medico_id, paciente_uuid, diagnostico, reposo_dias, observaciones)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        RETURNING id
+    """, (
+        consulta_id,
+        data.medico_id,
+        data.paciente_uuid,
+        data.diagnostico,
+        data.reposo_dias,
+        data.observaciones
+    ))
+
+    db.commit()
+
+    certificado_id = cur.fetchone()[0]
+    cur.close()
+
+    return {
+        "status": "ok",
+        "certificado_id": certificado_id,
+        "consulta_id": consulta_id
+    }
+
 # --- CERTIFICADOS MÉDICOS DOCYA ---
 from fastapi import Depends, Response, HTTPException
 from sqlalchemy.orm import Session
