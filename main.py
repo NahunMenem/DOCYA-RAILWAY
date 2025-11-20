@@ -3928,35 +3928,45 @@ def cancelar_payment(payment_id):
 @app.post("/pagos/preautorizar")
 def preautorizar_pago(data: dict):
 
-    url = "https://api.mercadopago.com/v1/payments"
+    url = "https://api.mercadopago.com/checkout/preferences"
 
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
-        "X-Idempotency-Key": str(uuid4())   # ✔ obligatorio
     }
 
     payload = {
-        "transaction_amount": data["monto"],
-        "description": "Consulta médica domiciliaria DocYa",
-        "payment_method_id": "visa",
-        "payer": {"email": data["email"]},
-        "capture": False
+        "items": [
+            {
+                "title": "Consulta médica domiciliaria",
+                "quantity": 1,
+                "currency_id": "ARS",
+                "unit_price": float(data["monto"])
+            }
+        ],
+        "payer": {
+            "email": data["email"]   # usás el email del paciente
+        },
+        "back_urls": {
+            "success": "docya://pago_exitoso",
+            "failure": "docya://pago_fallido",
+            "pending": "docya://pago_pendiente"
+        },
+        "auto_return": "approved"
     }
 
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
-        print("DEBUG MP ERROR:", r)
+        print("DEBUG PREF ERROR:", r)
         raise HTTPException(status_code=400, detail=r)
 
-    guardar_payment(data["consulta_id"], r["id"])
-
     return {
-        "status": "preautorizado",
-        "payment_id": r["id"],
-        "mp_status": r["status"]
+        "status": "preference_ok",
+        "preference_id": r["id"],
+        "init_point": r["init_point"],
     }
+
 
 
 # ==================================================
