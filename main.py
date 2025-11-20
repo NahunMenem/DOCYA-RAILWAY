@@ -12,6 +12,7 @@ from typing import Optional, Dict
 from datetime import datetime, timedelta, date
 from unidecode import unidecode
 from zoneinfo import ZoneInfo
+from fastapi import Request
 
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
@@ -35,7 +36,8 @@ from sib_api_v3_sdk.rest import ApiException
 # Cloudinary
 import cloudinary
 import cloudinary.uploader
-
+import httpx
+from fastapi import APIRouter, Depends, HTTPException
 # ====================================================
 # 🌐 VARIABLES GLOBALES Y CONFIGURACIONES
 # ====================================================
@@ -1232,26 +1234,55 @@ class MedicoAccion(BaseModel):
 
 @app.post("/consultas/{consulta_id}/aceptar")
 def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
-    medico_id = data.medico_id  # <- ahora lo extraemos del JSON
+    import httpx  # aseguramos import local si no está arriba
 
-    # marcar consulta como aceptada
+    medico_id = data.medico_id
+
     cur = db.cursor()
+
+    # 1) Traemos el payment_id de la consulta
+    cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    payment_id = row[0]  # puede ser None si es efectivo
+
+    # 2) Marcar la consulta como aceptada (solo si estaba pendiente)
     cur.execute("""
         UPDATE consultas
         SET estado = 'aceptada', medico_id = %s
         WHERE id = %s AND estado = 'pendiente'
         RETURNING id
     """, (medico_id, consulta_id))
-    row = cur.fetchone()
+    updated = cur.fetchone()
 
-    if not row:
+    if not updated:
         raise HTTPException(status_code=400, detail="Consulta no disponible")
 
-    # marcar médico como ocupado
-    cur.execute("""
-        UPDATE medicos SET disponible = false WHERE id = %s
-    """, (medico_id,))
+    # 3) Marcar médico como ocupado
+    cur.execute("UPDATE medicos SET disponible = false WHERE id = %s", (medico_id,))
     db.commit()
+
+    # 4) Si la consulta tiene pago con tarjeta → CAPTURAMOS EL PAGO
+    if payment_id:
+        try:
+            url = f"https://api.mercadopago.com/v1/payments/{payment_id}/capture"
+
+            headers = {
+                "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+                "Content-Type": "application/json"
+            }
+
+            with httpx.Client() as client:
+                r = client.post(url, headers=headers, json={})
+
+            if r.status_code not in (200, 201):
+                print("⚠ Error capturando pago MercadoPago:", r.text)
+
+        except Exception as e:
+            print("⚠ Excepción capturando pago:", e)
 
     return {"ok": True, "consulta_id": consulta_id}
 
@@ -3840,7 +3871,98 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 
     return archivos
 
+#MERCADOPAGO-----------------------------------------------------------
+class IntentoPagoIn(BaseModel):
+    paciente_uuid: str
+    monto: int
+    descripcion: str
 
+router_pagos = APIRouter(prefix="/pagos", tags=["Pagos"])
+
+@router_pagos.post("/crear_intento")
+async def crear_intento_pago(data: IntentoPagoIn):
+    url = "https://api.mercadopago.com/v1/payments"
+
+    headers = {
+        "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "transaction_amount": data.monto,
+        "description": data.descripcion,
+        "payment_method_id": "visa",  # MP lo reemplaza automáticamente según la tarjeta
+        "payer": {
+            "email": f"{data.paciente_uuid}@docya.app"  # identificador único
+        },
+        "capture": False  # ❗ PREAUTORIZACIÓN (NO SE COBRA TODAVÍA)
+    }
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, headers=headers, json=payload)
+
+    if r.status_code not in (200, 201):
+        raise HTTPException(status_code=400, detail=r.text)
+
+    mp_data = r.json()
+
+    return {
+        "payment_id": mp_data.get("id"),
+        "init_point": mp_data.get("transaction_details", {}).get("external_resource_url")
+    }
+
+@app.post("/pagos/webhook")
+async def pagos_webhook(request: Request, db=Depends(get_db)):
+    try:
+        body = await request.json()
+
+        evento = body.get("type")
+        data = body.get("data", {})
+        payment_id = data.get("id")
+
+        print("🟦 Webhook recibido:", evento, "payment_id:", payment_id)
+
+        # Guardamos logs simple (opcional)
+        cur = db.cursor()
+        cur.execute("""
+            INSERT INTO pagos_webhook_logs (payment_id, evento, raw)
+            VALUES (%s, %s, %s)
+        """, (str(payment_id), evento, json.dumps(body)))
+        db.commit()
+
+        return {"ok": True}
+
+    except Exception as e:
+        print("❌ Error en webhook:", e)
+        return {"ok": False}
+
+@app.post("/pagos/cancelar/{payment_id}")
+async def cancelar_preautorizacion(payment_id: str):
+    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+
+    headers = {
+        "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "status": "cancelled"  # esto libera la preautorización
+    }
+
+    try:
+        import httpx
+        with httpx.Client() as client:
+            r = client.put(url, headers=headers, json=payload)
+
+        if r.status_code not in (200, 201):
+            print("❌ Error al cancelar preautorización:", r.text)
+            raise HTTPException(status_code=400, detail="Error al liberar preautorización")
+
+        return {"ok": True, "payment_id": payment_id}
+
+    except Exception as e:
+        print("❌ Excepción liberando preautorización:", e)
+        raise HTTPException(status_code=500, detail="No se pudo cancelar la preautorización")
 
 
 
