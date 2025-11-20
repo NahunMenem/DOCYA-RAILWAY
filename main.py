@@ -3936,7 +3936,7 @@ def preautorizar_pago(data: dict):
     payload = {
         "transaction_amount": data["monto"],
         "description": "Consulta médica domiciliaria DocYa",
-        "payment_method_id": "master" o "debvisa"
+        "payment_method_id": "visa",
         "payer": {"email": data["email"]},
         "capture": False,             # 🔥 clave para PREAUTORIZAR
     }
