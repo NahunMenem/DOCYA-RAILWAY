@@ -3964,6 +3964,54 @@ async def cancelar_preautorizacion(payment_id: str):
         print("❌ Excepción liberando preautorización:", e)
         raise HTTPException(status_code=500, detail="No se pudo cancelar la preautorización")
 
+from fastapi import APIRouter, Depends, HTTPException
+import httpx
+import os
+
+router = APIRouter()
+
+MERCADOPAGO_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+
+@router.post("/pagos/crear_intento")
+async def crear_intento_pago(data: dict, db=Depends(get_db)):
+    paciente_uuid = data.get("paciente_uuid")
+    monto = data.get("monto", 30000)
+    descripcion = data.get("descripcion", "Consulta médica domiciliaria")
+
+    if not paciente_uuid:
+        raise HTTPException(status_code=400, detail="Falta paciente_uuid")
+
+    # Llamada a MP para crear intención de cobro
+    mp_url = "https://api.mercadopago.com/v1/payments"
+
+    headers = {
+        "Authorization": f"Bearer {MERCADOPAGO_ACCESS_TOKEN}"
+    }
+
+    body = {
+        "transaction_amount": monto,
+        "description": descripcion,
+        "payment_method_id": "visa",
+        "payer": {
+            "email": "paciente@docya.com"
+        },
+        "capture": False   # ⚠️ ESTO ES LO IMPORTANTE → preautorización
+    }
+
+    async with httpx.AsyncClient() as client:
+        r = await client.post(mp_url, json=body, headers=headers)
+
+    if r.status_code != 201:
+        print("❌ Error MP:", r.text)
+        raise HTTPException(status_code=400, detail="Error al crear intento")
+
+    data_mp = r.json()
+
+    return {
+        "payment_id": data_mp["id"],
+        "init_point": data_mp["transaction_details"]["external_resource_url"]
+    }
+
 
 
 
