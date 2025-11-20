@@ -3876,14 +3876,16 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 # PAGOS - DOCYA
 # Pago normal con MercadoPago (sin preautorización)
 # Se cobra recién cuando el MÉDICO ACEPTA la consulta
-# --------------------------------------------------------------------------------
 
 import requests
 from fastapi import APIRouter, HTTPException
+from uuid import uuid4
 
 router = APIRouter()
 
-ACCESS_TOKEN = "TEST-1283715201688491-111914-f6b44560371df235c8338df2e1deffdb-69224828"  # 🔥 Tu token real
+ACCESS_TOKEN = "TEST-1283715201688491-111914-f6b44560371df235c8338df2e1deffdb-69224828"
+
+
 # ===============================================
 # 💾 GUARDAR PAYMENT EN CONSULTA (preautorización)
 # ===============================================
@@ -3898,13 +3900,17 @@ def guardar_payment(consulta_id, payment_id):
     conn.commit()
     cur.close()
     conn.close()
-#cancelar el pago cuando NO HAY médicos o todos rechazan-----------------
+
+
+# ==================================================
+# ❌ CANCELAR EL PAGO SI NO HAY MÉDICOS DISPONIBLES
+# ==================================================
 def cancelar_payment(payment_id):
     import httpx
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
 
     headers = {
-        "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+        "Authorization": f"Bearer {ACCESS_TOKEN}",   # ✔ CORREGIDO
         "Content-Type": "application/json"
     }
 
@@ -3916,30 +3922,26 @@ def cancelar_payment(payment_id):
     print("Cancelación MercadoPago:", r.text)
 
 
+# ==================================================
+# 💳 PREAUTORIZAR PAGO (sin capturar)
+# ==================================================
 @app.post("/pagos/preautorizar")
 def preautorizar_pago(data: dict):
-    """
-    data = {
-        "email": "",
-        "monto": 30000,
-        "consulta_id": 123
-    }
-    """
 
     url = "https://api.mercadopago.com/v1/payments"
 
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
+        "X-Idempotency-Key": str(uuid4())   # ✔ obligatorio
     }
 
     payload = {
         "transaction_amount": data["monto"],
         "description": "Consulta médica domiciliaria DocYa",
         "payment_method_id": "visa",
-        #"payer": {"email": data["email"]},
-        "payer": {"email": "test_user_123456@testuser.com"},
-        "capture": False,             # 🔥 clave para PREAUTORIZAR
+        "payer": {"email": data["email"]},
+        "capture": False
     }
 
     r = requests.post(url, headers=headers, json=payload).json()
@@ -3948,7 +3950,6 @@ def preautorizar_pago(data: dict):
         print("DEBUG MP ERROR:", r)
         raise HTTPException(status_code=400, detail=r)
 
-    # Guardar en DB la consulta con ese payment_id
     guardar_payment(data["consulta_id"], r["id"])
 
     return {
@@ -3958,18 +3959,13 @@ def preautorizar_pago(data: dict):
     }
 
 
-#CAPTURAR PAGO CUANDO EL MÉDICO ACEPTA-------------------------------------
+# ==================================================
+# 💰 CAPTURAR EL PAGO CUANDO EL MÉDICO ACEPTA
+# ==================================================
 @app.post("/pagos/capturar")
 def capturar_pago(data: dict):
-    """
-    data = {
-        "payment_id": int,
-        "consulta_id": int
-    }
-    """
 
     payment_id = data["payment_id"]
-
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
 
     headers = {
@@ -3986,23 +3982,16 @@ def capturar_pago(data: dict):
 
     marcar_consulta_como_pagada(data["consulta_id"])
 
-    return {
-        "status": "capturado",
-        "payment_status": r["status"]
-    }
+    return {"status": "capturado", "payment_status": r["status"]}
 
-#CANCELAR LA PREAUTORIZACIÓN SI NO HAY MÉDICOS  Si buscaste por 60 segundos y nadie aceptó: -------------------------------------
+
+# ==================================================
+# ❌ CANCELAR PREAUTORIZACIÓN SI NADIE ACEPTA
+# ==================================================
 @app.post("/pagos/cancelar")
 def cancelar_pago(data: dict):
-    """
-    data = {
-        "payment_id": int,
-        "consulta_id": int
-    }
-    """
-    
-    payment_id = data["payment_id"]
 
+    payment_id = data["payment_id"]
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
 
     headers = {
@@ -4018,41 +4007,27 @@ def cancelar_pago(data: dict):
 
     return {"status": "cancelado"}
 
-def actualizar_estado_payment(payment_id, estado):
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE consultas
-        SET mp_status = %s
-        WHERE payment_id = %s
-    """, (estado, payment_id))
-    conn.commit()
-    cur.close()
-    conn.close()
 
-
+# ==================================================
+# 🔔 WEBHOOK MP
+# ==================================================
 @app.post("/webhook/mp")
 async def mercadopago_webhook(payload: dict):
 
-    # Verificamos si viene el ID de pago
     payment_id = payload.get("data", {}).get("id")
     if not payment_id:
         return {"received": False}
 
     try:
-        # Consultamos el estado actual en Mercado Pago
         url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
         headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-        response = requests.get(url, headers=headers).json()
 
+        response = requests.get(url, headers=headers).json()
         estado = response.get("status")
 
-        # Guardar en BD
         actualizar_estado_payment(payment_id, estado)
 
-        # LOG
         print(f"Webhook MP → payment {payment_id} → {estado}")
-
         return {"received": True}
 
     except Exception as e:
