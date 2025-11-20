@@ -3888,109 +3888,85 @@ from database import get_db
 # TOKEN MP (variable de entorno)
 MERCADO_PAGO_TOKEN = os.getenv("MP_ACCESS_TOKEN")
 
-# Router principal
-router_pagos = APIRouter(prefix="/pagos", tags=["Pagos"])
+# ===========================
+# PAGOS MERCADO PAGO
+# ===========================
+from fastapi import Request
 
+MERCADOPAGO_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
 
-# --------------------------------------------------------------------------------
-# MODELO DE ENTRADA
-# --------------------------------------------------------------------------------
-class IntentoPagoIn(BaseModel):
-    paciente_uuid: str
-    monto: int
-    descripcion: str
+@app.post("/pagos/crear_intento")
+async def crear_intento_pago(data: dict):
+    paciente_uuid = data.get("paciente_uuid")
+    monto = data.get("monto", 30000)
+    descripcion = data.get("descripcion", "Consulta médica domiciliaria")
 
+    if not paciente_uuid:
+        raise HTTPException(status_code=400, detail="Falta paciente_uuid")
 
-# --------------------------------------------------------------------------------
-# 1) CREAR INTENTO DE PAGO (PREAUTORIZACIÓN)
-# --------------------------------------------------------------------------------
-@router_pagos.post("/crear_intento")
-async def crear_intento_pago(data: IntentoPagoIn):
-    url = "https://api.mercadopago.com/v1/payments"
+    mp_url = "https://api.mercadopago.com/v1/payments"
 
     headers = {
-        "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+        "Authorization": f"Bearer {MERCADOPAGO_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    payload = {
-        "transaction_amount": data.monto,
-        "description": data.descripcion,
-        "payment_method_id": "visa",     # MP lo modifica automáticamente
-        "capture": False,                # ❗ MUY IMPORTANTE → NO SE COBRA
+    body = {
+        "transaction_amount": monto,
+        "description": descripcion,
+        "payment_method_id": "visa",
         "payer": {
-            "email": f"{data.paciente_uuid}@docya.app"
-        }
+            "email": f"{paciente_uuid}@docya.app"
+        },
+        "capture": False  # PREAUTORIZACIÓN
     }
 
     async with httpx.AsyncClient() as client:
-        r = await client.post(url, json=payload, headers=headers)
+        r = await client.post(mp_url, json=body, headers=headers)
 
     if r.status_code not in (200, 201):
         print("❌ Error MP:", r.text)
-        raise HTTPException(status_code=400, detail="Error al crear intento de pago")
+        raise HTTPException(status_code=400, detail="Error al crear intento")
 
-    mp_data = r.json()
-
-    # init_point a veces viene en otro campo, fallback
-    init_point = mp_data.get("transaction_details", {}).get("external_resource_url")
+    data_mp = r.json()
 
     return {
-        "payment_id": mp_data.get("id"),
-        "init_point": init_point
+        "payment_id": data_mp["id"],
+        "init_point": data_mp["transaction_details"]["external_resource_url"]
     }
 
 
-# --------------------------------------------------------------------------------
-# 2) WEBHOOK - RECIBE NOTIFICACIONES DE MP
-# --------------------------------------------------------------------------------
-@router_pagos.post("/webhook")
-async def pagos_webhook(request: Request, db=Depends(get_db)):
-    try:
-        body = await request.json()
+@app.post("/pagos/webhook")
+async def pagos_webhook(request: Request):
+    body = await request.json()
 
-        evento = body.get("type")
-        data = body.get("data", {})
-        payment_id = data.get("id")
+    print("🟦 Webhook recibido:", body)
 
-        print("🟦 Webhook recibido:", evento, "payment_id:", payment_id)
-
-        cur = db.cursor()
-        cur.execute("""
-            INSERT INTO pagos_webhook_logs (payment_id, evento, raw)
-            VALUES (%s, %s, %s)
-        """, (str(payment_id), evento, json.dumps(body)))
-        db.commit()
-
-        return {"ok": True}
-
-    except Exception as e:
-        print("❌ Error en webhook:", e)
-        return {"ok": False}
+    return {"ok": True}
 
 
-# --------------------------------------------------------------------------------
-# 3) CANCELAR PREAUTORIZACIÓN (LIBERAR EL PAGO)
-# --------------------------------------------------------------------------------
-@router_pagos.post("/cancelar/{payment_id}")
+@app.post("/pagos/cancelar/{payment_id}")
 async def cancelar_preautorizacion(payment_id: str):
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
 
     headers = {
-        "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+        "Authorization": f"Bearer {MERCADOPAGO_ACCESS_TOKEN}",
         "Content-Type": "application/json"
     }
 
-    payload = {"status": "cancelled"}
+    payload = {
+        "status": "cancelled"
+    }
 
-    async with httpx.AsyncClient() as client:
-        r = await client.put(url, json=payload, headers=headers)
+    with httpx.Client() as client:
+        r = client.put(url, json=payload, headers=headers)
 
     if r.status_code not in (200, 201):
-        print("❌ Error liberando preautorización:", r.text)
-        raise HTTPException(status_code=400, detail="Error al liberar preautorización")
+        print("❌ Error MP:", r.text)
+        raise HTTPException(status_code=400, detail="Error cancelando preautorización")
 
-    return {"ok": True, "payment_id": payment_id}
+    return {"ok": True}
+
 
 
 
