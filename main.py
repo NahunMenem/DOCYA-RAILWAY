@@ -1450,6 +1450,22 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
 
 
 # --- Certificados ---
+
+# --- CERTIFICADOS MÉDICOS DOCYA ---
+from fastapi import Depends, Response, HTTPException
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
+from weasyprint import HTML, CSS
+import tempfile, os
+
+# ✅ Modelo de entrada
+class CertificadoIn(BaseModel):
+    medico_id: int
+    paciente_uuid: str
+    diagnostico: str
+    reposo_dias: int
+    observaciones: str | None = None
+
 # ------------------------------------------------------------
 # 🚀 CREAR CERTIFICADO MÉDICO (POST)
 # ------------------------------------------------------------
@@ -1491,22 +1507,6 @@ def crear_certificado_docya(
         "certificado_id": certificado_id,
         "consulta_id": consulta_id
     }
-
-# --- CERTIFICADOS MÉDICOS DOCYA ---
-from fastapi import Depends, Response, HTTPException
-from sqlalchemy.orm import Session
-from pydantic import BaseModel
-from weasyprint import HTML, CSS
-import tempfile, os
-
-# ✅ Modelo de entrada
-class CertificadoIn(BaseModel):
-    medico_id: int
-    paciente_uuid: str
-    diagnostico: str
-    reposo_dias: int
-    observaciones: str | None = None
-
 
 @app.get("/consultas/{consulta_id}/certificado")
 def ver_certificado_docya(consulta_id: int, db=Depends(get_db)):
