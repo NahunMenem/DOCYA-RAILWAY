@@ -3875,7 +3875,8 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 # PAGOS - DOCYA
 # Preautorización con MercadoPago + Webhook + Cancelación
 # --------------------------------------------------------------------------------
-
+# ------- PAGOS MP -------
+router_pagos = APIRouter(prefix="/pagos", tags=["Pagos"])
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 import httpx
