@@ -3936,7 +3936,7 @@ def preautorizar_pago(data: dict):
     payload = {
         "transaction_amount": data["monto"],
         "description": "Consulta médica domiciliaria DocYa",
-        "payment_method_id": "visa",  # luego lo harás dinámico
+        "payment_method_id": "master" o "debvisa"
         "payer": {"email": data["email"]},
         "capture": False,             # 🔥 clave para PREAUTORIZAR
     }
@@ -3944,6 +3944,7 @@ def preautorizar_pago(data: dict):
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
+        print("DEBUG MP ERROR:", r)
         raise HTTPException(status_code=400, detail=r)
 
     # Guardar en DB la consulta con ese payment_id
