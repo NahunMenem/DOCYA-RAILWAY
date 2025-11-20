@@ -990,7 +990,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     """, (data.lat, data.lng, data.lat, data.tipo))
     row = cur.fetchone()
     if not row:
-        cancelar_payment(data.payment_id)
         raise HTTPException(status_code=404, detail=f"No hay médicos disponibles")
 
 
