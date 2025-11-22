@@ -3244,7 +3244,8 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
     try:
         # 🔍 Verificar token JWT
         payload = verify_token(data.token)
-        paciente_id = payload.get("sub")
+        paciente_id = payload.get("sub")   # <-- UUID REAL del paciente
+
         if not paciente_id:
             raise HTTPException(status_code=400, detail="Token inválido o expirado")
 
@@ -3252,17 +3253,23 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
         hashed = get_password_hash(data.new_password)
 
         cur = db.cursor()
+
+        # 🔥 FIX: usar la tabla correcta y pasar UUID directamente SIN str()
         cur.execute(
-            "UPDATE pacientes SET password_hash = %s WHERE id = %s RETURNING id",
-            (hashed, str(paciente_id)),
+            "UPDATE users SET password_hash = %s WHERE id = %s RETURNING id",
+            (hashed, paciente_id),
         )
+        updated = cur.fetchone()
         db.commit()
 
-        if cur.rowcount == 0:
+        if not updated:
             raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
-        # 📧 Correo de confirmación
-        cur.execute("SELECT full_name, email FROM users WHERE id = %s", (str(paciente_id),))
+        # 📧 Correo de confirmación (con UUID REAL)
+        cur.execute(
+            "SELECT full_name, email FROM users WHERE id = %s",
+            (paciente_id,),
+        )
         full_name, email = cur.fetchone()
 
         html_confirm = f"""
