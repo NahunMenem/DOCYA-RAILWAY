@@ -3254,7 +3254,7 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
         cur = db.cursor()
         cur.execute(
             "UPDATE pacientes SET password_hash = %s WHERE id = %s RETURNING id",
-            (hashed, paciente_id),
+            (hashed, str(paciente_id)),
         )
         db.commit()
 
@@ -3262,7 +3262,7 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
             raise HTTPException(status_code=404, detail="Paciente no encontrado")
 
         # 📧 Correo de confirmación
-        cur.execute("SELECT full_name, email FROM pacientes WHERE id = %s", (paciente_id,))
+        cur.execute("SELECT full_name, email FROM users WHERE id = %s", (str(paciente_id),))
         full_name, email = cur.fetchone()
 
         html_confirm = f"""
@@ -3274,7 +3274,7 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
                 <table width="600" bgcolor="#ffffff" style="border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); padding:30px;">
                   <tr>
                     <td align="center">
-                      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docya_logo_teal.png" 
+                      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" 
                            alt="DocYa" style="max-width:160px; margin-bottom:20px;">
                       <h2 style="color:#14B8A6;">Contraseña actualizada con éxito</h2>
                       <p style="font-size:15px; color:#333333;">
