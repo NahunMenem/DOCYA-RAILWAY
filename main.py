@@ -3216,7 +3216,7 @@ def forgot_password_paciente(data: ForgotPasswordIn, db=Depends(get_db)):
 
     email_data = SendSmtpEmail(
         to=[{"email": email, "name": full_name}],
-        sender={"email": "soporte@docya.com.ar", "name": "DocYa Atención al Paciente"},
+        sender={"email": "nahundeveloper@gmail.com", "name": "DocYa Atención al Paciente"},
         subject="Restablecé tu contraseña – DocYa",
         html_content=html_content
     )
@@ -3308,7 +3308,7 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
         confirm_email = SendSmtpEmail(
             to=[{"email": email, "name": full_name}],
             sender={
-                "email": "soporte@docya.com.ar",
+                "email": "nahundeveloper@gmail.com",
                 "name": "DocYa Atención al Paciente",
             },
             subject="Contraseña actualizada – DocYa",
