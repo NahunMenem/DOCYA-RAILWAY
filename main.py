@@ -3013,6 +3013,7 @@ class ResetPasswordIn(BaseModel):
     new_password: str
 
 
+
 @app.post("/auth/reset_password")
 def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
     """
@@ -3095,89 +3096,6 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
 
 
-@app.post("/auth/reset_password")
-def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
-    """
-    Permite al paciente restablecer su contraseña desde el enlace recibido por email.
-    """
-    try:
-        # 🔍 Verificar token JWT
-        payload = verify_token(data.token)
-        user_id = payload.get("sub")
-        if not user_id:
-            raise HTTPException(status_code=400, detail="Token inválido")
-
-        # 🔐 Encriptar nueva contraseña
-        hashed = get_password_hash(data.new_password)
-
-        cur = db.cursor()
-        cur.execute("UPDATE users SET password_hash = %s WHERE id = %s RETURNING full_name, email", (hashed, user_id))
-        row = cur.fetchone()
-        db.commit()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="Usuario no encontrado")
-
-        full_name, email = row
-
-        # 📨 Correo de confirmación
-        html_confirm = f"""
-        <html>
-        <body style="font-family: Arial, sans-serif; background-color:#F4F6F8; margin:0; padding:0;">
-          <table align="center" width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
-            <tr>
-              <td align="center">
-                <table width="600" bgcolor="#ffffff" style="border-radius:8px; box-shadow:0 2px 6px rgba(0,0,0,0.1); padding:30px;">
-                  <tr>
-                    <td align="center">
-                      <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png" 
-                           alt="DocYa" style="max-width:160px; margin-bottom:20px;">
-                      <h2 style="color:#14B8A6;">Contraseña actualizada con éxito</h2>
-                      <p style="font-size:15px; color:#333333;">
-                        Hola <b>{full_name}</b>, tu contraseña fue cambiada correctamente.<br>
-                        Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa</b>.
-                      </p>
-                      <a href="https://docya-railway-production.up.railway.app/login" 
-                         style="display:inline-block; margin-top:20px; padding:12px 24px;
-                                background-color:#14B8A6; color:#fff; text-decoration:none; border-radius:6px;">
-                        Ir al inicio de sesión
-                      </a>
-                      <p style="color:#999; font-size:13px; margin-top:30px;">
-                        Si no realizaste este cambio, comunicate con soporte inmediatamente.
-                      </p>
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-        </html>
-        """
-
-        configuration = sib_api_v3_sdk.Configuration()
-        configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
-        api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
-            sib_api_v3_sdk.ApiClient(configuration)
-        )
-
-        confirm_email = SendSmtpEmail(
-            to=[{"email": email, "name": full_name}],
-            sender={"email": "soporte@docya-railway-production.up.railway.app", "name": "DocYa"},
-            subject="Contraseña actualizada – DocYa",
-            html_content=html_confirm,
-        )
-
-        api_instance.send_transac_email(confirm_email)
-
-        return {"ok": True, "message": "Contraseña actualizada correctamente."}
-
-    except HTTPException as e:
-        raise e
-    except Exception as e:
-        print("⚠️ Error en reset_password (paciente):", e)
-        raise HTTPException(status_code=500, detail="Error interno al restablecer la contraseña")
-
 
 
 # ====================================================
@@ -3194,6 +3112,126 @@ def render_reset_password_page(request: Request, token: str = None):
             status_code=400,
         )
     return templates.TemplateResponse("reset_password.html", {"request": request, "token": token})
+
+# ====================================================
+# 🔒 Olvidé mi contraseña (PACIENTE)
+# ====================================================
+
+class ForgotPasswordIn(BaseModel):
+    identificador: str  # puede ser email o DNI
+
+
+@app.post("/auth/forgot_password_paciente")
+def forgot_password_paciente(data: ForgotPasswordIn, db=Depends(get_db)):
+    cur = db.cursor()
+    identificador = data.identificador.strip().lower()
+
+    # Buscar paciente por email o DNI
+    cur.execute("""
+        SELECT id, full_name, email 
+        FROM users
+        WHERE LOWER(email) = %s OR dni = %s
+        LIMIT 1
+    """, (identificador, identificador))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="No se encontró un paciente con esos datos")
+
+    paciente_id, full_name, email = row
+
+    # Crear token válido por 1 hora
+    token = create_access_token(
+        {"sub": str(paciente_id), "email": email, "tipo": "reset_password_paciente"},
+        expires_minutes=60
+    )
+
+    link_reset = f"https://docya-railway-production.up.railway.app/auth/reset_password_paciente?token={token}"
+
+    # HTML email DocYa
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+      <meta charset="UTF-8">
+      <title>Restablecer contraseña – DocYa</title>
+    </head>
+    <body style="margin:0; padding:0; background-color:#F4F6F8; font-family: Arial, sans-serif;">
+
+      <table align="center" width="100%" cellpadding="0" cellspacing="0" style="padding:20px 0;">
+        <tr>
+          <td align="center">
+
+            <table width="600" bgcolor="#ffffff"
+                   style="border-radius:10px; padding:35px; text-align:center; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+
+              <tr>
+                <td>
+
+                  <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png"
+                       alt="DocYa" style="width:180px; margin-bottom:20px;">
+
+                  <h2 style="color:#14B8A6; font-size:22px; margin-bottom:15px;">Restablecer tu contraseña</h2>
+
+                  <p style="color:#333; font-size:15px; line-height:1.6;">
+                    Hola <b>{full_name}</b>, recibimos una solicitud para restablecer tu contraseña.<br>
+                    Hacé clic en el siguiente botón para continuar:
+                  </p>
+
+                  <a href="{link_reset}" target="_blank"
+                     style="background-color:#14B8A6; color:#fff; padding:14px 28px;
+                            text-decoration:none; border-radius:6px; font-size:16px; font-weight:bold;
+                            display:inline-block; margin-top:25px;">
+                    🔒 Cambiar contraseña
+                  </a>
+
+                  <p style="color:#777; font-size:13px; margin-top:25px;">
+                    Si no solicitaste este cambio, podés ignorar este mensaje.<br>
+                    El enlace vence en 1 hora por motivos de seguridad.
+                  </p>
+
+                </td>
+              </tr>
+
+            </table>
+
+            <p style="color:#aaa; font-size:11px; margin-top:20px;">
+              © {datetime.now().year} DocYa — Atención médica a domicilio.
+            </p>
+
+          </td>
+        </tr>
+      </table>
+
+    </body>
+    </html>
+    """
+
+    # Enviar correo con Brevo
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = os.getenv("BREVO_API_KEY")
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(
+        sib_api_v3_sdk.ApiClient(configuration)
+    )
+
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "soporte@docya.com.ar", "name": "DocYa Atención al Paciente"},
+        subject="Restablecé tu contraseña – DocYa",
+        html_content=html_content
+    )
+
+    try:
+        api_instance.send_transac_email(email_data)
+        print(f"📩 Email enviado a {email}")
+    except ApiException as e:
+        print(f"⚠️ Error enviando email recuperación: {e}")
+        raise HTTPException(status_code=500, detail="Error al enviar el correo de recuperación")
+
+    return {
+        "ok": True,
+        "message": f"Enviamos un correo a {email} para restablecer tu contraseña."
+    }
 
 # ====================================================
 # 🔒 Restablecer contraseña (PACIENTE)
