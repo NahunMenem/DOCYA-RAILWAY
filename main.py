@@ -3335,6 +3335,99 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
             detail="Error interno al restablecer la contraseña del paciente",
         )
 
+from fastapi.responses import HTMLResponse
+
+@app.get("/cambio_exitoso", response_class=HTMLResponse)
+def cambio_exitoso():
+    html = """
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Contraseña Actualizada – DocYa</title>
+
+        <style>
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: 'Arial', sans-serif;
+                background: linear-gradient(135deg, #0F2027, #203A43, #2C5364);
+                color: white;
+                text-align: center;
+                padding: 40px 20px;
+            }
+
+            .card {
+                background: rgba(255, 255, 255, 0.08);
+                padding: 35px 30px;
+                border-radius: 20px;
+                max-width: 500px;
+                margin: 0 auto;
+                backdrop-filter: blur(14px);
+                -webkit-backdrop-filter: blur(14px);
+                box-shadow: 0 8px 25px rgba(0,0,0,0.25);
+                border: 1px solid rgba(255, 255, 255, 0.12);
+            }
+
+            img.logo {
+                width: 160px;
+                margin-bottom: 20px;
+                filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.4));
+            }
+
+            h1 {
+                font-size: 26px;
+                margin-top: 10px;
+                margin-bottom: 20px;
+                font-weight: 700;
+                color: #14B8A6;
+            }
+
+            p {
+                font-size: 17px;
+                color: #e8e8e8;
+                line-height: 1.6;
+                margin-bottom: 10px;
+            }
+
+            .footer {
+                margin-top: 40px;
+                font-size: 13px;
+                color: #cccccc;
+                opacity: 0.8;
+            }
+        </style>
+    </head>
+
+    <body>
+        <div class="card">
+            <img 
+                class="logo"
+                src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logoblanco_1_qdlnog.png"
+                alt="DocYa"
+            >
+
+            <h1>¡Contraseña actualizada con éxito!</h1>
+
+            <p>
+                Tu contraseña fue cambiada correctamente.<br>
+                Ya podés iniciar sesión en tu aplicación <b>DocYa</b> desde tu celular.
+            </p>
+
+            <p>
+                Gracias por confiar en nuestro servicio de<br>
+                <b>atención médica a domicilio</b>.
+            </p>
+        </div>
+
+        <div class="footer">
+            © 2025 DocYa · Atención médica y de enfermería a domicilio
+        </div>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
 
 # ====================================================
 # 🌐 Página pública: Restablecer contraseña Paciente (HTML)
