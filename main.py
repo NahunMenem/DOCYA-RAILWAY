@@ -462,8 +462,14 @@ def login(data: LoginIn, db=Depends(get_db)):
     return {
         "access_token": token,
         "token_type": "bearer",
+    
+        # 👇 COMPATIBILIDAD con tu Flutter actual (LO QUE NECESITAS)
+        "user_id": str(user_id),
+        "full_name": full_name,
+    
+        # 👇 Nuevo formato mejorado (queda para futuro)
         "user": {
-            "id": user_id,
+            "id": str(user_id),
             "full_name": full_name,
             "email": email,
             "dni": dni,
@@ -471,6 +477,7 @@ def login(data: LoginIn, db=Depends(get_db)):
             "validado": True
         }
     }
+
 
 
 # =========================================================
