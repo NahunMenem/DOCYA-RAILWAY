@@ -420,26 +420,58 @@ def enviar_email_validacion_paciente(email: str, user_id: int, full_name: str):
 @app.post("/auth/login", response_model=AuthResponse)
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute(
-        "SELECT id, full_name, password_hash, role FROM users WHERE email=%s",
-        (data.email.lower(),)
-    )
+
+    input_value = data.email.strip().lower()   # puede ser email o DNI
+    password = data.password.strip()
+
+    # Buscar al usuario por EMAIL o DNI
+    cur.execute("""
+        SELECT id, full_name, password_hash, role, validado, email, dni
+        FROM users
+        WHERE lower(email) = %s OR lower(trim(dni)) = %s
+        LIMIT 1
+    """, (input_value, input_value))
+
     row = cur.fetchone()
-    if not row or not pwd_context.verify(data.password, row[2]):
-        raise HTTPException(status_code=400, detail="Credenciales inválidas")
 
-    token = create_access_token(
-        {"sub": str(row[0]), "email": data.email.lower(), "role": row[3]}
-    )
+    # Usuario inexistente
+    if not row:
+        raise HTTPException(status_code=400, detail="Usuario no encontrado")
 
+    user_id, full_name, password_hash, role, validado, email, dni = row
+
+    # Contraseña incorrecta
+    if not pwd_context.verify(password, password_hash):
+        raise HTTPException(status_code=400, detail="Contraseña incorrecta")
+
+    # Bloquear si NO validó email
+    if not validado:
+        raise HTTPException(
+            status_code=403,
+            detail="Debes validar tu correo electrónico para iniciar sesión."
+        )
+
+    # Generar token
+    token = create_access_token({
+        "sub": str(user_id),
+        "email": email,
+        "role": role,
+    })
+
+    # Respuesta profesional y completa
     return {
         "access_token": token,
         "token_type": "bearer",
         "user": {
-            "id": row[0],          # 👈 ahora devuelve int
-            "full_name": row[1]
+            "id": user_id,
+            "full_name": full_name,
+            "email": email,
+            "dni": dni,
+            "role": role,
+            "validado": True
         }
     }
+
 
 # =========================================================
 # =========================================================
