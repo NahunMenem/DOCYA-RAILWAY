@@ -3288,7 +3288,7 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
                         Hola <b>{full_name}</b>, tu contraseña fue cambiada correctamente.<br>
                         Ya podés iniciar sesión con tu nueva clave desde la app o web de <b>DocYa</b>.
                       </p>
-                      <a href="https://docya.com.ar/login" 
+                      <a href="https://docya-railway-production.up.railway.app/cambio_exitoso" 
                          style="display:inline-block; margin-top:20px; padding:12px 24px;
                                 background-color:#14B8A6; color:#fff; text-decoration:none; border-radius:6px;">
                         Ir al inicio de sesión
