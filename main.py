@@ -1011,7 +1011,7 @@ class SolicitarConsultaIn(BaseModel):
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Buscar profesional más cercano disponible
+    # Buscar profesional más cercano disponible dentro de 10 km
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -1024,13 +1024,24 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
+          AND (
+                (6371 * acos(
+                    cos(radians(%s)) * cos(radians(latitud)) *
+                    cos(radians(longitud) - radians(%s)) +
+                    sin(radians(%s)) * sin(radians(latitud))
+                )) <= 10
+          )
         ORDER BY distancia ASC
         LIMIT 1
-    """, (data.lat, data.lng, data.lat, data.tipo))
+    """, (
+        data.lat, data.lng, data.lat,  # cálculo SELECT
+        data.tipo,
+        data.lat, data.lng, data.lat   # cálculo WHERE (radio <= 10 km)
+    ))
+
     row = cur.fetchone()
     if not row:
-        raise HTTPException(status_code=404, detail=f"No hay médicos disponibles")
-
+        raise HTTPException(status_code=404, detail=f"No hay médicos disponibles dentro de 10 km")
 
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
@@ -1096,6 +1107,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": format_datetime_arg(creado_en)
     }
+
 
 
 #historial consultas medico 
