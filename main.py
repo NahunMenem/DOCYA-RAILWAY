@@ -4341,38 +4341,41 @@ def marcar_consulta_cancelada(consulta_id):
 
 #MANEJO DE VERSIONES PARA OBLIGAR A ACTUALIZAR LA APP --------------------------------------------
 @app.get("/app/check_update")
-def check_update(version: str, db=Depends(get_db)):
+def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
     cur = db.cursor()
 
-    # Traemos la última fila de versiones
     cur.execute("""
-        SELECT latest_version, min_supported_version, mensaje, url_android, url_ios
-        FROM app_versions
-        ORDER BY id DESC
-        LIMIT 1
+        SELECT latest_version, min_supported_version, mensaje, 
+               url_android, url_ios, 
+               url_android_pro, url_ios_pro
+        FROM app_versions 
+        ORDER BY id DESC LIMIT 1
     """)
     row = cur.fetchone()
 
     if not row:
-        raise HTTPException(status_code=500, detail="No hay configuración de versiones")
+        raise HTTPException(500, "No hay configuración de versiones")
 
-    latest_version, min_supported_version, mensaje, url_android, url_ios = row
+    latest, min_supported, mensaje, urlA, urlI, urlAPro, urlIPro = row
 
-    # Convertir version a números
-    def parse(v):
-        return list(map(int, v.split(".")))
+    def parse(v): return list(map(int, v.split(".")))
+    force_update = parse(version) < parse(min_supported)
 
-    try:
-        force_update = parse(version) < parse(min_supported_version)
-    except:
-        force_update = False
+    # según quién consulta:
+    if app == "pro":
+        url_android_final = urlAPro
+        url_ios_final = urlIPro
+    else:
+        url_android_final = urlA
+        url_ios_final = urlI
 
     return {
         "force_update": force_update,
-        "latest_version": latest_version,
-        "min_supported_version": min_supported_version,
+        "latest_version": latest,
+        "min_supported_version": min_supported,
         "mensaje": mensaje,
-        "url_android": url_android,
-        "url_ios": url_ios
+        "url_android": url_android_final,
+        "url_ios": url_ios_final
     }
+
 
