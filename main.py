@@ -4345,37 +4345,44 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
     cur = db.cursor()
 
     cur.execute("""
-        SELECT latest_version, min_supported_version, mensaje, 
-               url_android, url_ios, 
-               url_android_pro, url_ios_pro
-        FROM app_versions 
+        SELECT 
+            latest_version,
+            min_supported_version_paciente,
+            min_supported_version_pro,
+            mensaje,
+            url_android,
+            url_ios,
+            url_android_pro,
+            url_ios_pro
+        FROM app_versions
         ORDER BY id DESC LIMIT 1
     """)
     row = cur.fetchone()
 
     if not row:
-        raise HTTPException(500, "No hay configuración de versiones")
+        raise HTTPException(500, "Sin configuración de versiones")
 
-    latest, min_supported, mensaje, urlA, urlI, urlAPro, urlIPro = row
+    latest, minPac, minPro, mensaje, urlA, urlI, urlAPro, urlIPro = row
 
     def parse(v): return list(map(int, v.split(".")))
-    force_update = parse(version) < parse(min_supported)
 
-    # según quién consulta:
-    if app == "pro":
-        url_android_final = urlAPro
-        url_ios_final = urlIPro
-    else:
-        url_android_final = urlA
-        url_ios_final = urlI
+    # Selección de versión mínima según QUÉ APP consulta
+    min_required = minPro if app == "pro" else minPac
+
+    force_update = parse(version) < parse(min_required)
+
+    # URLs según el tipo de app
+    url_android_final = urlAPro if app == "pro" else urlA
+    url_ios_final = urlIPro if app == "pro" else urlI
 
     return {
         "force_update": force_update,
         "latest_version": latest,
-        "min_supported_version": min_supported,
+        "min_supported_version": min_required,
         "mensaje": mensaje,
         "url_android": url_android_final,
         "url_ios": url_ios_final
     }
+
 
 
