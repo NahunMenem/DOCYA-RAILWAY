@@ -1041,22 +1041,48 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     row = cur.fetchone()
 
-    # ⛔️ NO hay médico dentro de 10 km → NO devolvemos error
-    # ✔ devolvemos estado "buscando" para que el front reintente 60s
+    # ---------------------------------------------
+    # 🟡 NUEVO COMPORTAMIENTO: CREAR SIEMPRE CONSULTA
+    # ---------------------------------------------
     if not row:
+        # No hay médico → la consulta se crea sin médico asignado
+        cur.execute("""
+            INSERT INTO consultas (
+                paciente_uuid, medico_id, estado, motivo,
+                direccion, lat, lng, metodo_pago
+            )
+            VALUES (%s, NULL, 'pendiente', %s, %s, %s, %s, %s)
+            RETURNING id, creado_en
+        """, (
+            str(data.paciente_uuid),
+            data.motivo,
+            data.direccion,
+            data.lat,
+            data.lng,
+            data.metodo_pago
+        ))
+
+        consulta_id, creado_en = cur.fetchone()
+        db.commit()
+
         return {
-            "consulta_id": None,
-            "estado": "buscando",
-            "mensaje": "Aún no hay médicos dentro de 10 km, reintentando...",
-            "profesional": None
+            "consulta_id": consulta_id,
+            "estado": "pendiente",
+            "mensaje": "Consulta registrada. Aún no hay médicos disponibles.",
+            "profesional": None,
+            "creado_en": str(creado_en)
         }
 
-    # ✔ SI hay profesional
+    # ----------------------------------------------------
+    # 🟢 SI HAY PROFESIONAL DISPONIBLE → ASIGNAMOS NORMAL
+    # ----------------------------------------------------
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
-    # 💾 Insertar la consulta con el método de pago
     cur.execute("""
-        INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng, metodo_pago)
+        INSERT INTO consultas (
+            paciente_uuid, medico_id, estado, motivo,
+            direccion, lat, lng, metodo_pago
+        )
         VALUES (%s,%s,'pendiente',%s,%s,%s,%s,%s)
         RETURNING id, creado_en
     """, (
@@ -1072,7 +1098,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # 🔔 Notificación WebSocket
+    # 🔔 WS al médico conectado
     if profesional_id in active_medicos:
         try:
             await active_medicos[profesional_id].send_json({
@@ -1091,23 +1117,27 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         except Exception as e:
             print(f"⚠️ WS error: {e}")
 
-    # 🔔 Push notification
+    # 🔔 PUSH notification
     cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
     row = cur.fetchone()
 
     if row and row[0]:
         try:
-            enviar_push(row[0], "📢 Nueva consulta", f"{data.motivo}", {
-                "tipo": "consulta_nueva",
-                "consulta_id": str(consulta_id),
-                "medico_id": str(profesional_id),
-                "profesional_tipo": tipo,
-                "metodo_pago": data.metodo_pago
-            })
+            enviar_push(
+                row[0],
+                "📢 Nueva consulta",
+                f"{data.motivo}",
+                {
+                    "tipo": "consulta_nueva",
+                    "consulta_id": str(consulta_id),
+                    "medico_id": str(profesional_id),
+                    "profesional_tipo": tipo,
+                    "metodo_pago": data.metodo_pago
+                }
+            )
         except Exception as e:
             print(f"⚠️ Error push: {e}")
 
-    # Evento global
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -1125,6 +1155,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": format_datetime_arg(creado_en)
     }
+
 
 
 
