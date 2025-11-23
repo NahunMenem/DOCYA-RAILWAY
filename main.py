@@ -1034,15 +1034,24 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         ORDER BY distancia ASC
         LIMIT 1
     """, (
-        data.lat, data.lng, data.lat,  # cálculo SELECT
+        data.lat, data.lng, data.lat,
         data.tipo,
-        data.lat, data.lng, data.lat   # cálculo WHERE (radio <= 10 km)
+        data.lat, data.lng, data.lat
     ))
 
     row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail=f"No hay médicos disponibles dentro de 10 km")
 
+    # ⛔️ NO hay médico dentro de 10 km → NO devolvemos error
+    # ✔ devolvemos estado "buscando" para que el front reintente 60s
+    if not row:
+        return {
+            "consulta_id": None,
+            "estado": "buscando",
+            "mensaje": "Aún no hay médicos dentro de 10 km, reintentando...",
+            "profesional": None
+        }
+
+    # ✔ SI hay profesional
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
     # 💾 Insertar la consulta con el método de pago
@@ -1050,8 +1059,16 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         INSERT INTO consultas (paciente_uuid, medico_id, estado, motivo, direccion, lat, lng, metodo_pago)
         VALUES (%s,%s,'pendiente',%s,%s,%s,%s,%s)
         RETURNING id, creado_en
-    """, (str(data.paciente_uuid), profesional_id, data.motivo, data.direccion,
-          data.lat, data.lng, data.metodo_pago))
+    """, (
+        str(data.paciente_uuid),
+        profesional_id,
+        data.motivo,
+        data.direccion,
+        data.lat,
+        data.lng,
+        data.metodo_pago
+    ))
+
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
@@ -1077,6 +1094,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     # 🔔 Push notification
     cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
     row = cur.fetchone()
+
     if row and row[0]:
         try:
             enviar_push(row[0], "📢 Nueva consulta", f"{data.motivo}", {
