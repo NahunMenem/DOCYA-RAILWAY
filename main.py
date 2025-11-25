@@ -4187,7 +4187,7 @@ def get_db():
 # ============================================================
 # 🔵 1) CREAR PREFERENCE DE PAGO
 # ============================================================
-@router.post("/pagos/preautorizar")
+@app.post("/pagos/preautorizar")
 def crear_preference(data: dict, db = Depends(get_db)):
 
     consulta_id = data.get("consulta_id")
@@ -4235,7 +4235,7 @@ def crear_preference(data: dict, db = Depends(get_db)):
 # ============================================================
 # 🔔 2) WEBHOOK MP → Recibe payment_id
 # ============================================================
-@router.post("/webhook/mp")
+@app.post("/webhook/mp")
 def webhook_mp(payload: dict, db = Depends(get_db)):
 
     payment_id = payload.get("data", {}).get("id")
@@ -4273,7 +4273,7 @@ def webhook_mp(payload: dict, db = Depends(get_db)):
 # ============================================================
 # 🟢 3) CAPTURAR (cuando un médico acepta)
 # ============================================================
-@router.post("/pagos/capturar")
+@app.post("/pagos/capturar")
 def capturar_pago(data: dict, db = Depends(get_db)):
 
     consulta_id = data["consulta_id"]
@@ -4316,7 +4316,7 @@ def capturar_pago(data: dict, db = Depends(get_db)):
 # ============================================================
 # 🔴 4) CANCELAR (si no hay médicos)
 # ============================================================
-@router.post("/pagos/cancelar")
+@app.post("/pagos/cancelar")
 def cancelar_pago(data: dict, db = Depends(get_db)):
 
     consulta_id = data["consulta_id"]
