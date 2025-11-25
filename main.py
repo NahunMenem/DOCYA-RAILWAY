@@ -4156,60 +4156,36 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     return archivos
 
 # --------------------------------------------------------------------------------
-# PAGOS - DOCYA
-# Pago normal con MercadoPago (sin preautorización)
-# Se cobra recién cuando el MÉDICO ACEPTA la consulta
+# ============================================================
+# DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook)
+# ============================================================
 
 import requests
+import psycopg2
 from fastapi import APIRouter, HTTPException
 from uuid import uuid4
 
 router = APIRouter()
 
-ACCESS_TOKEN = "TEST-1283715201688491-111914-f6b44560371df235c8338df2e1deffdb-69224828"
+ACCESS_TOKEN = "TEST-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # ⚠ Cambiar por producción
+DATABASE_URL = "postgresql://..."                       # ⚠ Tu URL real
 
 
-# ===============================================
-# 💾 GUARDAR PAYMENT EN CONSULTA (preautorización)
-# ===============================================
-def guardar_payment(consulta_id, payment_id):
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE consultas
-        SET payment_id = %s
-        WHERE id = %s
-    """, (payment_id, consulta_id))
-    conn.commit()
-    cur.close()
-    conn.close()
+# ============================================================
+# 🔌 FUNCIÓN BD
+# ============================================================
+def db():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 
-# ==================================================
-# ❌ CANCELAR EL PAGO SI NO HAY MÉDICOS DISPONIBLES
-# ==================================================
-def cancelar_payment(payment_id):
-    import httpx
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+# ============================================================
+# 🔵 1) CREAR LINK DE PAGO (Checkout Pro) — SIN PREAUTORIZAR
+# ============================================================
+@router.post("/pagos/preautorizar")
+def crear_preference(data: dict):
 
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",   # ✔ CORREGIDO
-        "Content-Type": "application/json"
-    }
-
-    payload = {"status": "cancelled"}
-
-    with httpx.Client() as client:
-        r = client.put(url, headers=headers, json=payload)
-
-    print("Cancelación MercadoPago:", r.text)
-
-
-# ==================================================
-# 💳 PREAUTORIZAR PAGO (sin capturar)
-# ==================================================
-@app.post("/pagos/preautorizar")
-def preautorizar_pago(data: dict):
+    consulta_id = data.get("consulta_id")
+    monto = float(data["monto"])
 
     url = "https://api.mercadopago.com/checkout/preferences"
 
@@ -4221,16 +4197,16 @@ def preautorizar_pago(data: dict):
     payload = {
         "items": [
             {
-                "title": "Consulta médica domiciliaria",
+                "title": "Consulta médica a domicilio - DOCYA",
                 "quantity": 1,
                 "currency_id": "ARS",
-                "unit_price": float(data["monto"])
+                "unit_price": monto
             }
         ],
         "payer": {
-            #"email": data["email"]   # usás el email del paciente
-            "email": "test_user@testuser.com"
+            "email": data["email"]
         },
+        "external_reference": str(consulta_id),  # 👈 CLAVE
         "back_urls": {
             "success": "docya://pago_exitoso",
             "failure": "docya://pago_fallido",
@@ -4242,105 +4218,145 @@ def preautorizar_pago(data: dict):
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
-        print("DEBUG PREF ERROR:", r)
+        print("ERROR MP PREF:", r)
         raise HTTPException(status_code=400, detail=r)
 
     return {
         "status": "preference_ok",
         "preference_id": r["id"],
-        "init_point": r["init_point"],
+        "init_point": r["init_point"]
     }
 
 
-
-# ==================================================
-# 💰 CAPTURAR EL PAGO CUANDO EL MÉDICO ACEPTA
-# ==================================================
-@app.post("/pagos/capturar")
-def capturar_pago(data: dict):
-
-    payment_id = data["payment_id"]
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {"capture": True}
-
-    r = requests.put(url, headers=headers, json=payload).json()
-
-    if r.get("status") != "approved":
-        raise HTTPException(status_code=400, detail=r)
-
-    marcar_consulta_como_pagada(data["consulta_id"])
-
-    return {"status": "capturado", "payment_status": r["status"]}
-
-
-# ==================================================
-# ❌ CANCELAR PREAUTORIZACIÓN SI NADIE ACEPTA
-# ==================================================
-@app.post("/pagos/cancelar")
-def cancelar_pago(data: dict):
-
-    payment_id = data["payment_id"]
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    payload = {"status": "cancelled"}
-
-    r = requests.put(url, headers=headers, json=payload).json()
-
-    marcar_consulta_cancelada(data["consulta_id"])
-
-    return {"status": "cancelado"}
-
-
-# ==================================================
-# 🔔 WEBHOOK MP
-# ==================================================
-@app.post("/webhook/mp")
-async def mercadopago_webhook(payload: dict):
+# ============================================================
+# 🔔 2) WEBHOOK — LLEGA payment_id + estado
+# ============================================================
+@router.post("/webhook/mp")
+def webhook_mp(payload: dict):
 
     payment_id = payload.get("data", {}).get("id")
     if not payment_id:
         return {"received": False}
 
-    try:
-        url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-        headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    # Obtener info del pago
+    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
 
-        response = requests.get(url, headers=headers).json()
-        estado = response.get("status")
+    info = requests.get(url, headers=headers).json()
 
-        actualizar_estado_payment(payment_id, estado)
+    status = info.get("status")
+    consulta_id = info.get("external_reference")
 
-        print(f"Webhook MP → payment {payment_id} → {estado}")
-        return {"received": True}
-
-    except Exception as e:
-        print("Error webhook MP:", e)
+    if not consulta_id:
+        print("⚠ Payment sin external_reference")
         return {"received": False}
 
-def marcar_consulta_cancelada(consulta_id):
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    # Guardar payment en la consulta
+    conn = db()
     cur = conn.cursor()
-
     cur.execute("""
         UPDATE consultas
-        SET estado = 'cancelada'
+        SET payment_id = %s,
+            payment_status = %s
         WHERE id = %s
-    """, (consulta_id,))
-
+    """, (payment_id, status, consulta_id))
     conn.commit()
     cur.close()
     conn.close()
+
+    print(f"🔔 Webhook MP: consulta {consulta_id} → pago {payment_id} → {status}")
+    return {"received": True}
+
+
+
+# ============================================================
+# 🟢 3) CAPTURAR PAGO (cuando el médico acepta)
+# ============================================================
+@router.post("/pagos/capturar")
+def capturar_pago(data: dict):
+
+    consulta_id = data["consulta_id"]
+
+    # Obtener payment_id desde BD
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="Payment no encontrado")
+
+    payment_id = row[0]
+
+    # Captura (solo tarjetas de crédito)
+    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    payload = {"capture": True}
+
+    r = requests.put(url, headers=headers, json=payload).json()
+
+    estado = r.get("status")
+
+    if estado not in ["approved"]:
+        raise HTTPException(status_code=400, detail=r)
+
+    # Marcar consulta como pagada
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET payment_status = %s, pagado = TRUE
+        WHERE id = %s
+    """, (estado, consulta_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"status": "capturado", "payment_status": estado}
+
+
+
+# ============================================================
+# 🔴 4) CANCELAR PAGO (si no hay médicos)
+# ============================================================
+@router.post("/pagos/cancelar")
+def cancelar_pago(data: dict):
+
+    consulta_id = data["consulta_id"]
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+
+    if not row or not row[0]:
+        raise HTTPException(status_code=400, detail="Payment no encontrado")
+
+    payment_id = row[0]
+
+    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
+    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
+    payload = {"status": "cancelled"}
+
+    r = requests.put(url, headers=headers, json=payload).json()
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET payment_status = %s
+        WHERE id = %s
+    """, ("cancelled", consulta_id))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    return {"status": "cancelado"}
+
 
 #MANEJO DE VERSIONES PARA OBLIGAR A ACTUALIZAR LA APP --------------------------------------------
 @app.get("/app/check_update")
