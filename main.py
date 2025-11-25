@@ -4160,32 +4160,39 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 # DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook)
 # ============================================================
 
+# ============================================================
+# DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook)
+# ============================================================
+
 import requests
 import psycopg2
-from fastapi import APIRouter, HTTPException
-from uuid import uuid4
+from fastapi import APIRouter, HTTPException, Depends
 
 router = APIRouter()
 
-ACCESS_TOKEN = "TEST-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"  # ⚠ Cambiar por producción
-DATABASE_URL = "postgresql://..."                       # ⚠ Tu URL real
+ACCESS_TOKEN = "TEST-XXXXXXXXXXXX"      # ⚠ Cambiar para producción
 
 
 # ============================================================
-# 🔌 FUNCIÓN BD
+# 🔌 USAMOS TU MÉTODO DE CONEXIÓN ORIGINAL
 # ============================================================
-def db():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
+def get_db():
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    try:
+        yield conn
+    finally:
+        conn.close()
 
 
 # ============================================================
-# 🔵 1) CREAR LINK DE PAGO (Checkout Pro) — SIN PREAUTORIZAR
+# 🔵 1) CREAR PREFERENCE DE PAGO
 # ============================================================
 @router.post("/pagos/preautorizar")
-def crear_preference(data: dict):
+def crear_preference(data: dict, db = Depends(get_db)):
 
     consulta_id = data.get("consulta_id")
     monto = float(data["monto"])
+    email = data["email"]
 
     url = "https://api.mercadopago.com/checkout/preferences"
 
@@ -4203,10 +4210,8 @@ def crear_preference(data: dict):
                 "unit_price": monto
             }
         ],
-        "payer": {
-            "email": data["email"]
-        },
-        "external_reference": str(consulta_id),  # 👈 CLAVE
+        "payer": {"email": email},
+        "external_reference": str(consulta_id),
         "back_urls": {
             "success": "docya://pago_exitoso",
             "failure": "docya://pago_fallido",
@@ -4218,7 +4223,6 @@ def crear_preference(data: dict):
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
-        print("ERROR MP PREF:", r)
         raise HTTPException(status_code=400, detail=r)
 
     return {
@@ -4229,133 +4233,124 @@ def crear_preference(data: dict):
 
 
 # ============================================================
-# 🔔 2) WEBHOOK — LLEGA payment_id + estado
+# 🔔 2) WEBHOOK MP → Recibe payment_id
 # ============================================================
 @router.post("/webhook/mp")
-def webhook_mp(payload: dict):
+def webhook_mp(payload: dict, db = Depends(get_db)):
 
     payment_id = payload.get("data", {}).get("id")
     if not payment_id:
         return {"received": False}
 
-    # Obtener info del pago
+    # obtener info del pago
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-
     info = requests.get(url, headers=headers).json()
 
-    status = info.get("status")
+    estado = info.get("status")
     consulta_id = info.get("external_reference")
 
     if not consulta_id:
-        print("⚠ Payment sin external_reference")
+        print("⚠ ERROR: Payment sin external_reference")
         return {"received": False}
 
-    # Guardar payment en la consulta
-    conn = db()
-    cur = conn.cursor()
+    # guardar en consulta
+    cur = db.cursor()
     cur.execute("""
         UPDATE consultas
         SET payment_id = %s,
             payment_status = %s
         WHERE id = %s
-    """, (payment_id, status, consulta_id))
-    conn.commit()
+    """, (payment_id, estado, consulta_id))
+    db.commit()
     cur.close()
-    conn.close()
 
-    print(f"🔔 Webhook MP: consulta {consulta_id} → pago {payment_id} → {status}")
+    print(f"🔔 Webhook MP: consulta {consulta_id} → pago {payment_id} → {estado}")
+
     return {"received": True}
 
 
-
 # ============================================================
-# 🟢 3) CAPTURAR PAGO (cuando el médico acepta)
+# 🟢 3) CAPTURAR (cuando un médico acepta)
 # ============================================================
 @router.post("/pagos/capturar")
-def capturar_pago(data: dict):
+def capturar_pago(data: dict, db = Depends(get_db)):
 
     consulta_id = data["consulta_id"]
 
-    # Obtener payment_id desde BD
-    conn = db()
-    cur = conn.cursor()
+    # obtener payment_id
+    cur = db.cursor()
     cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
     row = cur.fetchone()
     cur.close()
-    conn.close()
 
     if not row or not row[0]:
-        raise HTTPException(status_code=400, detail="Payment no encontrado")
+        raise HTTPException(status_code=400, detail="❌ Payment no encontrado")
 
     payment_id = row[0]
 
-    # Captura (solo tarjetas de crédito)
+    # capturar si es tarjeta de crédito
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"capture": True}
 
     r = requests.put(url, headers=headers, json=payload).json()
-
     estado = r.get("status")
 
     if estado not in ["approved"]:
         raise HTTPException(status_code=400, detail=r)
 
-    # Marcar consulta como pagada
-    conn = db()
-    cur = conn.cursor()
+    # marcar como pagada
+    cur = db.cursor()
     cur.execute("""
         UPDATE consultas
         SET payment_status = %s, pagado = TRUE
         WHERE id = %s
     """, (estado, consulta_id))
-    conn.commit()
+    db.commit()
     cur.close()
-    conn.close()
 
     return {"status": "capturado", "payment_status": estado}
 
 
-
 # ============================================================
-# 🔴 4) CANCELAR PAGO (si no hay médicos)
+# 🔴 4) CANCELAR (si no hay médicos)
 # ============================================================
 @router.post("/pagos/cancelar")
-def cancelar_pago(data: dict):
+def cancelar_pago(data: dict, db = Depends(get_db)):
 
     consulta_id = data["consulta_id"]
 
-    conn = db()
-    cur = conn.cursor()
+    # obtener payment
+    cur = db.cursor()
     cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
     row = cur.fetchone()
     cur.close()
-    conn.close()
 
     if not row or not row[0]:
         raise HTTPException(status_code=400, detail="Payment no encontrado")
 
     payment_id = row[0]
 
+    # cancelar en MP
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"status": "cancelled"}
 
-    r = requests.put(url, headers=headers, json=payload).json()
+    requests.put(url, headers=headers, json=payload).json()
 
-    conn = db()
-    cur = conn.cursor()
+    # actualizar BD
+    cur = db.cursor()
     cur.execute("""
         UPDATE consultas
         SET payment_status = %s
         WHERE id = %s
     """, ("cancelled", consulta_id))
-    conn.commit()
+    db.commit()
     cur.close()
-    conn.close()
 
     return {"status": "cancelado"}
+
 
 
 #MANEJO DE VERSIONES PARA OBLIGAR A ACTUALIZAR LA APP --------------------------------------------
