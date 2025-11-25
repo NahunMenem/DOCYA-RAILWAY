@@ -3928,17 +3928,20 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
 
     #💰 2️⃣ Consultar saldo del médico
 @app.get("/medicos/{medico_id}/saldo")
-def obtener_saldo(medico_id: int):
-    db = get_db()
+def obtener_saldo(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id = %s", (medico_id,))
     row = cur.fetchone()
-    db.close()
 
     saldo = float(row[0]) if row else 0.0
-    estado = "DocYa le debe" if saldo > 0 else "Debe a DocYa" if saldo < 0 else "Saldo en cero"
+    estado = (
+        "DocYa le debe" if saldo > 0 
+        else "Debe a DocYa" if saldo < 0 
+        else "Saldo en cero"
+    )
 
     return {"medico_id": medico_id, "saldo": saldo, "estado": estado}
+
 #📋 3️⃣ Listar pagos del médico
 @app.get("/medicos/{medico_id}/pagos")
 def listar_pagos_medico(medico_id: int):
