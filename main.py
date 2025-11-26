@@ -1104,28 +1104,39 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     print(f"🟢 Consulta {consulta_id} asignada al médico {profesional_id}")
 
     # ----------------------------------------------------
-    # 🔔 4) Enviar WS en tiempo real
+    # 🔔 WS en tiempo real con todos los datos completos
     # ----------------------------------------------------
     if profesional_id in active_medicos:
         try:
+            # Obtener datos del paciente
+            cur.execute("""
+                SELECT full_name, telefono 
+                FROM users
+                WHERE id = %s
+            """, (str(data.paciente_uuid),))
+            user_row = cur.fetchone()
+            paciente_nombre = user_row[0] if user_row else "Paciente"
+            paciente_telefono = user_row[1] if user_row else "Sin número"
+    
             await active_medicos[profesional_id].send_json({
                 "tipo": "consulta_nueva",
                 "consulta_id": consulta_id,
                 "paciente_uuid": str(data.paciente_uuid),
+                "paciente_nombre": paciente_nombre,
+                "paciente_telefono": paciente_telefono,
                 "motivo": data.motivo,
                 "direccion": data.direccion,
                 "lat": data.lat,
                 "lng": data.lng,
-                "profesional_tipo": tipo,
                 "distancia_km": round(float(distancia), 2),
                 "metodo_pago": data.metodo_pago,
+                "profesional_tipo": tipo,
                 "creado_en": str(creado_en)
             })
-            print(f"📤 WS enviado al médico {profesional_id}")
+            print(f"📤 WS enviado al médico {profesional_id} con datos completos")
         except Exception as e:
             print(f"⚠️ Error WS médico {profesional_id}: {e}")
-    else:
-        print(f"⚠️ Médico {profesional_id} NO conectado a WS")
+
 
     # ----------------------------------------------------
     # 🔔 5) Enviar Push FCM
