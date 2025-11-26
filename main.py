@@ -1011,7 +1011,9 @@ class SolicitarConsultaIn(BaseModel):
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Buscar profesional más cercano disponible dentro de 10 km
+    # ----------------------------------------------------
+    # 🔍 1) Buscar profesional más cercano disponible
+    # ----------------------------------------------------
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -1041,11 +1043,10 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     row = cur.fetchone()
 
-    # ---------------------------------------------
-    # 🟡 NUEVO COMPORTAMIENTO: CREAR SIEMPRE CONSULTA
-    # ---------------------------------------------
+    # ----------------------------------------------------
+    # 🟡 2) No hay médicos → Crear consulta pendiente
+    # ----------------------------------------------------
     if not row:
-        # No hay médico → la consulta se crea sin médico asignado
         cur.execute("""
             INSERT INTO consultas (
                 paciente_uuid, medico_id, estado, motivo,
@@ -1065,6 +1066,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         consulta_id, creado_en = cur.fetchone()
         db.commit()
 
+        print("⚠️ No hay médicos disponibles → consulta creada sin asignar")
+
         return {
             "consulta_id": consulta_id,
             "estado": "pendiente",
@@ -1074,7 +1077,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         }
 
     # ----------------------------------------------------
-    # 🟢 SI HAY PROFESIONAL DISPONIBLE → ASIGNAMOS NORMAL
+    # 🟢 3) Sí hay profesional → Asignar normal
     # ----------------------------------------------------
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
@@ -1098,7 +1101,11 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # 🔔 WS al médico conectado
+    print(f"🟢 Consulta {consulta_id} asignada al médico {profesional_id}")
+
+    # ----------------------------------------------------
+    # 🔔 4) Enviar WS en tiempo real
+    # ----------------------------------------------------
     if profesional_id in active_medicos:
         try:
             await active_medicos[profesional_id].send_json({
@@ -1109,15 +1116,20 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 "direccion": data.direccion,
                 "lat": data.lat,
                 "lng": data.lng,
-                "distancia_km": round(distancia, 2),
                 "profesional_tipo": tipo,
+                "distancia_km": round(float(distancia), 2),
                 "metodo_pago": data.metodo_pago,
                 "creado_en": str(creado_en)
             })
+            print(f"📤 WS enviado al médico {profesional_id}")
         except Exception as e:
-            print(f"⚠️ WS error: {e}")
+            print(f"⚠️ Error WS médico {profesional_id}: {e}")
+    else:
+        print(f"⚠️ Médico {profesional_id} NO conectado a WS")
 
-    # 🔔 PUSH notification
+    # ----------------------------------------------------
+    # 🔔 5) Enviar Push FCM
+    # ----------------------------------------------------
     cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
     row = cur.fetchone()
 
@@ -1135,9 +1147,15 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     "metodo_pago": data.metodo_pago
                 }
             )
+            print(f"📤 Push enviado a médico {profesional_id}")
         except Exception as e:
-            print(f"⚠️ Error push: {e}")
+            print(f"⚠️ Error enviando push: {e}")
+    else:
+        print(f"⚠️ Médico {profesional_id} no tiene FCM token registrado")
 
+    # ----------------------------------------------------
+    # 🔙 6) Respuesta a la app del paciente
+    # ----------------------------------------------------
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -1147,14 +1165,15 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             "lat": profesional_lat,
             "lng": profesional_lng,
             "tipo": tipo,
-            "distancia_km": round(distancia, 2)
+            "distancia_km": round(float(distancia), 2)
         },
         "motivo": data.motivo,
         "direccion": data.direccion,
         "metodo_pago": data.metodo_pago,
         "estado": "pendiente",
-        "creado_en": format_datetime_arg(creado_en)
+        "creado_en": str(creado_en)
     }
+
 
 
 
