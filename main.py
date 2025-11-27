@@ -2141,10 +2141,28 @@ import asyncio
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
-    print(f"🟢 Nuevo WebSocket aceptado para médico {medico_id}")
-    active_medicos[medico_id] = websocket
+    print(f"🟢 Nuevo WebSocket aceptado para profesional {medico_id}")
 
-    # 🔄 Marcar médico como disponible al conectarse
+    # ⭐ 1) OBTENER EL TIPO (medico / enfermero) — CAMBIO NUEVO
+    try:
+        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+        cur = conn.cursor()
+        cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
+        row = cur.fetchone()
+        tipo_profesional = row[0] if row else "medico"
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print("⚠️ Error obteniendo tipo:", e)
+        tipo_profesional = "medico"
+
+    # ⭐ 2) GUARDAR WS + TIPO — CAMBIO NUEVO
+    active_medicos[medico_id] = {
+        "ws": websocket,
+        "tipo": tipo_profesional
+    }
+
+    # 🔄 Marcar profesional como disponible (SIN CAMBIOS)
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
@@ -2152,14 +2170,14 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
         conn.commit()
         cur.close()
         conn.close()
-        print(f"✅ Médico {medico_id} marcado como disponible (ping inicial registrado)")
+        print(f"✅ Profesional {medico_id} ({tipo_profesional}) marcado como disponible")
     except Exception as e:
-        print(f"⚠️ Error al marcar médico disponible: {e}")
+        print(f"⚠️ Error al marcar profesional disponible: {e}")
 
     try:
         while True:
             data = await websocket.receive_text()
-            print(f"📩 Mensaje recibido de médico {medico_id}: {data}")
+            print(f"📩 Mensaje recibido de profesional {medico_id}: {data}")
 
             try:
                 msg = json.loads(data)
@@ -2167,7 +2185,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
             except json.JSONDecodeError:
                 tipo = data.strip().lower()
 
-            # 🕒 Actualizar timestamp del último ping
+            # 🕒 Mantener ping/pong (SIN CAMBIOS)
             if tipo == "ping":
                 try:
                     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
@@ -2177,18 +2195,20 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                     cur.close()
                     conn.close()
                 except Exception as e2:
-                    print(f"⚠️ Error guardando ultimo_ping de médico {medico_id}: {e2}")
-                
+                    print(f"⚠️ Error guardando ultimo_ping del profesional {medico_id}: {e2}")
+
                 await websocket.send_text("pong")
                 await asyncio.sleep(0.05)
                 continue
 
     except Exception as e:
-        print(f"❌ Médico desconectado: {medico_id} → {e}")
+        print(f"❌ Profesional desconectado: {medico_id} → {e}")
+
+        # ✔ BORRAR EL PROFESIONAL DE active_medicos (SIN CAMBIOS, solo adaptado al dict)
         if medico_id in active_medicos:
             del active_medicos[medico_id]
 
-        # 🔴 Esperar unos segundos antes de marcarlo como no disponible (por si se reconecta)
+        # 🔴 Marcar NO disponible (SIN CAMBIOS)
         await asyncio.sleep(10)
         try:
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
@@ -2197,9 +2217,9 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
             conn.commit()
             cur.close()
             conn.close()
-            print(f"🔴 Médico {medico_id} marcado como NO disponible en la DB")
+            print(f"🔴 Profesional {medico_id} marcado como NO disponible")
         except Exception as e2:
-            print(f"⚠️ Error al marcar desconexión del médico {medico_id}: {e2}")
+            print(f"⚠️ Error al marcar desconexión del profesional {medico_id}: {e2}")
 
         print(f"🔻 Total conectados ahora: {len(active_medicos)}")
 
