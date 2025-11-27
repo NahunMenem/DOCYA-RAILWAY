@@ -1044,7 +1044,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     row = cur.fetchone()
 
     # ----------------------------------------------------
-    # 🟡 2) No hay médicos → Crear consulta pendiente
+    # 🟡 2) No hay profesionales → Crear consulta pendiente
     # ----------------------------------------------------
     if not row:
         cur.execute("""
@@ -1062,19 +1062,50 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             data.lng,
             data.metodo_pago
         ))
-
+    
         consulta_id, creado_en = cur.fetchone()
         db.commit()
-
-        print("⚠️ No hay médicos disponibles → consulta creada sin asignar")
-
+    
+        print(f"⚠️ No hay {data.tipo}s disponibles → consulta creada sin asignar")
+    
+        # ----------------------------------------------------
+        # 🔔 NUEVO: Notificar por FCM a TODOS los profesionales del tipo solicitado
+        # ----------------------------------------------------
+        cur.execute("""
+            SELECT fcm_token 
+            FROM medicos
+            WHERE disponible = TRUE 
+              AND tipo = %s
+              AND fcm_token IS NOT NULL
+        """, (data.tipo,))
+    
+        tokens = [r[0] for r in cur.fetchall() if r[0] is not None]
+    
+        for tk in tokens:
+            try:
+                enviar_push(
+                    tk,
+                    "📢 Nueva consulta pendiente",
+                    f"{data.motivo}",
+                    {
+                        "tipo": "consulta_pendiente",
+                        "consulta_id": str(consulta_id),
+                        "profesional_tipo": data.tipo,
+                        "metodo_pago": data.metodo_pago
+                    }
+                )
+                print(f"📤 Push enviado a {data.tipo} FCM: {tk[:12]}...")
+            except Exception as e:
+                print(f"⚠️ Error enviando push: {e}")
+    
         return {
             "consulta_id": consulta_id,
             "estado": "pendiente",
-            "mensaje": "Consulta registrada. Aún no hay médicos disponibles.",
+            "mensaje": f"Consulta registrada. Aún no hay {data.tipo}s disponibles.",
             "profesional": None,
             "creado_en": str(creado_en)
         }
+
 
     # ----------------------------------------------------
     # 🟢 3) Sí hay profesional → Asignar normal
