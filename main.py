@@ -1112,36 +1112,48 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     # ----------------------------------------------------
     # 🔔 WS en tiempo real con todos los datos completos
     # ----------------------------------------------------
+    # ----------------------------------------------------
+    # 🔔 WS en tiempo real con todos los datos completos
+    # ----------------------------------------------------
     if profesional_id in active_medicos:
         try:
-            # Obtener datos del paciente
-            cur.execute("""
-                SELECT full_name, telefono 
-                FROM users
-                WHERE id = %s
-            """, (str(data.paciente_uuid),))
-            user_row = cur.fetchone()
-            paciente_nombre = user_row[0] if user_row else "Paciente"
-            paciente_telefono = user_row[1] if user_row else "Sin número"
+            pro = active_medicos[profesional_id]
     
-            await active_medicos[profesional_id].send_json({
-                "tipo": "consulta_nueva",
-                "consulta_id": consulta_id,
-                "paciente_uuid": str(data.paciente_uuid),
-                "paciente_nombre": paciente_nombre,
-                "paciente_telefono": paciente_telefono,
-                "motivo": data.motivo,
-                "direccion": data.direccion,
-                "lat": data.lat,
-                "lng": data.lng,
-                "distancia_km": round(float(distancia), 2),
-                "metodo_pago": data.metodo_pago,
-                "profesional_tipo": tipo,
-                "creado_en": str(creado_en)
-            })
-            print(f"📤 WS enviado al médico {profesional_id} con datos completos")
+            # ⭐ Enviar solo si el tipo coincide (medico/enfermero)
+            if pro["tipo"] == tipo:
+    
+                # Obtener datos del paciente
+                cur.execute("""
+                    SELECT full_name, telefono 
+                    FROM users
+                    WHERE id = %s
+                """, (str(data.paciente_uuid),))
+                user_row = cur.fetchone()
+                paciente_nombre = user_row[0] if user_row else "Paciente"
+                paciente_telefono = user_row[1] if user_row else "Sin número"
+    
+                await pro["ws"].send_json({
+                    "tipo": "consulta_nueva",
+                    "consulta_id": consulta_id,
+                    "paciente_uuid": str(data.paciente_uuid),
+                    "paciente_nombre": paciente_nombre,
+                    "paciente_telefono": paciente_telefono,
+                    "motivo": data.motivo,
+                    "direccion": data.direccion,
+                    "lat": data.lat,
+                    "lng": data.lng,
+                    "distancia_km": round(float(distancia), 2),
+                    "metodo_pago": data.metodo_pago,
+                    "profesional_tipo": tipo,
+                    "creado_en": str(creado_en)
+                })
+    
+                print(f"📤 WS enviado al {tipo} {profesional_id} con datos completos")
+            else:
+                print(f"⚠️ Profesional {profesional_id} conectado pero es tipo '{pro['tipo']}', no '{tipo}'. No se envía WS.")
+    
         except Exception as e:
-            print(f"⚠️ Error WS médico {profesional_id}: {e}")
+            print(f"⚠️ Error WS profesional {profesional_id}: {e}")
 
 
     # ----------------------------------------------------
