@@ -895,32 +895,38 @@ from fastapi import HTTPException, Depends
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 1️⃣ Tipo del profesional
+    # 1️⃣ Obtener tipo del profesional
     cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
     tipo = row[0]
 
-    # 2️⃣ Semana actual
+    # 2️⃣ Calcular semana actual
     inicio_semana = date.today() - timedelta(days=date.today().weekday())
     fin_semana = inicio_semana + timedelta(days=6)
 
     # 3️⃣ Consultas finalizadas esta semana
     cur.execute("""
-        SELECT COUNT(*) 
+        SELECT COUNT(*)
         FROM consultas
         WHERE medico_id = %s
           AND estado = 'finalizada'
-          AND DATE_TRUNC('week', creado_en) = DATE_TRUNC('week', CURRENT_DATE)
+          AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
     """, (medico_id,))
     consultas = cur.fetchone()[0] or 0
 
-    # 4️⃣ Tarifa
-    tarifa = 24000 if tipo == "medico" else 15000
-    ganancias = consultas * tarifa
+    # 4️⃣ Sumatoria real de ganancias por precio_final
+    cur.execute("""
+        SELECT COALESCE(SUM(precio_final), 0)
+        FROM consultas
+        WHERE medico_id = %s
+          AND estado = 'finalizada'
+          AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
+    """, (medico_id,))
+    ganancias = cur.fetchone()[0] or 0
 
-    # 5️⃣ Pagos reales por método
+    # 5️⃣ Optional: si usás pagos consignados
     cur.execute("""
         SELECT 
             COALESCE(metodo_pago, 'efectivo') AS metodo_pago,
@@ -932,15 +938,13 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
         GROUP BY metodo_pago;
     """, (medico_id,))
     pagos = cur.fetchall()
-    detalle_pagos = {row[0]: {"cantidad": int(row[1]), "monto": float(row[2])} for row in pagos}
-
-    # 6️⃣ Si no hay pagos registrados pero hay consultas → asumir "efectivo"
-    if not detalle_pagos and consultas > 0:
-        detalle_pagos = {"efectivo": {"cantidad": consultas, "monto": float(ganancias)}}
+    detalle_pagos = {
+        row[0]: {"cantidad": int(row[1]), "monto": float(row[2])}
+        for row in pagos
+    }
 
     db.close()
 
-    # 7️⃣ Respuesta final
     return {
         "consultas": int(consultas),
         "ganancias": int(ganancias),
@@ -1530,48 +1534,81 @@ def medico_llego(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     if not row: raise HTTPException(status_code=404, detail="Consulta no encontrada")
     return {"ok": True, "consulta_id": row[0], "estado": "en_domicilio"}
 
+from datetime import datetime, timedelta
+from fastapi import HTTPException
+
 @app.post("/consultas/{consulta_id}/finalizar")
 def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("SELECT id, medico_id FROM consultas WHERE id=%s", (consulta_id,))
+    
+    # 🔹 Obtener consulta + tipo de profesional
+    cur.execute("""
+        SELECT c.id, c.medico_id, m.tipo
+        FROM consultas c
+        JOIN medicos m ON c.medico_id = m.id
+        WHERE c.id = %s
+    """, (consulta_id,))
+    
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    consulta_id, medico_id = row
+    consulta_id, medico_id, tipo = row  # tipo = 'medico' o 'enfermero'
 
+    # ============================================================
+    # 🕒 HORARIO ARGENTINA (UTC-3)
+    # ============================================================
+    ahora_ar = datetime.utcnow() - timedelta(hours=3)
+    hora = ahora_ar.hour
+
+    es_nocturno = hora >= 22 or hora < 6
+
+    # ============================================================
+    # 💵 TARIFA SEGÚN TIPO + HORARIO
+    # ============================================================
+    if tipo == "medico":
+        precio = 40000 if es_nocturno else 30000
+    else:  # enfermero
+        precio = 30000 if es_nocturno else 20000
+
+    # ============================================================
     # 🔹 Finalizar consulta
+    # ============================================================
     cur.execute(
         """
         UPDATE consultas
         SET estado = 'finalizada',
-            fin_atencion = NOW()
+            fin_atencion = NOW(),
+            precio_final = %s         -- 🔥 GUARDA LA GANANCIA
         WHERE id = %s
         RETURNING estado, fin_atencion
         """,
-        (consulta_id,)
+        (precio, consulta_id)
     )
     new_estado, fin = cur.fetchone()
 
-    # 🔹 Liberar médico para que vuelva a estar disponible
+    # ============================================================
+    # 🔹 Liberar profesional
+    # ============================================================
     if medico_id:
-        cur.execute(
-            """
+        cur.execute("""
             UPDATE medicos
             SET disponible = TRUE
             WHERE id = %s
-            """,
-            (medico_id,)
-        )
+        """, (medico_id,))
 
     db.commit()
 
     return {
         "msg": "Consulta finalizada",
         "consulta_id": consulta_id,
+        "tipo": tipo,
+        "nocturno": es_nocturno,
+        "precio_cobrado": precio,     # 🔥 SE ENVÍA AL FRONT
         "estado": new_estado,
         "fin_atencion": fin
     }
+
 
 @app.get("/pacientes/{paciente_uuid}/historia_clinica")
 def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
