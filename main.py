@@ -1276,7 +1276,8 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
                COALESCE(u.full_name, 'Paciente') AS paciente_nombre,
                COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
                c.motivo, c.direccion, c.lat, c.lng, c.estado,
-               m.latitud, m.longitud
+               m.latitud, m.longitud,
+               m.tipo   -- 👈🔥 AGREGADO (NO ROMPE NADA)
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
         LEFT JOIN users u ON c.paciente_uuid = u.id
@@ -1285,12 +1286,16 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (medico_id,))
+    
     row = cur.fetchone()
     if not row:
         return {"consulta": None}
 
-    (consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
-     motivo, direccion, lat, lng, estado, med_lat, med_lng) = row
+    (
+        consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
+        motivo, direccion, lat, lng, estado,
+        med_lat, med_lng, tipo_profesional   # 👈🔥 AGREGADO
+    ) = row
 
     distancia_km = None
     tiempo_min = None
@@ -1299,11 +1304,11 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         if all(v is not None for v in [lat, lng, med_lat, med_lng]):
             lat, lng, med_lat, med_lng = float(lat), float(lng), float(med_lat), float(med_lng)
 
-            # 🌍 Google Directions API
             directions_url = (
                 f"https://maps.googleapis.com/maps/api/directions/json?"
                 f"origin={med_lat},{med_lng}&destination={lat},{lng}"
-                f"&mode=driving&departure_time=now&traffic_model=best_guess&units=metric&key={GOOGLE_API_KEY}"
+                f"&mode=driving&departure_time=now&traffic_model=best_guess"
+                f"&units=metric&key={GOOGLE_API_KEY}"
             )
             resp = requests.get(directions_url)
             data = resp.json()
@@ -1311,7 +1316,9 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
             if data.get("status") == "OK":
                 leg = data["routes"][0]["legs"][0]
                 distancia_km = leg["distance"]["value"] / 1000
-                tiempo_min = (     leg.get("duration_in_traffic", leg["duration"])["value"] / 60 )
+                tiempo_min = (
+                    leg.get("duration_in_traffic", leg["duration"])["value"] / 60
+                )
             else:
                 print("⚠️ Error Google Directions:", data.get("status"))
 
@@ -1328,9 +1335,11 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "lat": lat,
         "lng": lng,
         "estado": estado,
+        "tipo": tipo_profesional,    # 👈🔥 AHORA LLEGA A FLUTTER
         "distancia_km": round(distancia_km, 2) if distancia_km else None,
         "tiempo_estimado_min": int(round(tiempo_min)) if tiempo_min else None
     }
+
 
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
