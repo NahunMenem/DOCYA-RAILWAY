@@ -3015,6 +3015,29 @@ class UbicacionIn(BaseModel):
     lng: float
     disponible: bool = True
 
+@app.post("/medico/{medico_id}/status")
+def actualizar_status(medico_id: int, data: dict, db=Depends(get_db)):
+    disponible = data.get("disponible", False)
+
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos
+        SET disponible = %s
+        WHERE id = %s
+        RETURNING id;
+    """, (disponible, medico_id))
+
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Medico no encontrado")
+
+    print(f"🔄 Estado del médico {medico_id} actualizado → disponible={disponible}")
+
+    return {"ok": True, "disponible": disponible}
+
+
 @app.post("/medico/{medico_id}/ubicacion")
 def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
     try:
@@ -3028,7 +3051,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
                 updated_at = %s,
                 ultimo_ping = %s
             WHERE id = %s
-            RETURNING id;
+            RETURNING id, disponible;
         """, (data.lat, data.lng, ahora_arg, ahora_arg, medico_id))
 
         row = cur.fetchone()
@@ -3038,12 +3061,16 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         if not row:
             raise HTTPException(status_code=404, detail="Médico no encontrado")
 
-        print(f"📍 Médico {medico_id} actualizó ubicación → {data.lat}, {data.lng}")
+        disponible_actual = row[1]
+
+        print(f"📍 Médico {medico_id} → lat/lng actualizado (disponible={disponible_actual})")
+
         return {
             "ok": True,
             "medico_id": medico_id,
             "lat": data.lat,
             "lng": data.lng,
+            "disponible": disponible_actual,
             "ultimo_ping": ahora_arg.isoformat()
         }
 
@@ -3052,20 +3079,6 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         print(f"⚠️ Error en actualizar_ubicacion: {e}")
         raise HTTPException(status_code=500, detail="Error actualizando ubicación del médico")
 
-@app.post("/medico/{medico_id}/status")
-async def cambiar_estado_medico(medico_id: int, data: dict, db=Depends(get_db)):
-    disponible = data.get("disponible", False)
-
-    cur = db.cursor()
-    cur.execute("""
-        UPDATE medicos
-        SET disponible = %s
-        WHERE id = %s
-    """, (disponible, medico_id))
-    db.commit()
-
-    print(f"🔄 Médico {medico_id} → disponible={disponible}")
-    return {"status": "ok", "disponible": disponible}
 
 
 
