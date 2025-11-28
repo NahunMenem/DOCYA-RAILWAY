@@ -3049,6 +3049,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
                 longitud = %s,
                 updated_at = %s,
                 ultimo_ping = %s
+
             WHERE id = %s
             RETURNING id, disponible;
         """, (data.lat, data.lng, ahora_arg, ahora_arg, medico_id))
