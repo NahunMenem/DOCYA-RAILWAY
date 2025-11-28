@@ -2788,15 +2788,18 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
     if payment_info["status"] != "approved":
         return {"status": "not_approved"}
 
+    # Metadata enviada desde el frontend (muy importante!)
     metadata = payment_info["metadata"]
     paciente_uuid = metadata["paciente_uuid"]
-    tipo = metadata["tipo"]
+    tipo = metadata["tipo"]           # medico / enfermero
     lat = metadata["lat"]
     lng = metadata["lng"]
 
     cur = db.cursor()
 
-    # BUSCAR PROFESIONAL DISPONIBLE
+    # --------------------------------------------------------
+    # 🔍 Buscar profesional del tipo correcto
+    # --------------------------------------------------------
     cur.execute("""
         SELECT id, full_name, latitud, longitud,
         (6371 * acos(
@@ -2816,41 +2819,70 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
     if not row:
         # NO HAY PROFESIONAL —> REEMBOLSO AUTOMÁTICO
         sdk.payment().refund(payment_id)
-
         print("⚠️ Pago devuelto automáticamente, sin profesionales.")
         return {"status": "refunded_no_professional"}
 
     medico_id, nombre, mlat, mlng, distancia = row
 
-    # CREAR CONSULTA
+    # --------------------------------------------------------
+    # 📝 Crear consulta (agregar columna tipo!)
+    # --------------------------------------------------------
     cur.execute("""
-        INSERT INTO consultas (paciente_uuid, medico_id, motivo, direccion, lat, lng, estado, metodo_pago)
-        VALUES (%s,%s,'Pago aprobado', 'Dirección desde MP', %s, %s,'pendiente','tarjeta')
+        INSERT INTO consultas (
+            paciente_uuid,
+            medico_id,
+            motivo,
+            direccion,
+            lat,
+            lng,
+            estado,
+            metodo_pago,
+            tipo
+        )
+        VALUES (%s,%s,'Pago aprobado','Dirección desde MP',%s,%s,'pendiente','tarjeta',%s)
         RETURNING id, creado_en
-    """, (paciente_uuid, medico_id, lat, lng))
+    """, (paciente_uuid, medico_id, lat, lng, tipo))
     
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    # WS + PUSH (igual que en tu back actual)
+    # --------------------------------------------------------
+    # 🔔 WebSocket — enviar solo si coincide el tipo
+    # --------------------------------------------------------
     if medico_id in active_medicos:
         try:
-            await active_medicos[medico_id].send_json({
-                "tipo": "consulta_nueva",
-                "consulta_id": consulta_id,
-                "paciente_uuid": paciente_uuid
-            })
-        except:
-            print("WS error")
+            pro = active_medicos[medico_id]
 
+            if pro["tipo"] == tipo:  # médico <-> enfermero
+                await pro["ws"].send_json({
+                    "tipo": "consulta_nueva",
+                    "consulta_id": consulta_id,
+                    "paciente_uuid": paciente_uuid,
+                    "profesional_tipo": tipo
+                })
+                print(f"📤 WS enviado al {tipo} {medico_id}")
+        except Exception as e:
+            print(f"⚠️ WS error: {e}")
+
+    # --------------------------------------------------------
+    # 🔔 PUSH
+    # --------------------------------------------------------
     cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
+
     if row and row[0]:
-        enviar_push(row[0], "📢 Nueva consulta", "Tienes una nueva solicitud", {
-            "consulta_id": consulta_id
-        })
+        enviar_push(
+            row[0],
+            "📢 Nueva consulta",
+            "Tienes una nueva solicitud",
+            {
+                "consulta_id": consulta_id,
+                "profesional_tipo": tipo
+            }
+        )
 
     return {"status": "consulta_creada", "consulta_id": consulta_id}
+
 
     
 # ---------- CONSULTAS DETALLE ----------
