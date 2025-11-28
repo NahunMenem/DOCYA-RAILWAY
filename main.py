@@ -2155,7 +2155,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
     print(f"🟢 Nuevo WebSocket aceptado para profesional {medico_id}")
 
-    # ⭐ 1) OBTENER EL TIPO (medico / enfermero)
+    # ⭐ 1) Obtener tipo profesional
     try:
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
@@ -2168,36 +2168,50 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
         print("⚠️ Error obteniendo tipo:", e)
         tipo_profesional = "medico"
 
-    # ⭐ 2) GUARDAR WS + TIPO
+    # ⭐ 2) Registrar WS en memoria
     active_medicos[medico_id] = {
         "ws": websocket,
         "tipo": tipo_profesional
     }
 
-    # ❗❗❗ IMPORTANTÍSIMO:
-    # ❌ NO marcar disponible aquí
-    # El estado solo lo maneja /medico/{id}/status
+    # ⭐ 3) NO TOCAR disponible acá.
+    # El disponible lo maneja SOLAMENTE /medico/{id}/status
+
+    # ⭐ 4) Mantener PING/PONG activo
+    last_ping = datetime.now()
+
+    async def monitor_ping():
+        while True:
+            await asyncio.sleep(5)
+            diff = datetime.now() - last_ping
+
+            if diff.total_seconds() > 25:
+                print(f"⏳ Profesional {medico_id} sin ping → desconectado realmente")
+                raise Exception("Ping timeout")
+
+    asyncio.create_task(monitor_ping())
 
     try:
         while True:
             data = await websocket.receive_text()
             print(f"📩 Mensaje recibido de profesional {medico_id}: {data}")
 
-            # 🕒 Ping/pong
+            # Intentar parsear JSON
             try:
                 msg = json.loads(data)
                 tipo = msg.get("tipo", "").lower()
-            except json.JSONDecodeError:
+            except:
                 tipo = data.strip().lower()
 
+            # 🟢 PING
             if tipo == "ping":
+                last_ping = datetime.now()
+
                 try:
                     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
                     cur = conn.cursor()
-                    cur.execute(
-                        "UPDATE medicos SET ultimo_ping = NOW() WHERE id = %s;",
-                        (medico_id,)
-                    )
+                    cur.execute("UPDATE medicos SET ultimo_ping = NOW() WHERE id=%s;",
+                                (medico_id,))
                     conn.commit()
                     cur.close()
                     conn.close()
@@ -2205,33 +2219,31 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                     print(f"⚠️ Error guardando ultimo_ping del profesional {medico_id}: {e2}")
 
                 await websocket.send_text("pong")
-                await asyncio.sleep(0.05)
+                await asyncio.sleep(0.02)
                 continue
 
     except Exception as e:
         print(f"❌ Profesional desconectado: {medico_id} → {e}")
 
-        # ❗ Eliminar del diccionario
+        # ✔ Sacar del diccionario siempre
         if medico_id in active_medicos:
             del active_medicos[medico_id]
 
-        # 🔴 Marcar NO disponible
-        await asyncio.sleep(10)
-        try:
-            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-            cur = conn.cursor()
-            cur.execute(
-                "UPDATE medicos SET disponible = FALSE WHERE id = %s;",
-                (medico_id,)
-            )
-            conn.commit()
-            cur.close()
-            conn.close()
-            print(f"🔴 Profesional {medico_id} marcado como NO disponible")
-        except Exception as e2:
-            print(f"⚠️ Error al marcar desconexión del profesional {medico_id}: {e2}")
+        # ❗❗ SOLO MARCAR NO DISPONIBLE SI NO LLEGA PING POR 25 SEGUNDOS
+        if "timeout" in str(e).lower() or "ping" in str(e).lower():
+            try:
+                conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+                cur = conn.cursor()
+                cur.execute("UPDATE medicos SET disponible = FALSE WHERE id=%s;", (medico_id,))
+                conn.commit()
+                cur.close()
+                conn.close()
+                print(f"🔴 Profesional {medico_id} marcado como NO disponible (timeout real)")
+            except Exception as e2:
+                print(f"⚠️ Error al marcar desconexión del profesional {medico_id}: {e2}")
 
         print(f"🔻 Total conectados ahora: {len(active_medicos)}")
+
 
 
 
