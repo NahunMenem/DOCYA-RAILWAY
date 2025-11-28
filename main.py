@@ -3012,7 +3012,6 @@ from fastapi import HTTPException
 class UbicacionIn(BaseModel):
     lat: float
     lng: float
-    disponible: bool = True
 
 @app.post("/medico/{medico_id}/status")
 def actualizar_status(medico_id: int, data: dict, db=Depends(get_db)):
