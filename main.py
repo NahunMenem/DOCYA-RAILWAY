@@ -895,38 +895,70 @@ from fastapi import HTTPException, Depends
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
-    # 1️⃣ Obtener tipo del profesional
+    # 1️⃣ Obtener tipo del profesional (medico/enfermero)
     cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
-    tipo = row[0]
+
+    tipo = row[0].lower().strip()
 
     # 2️⃣ Calcular semana actual
     inicio_semana = date.today() - timedelta(days=date.today().weekday())
     fin_semana = inicio_semana + timedelta(days=6)
 
-    # 3️⃣ Consultas finalizadas esta semana
+    # 3️⃣ Consultas finalizadas esta semana (diurnas y nocturnas)
     cur.execute("""
-        SELECT COUNT(*)
+        SELECT id, fin_atencion, metodo_pago
         FROM consultas
         WHERE medico_id = %s
-          AND estado = 'finalizada'
-          AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
+        AND estado = 'finalizada'
+        AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
     """, (medico_id,))
-    consultas = cur.fetchone()[0] or 0
 
-    # 4️⃣ Sumatoria real de ganancias por precio_final
-    cur.execute("""
-        SELECT COALESCE(SUM(precio_final), 0)
-        FROM consultas
-        WHERE medico_id = %s
-          AND estado = 'finalizada'
-          AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
-    """, (medico_id,))
-    ganancias = cur.fetchone()[0] or 0
+    consultas_finalizadas = cur.fetchall()
 
-    # 5️⃣ Optional: si usás pagos consignados
+    # Inicialización de contadores
+    consultas_diurnas = 0
+    consultas_nocturnas = 0
+    ganancias_diurnas = 0
+    ganancias_nocturnas = 0
+
+    # Tarifa según tipo
+    tarifa_dia = 30000 if tipo == "medico" else 20000
+    tarifa_noche = 40000 if tipo == "medico" else 30000
+
+    metodo_contador = {}
+
+    # 4️⃣ Procesar cada consulta
+    for consulta_id, fin_atencion, metodo_pago in consultas_finalizadas:
+        hora = fin_atencion.time()
+        metodo = (metodo_pago or "efectivo").lower().strip()
+
+        # Contar métodos
+        metodo_contador[metodo] = metodo_contador.get(metodo, 0) + 1
+
+        # Determinar nocturna o diurna
+        es_nocturna = (hora >= time(22, 0)) or (hora < time(6, 0))
+
+        if es_nocturna:
+            consultas_nocturnas += 1
+            ganancias_nocturnas += tarifa_noche
+        else:
+            consultas_diurnas += 1
+            ganancias_diurnas += tarifa_dia
+
+    # 5️⃣ Ganancia total
+    ganancias_total = ganancias_diurnas + ganancias_nocturnas
+    consultas_total = consultas_diurnas + consultas_nocturnas
+
+    # 6️⃣ Determinar método frecuente
+    if metodo_contador:
+        metodo_frecuente = max(metodo_contador, key=metodo_contador.get)
+    else:
+        metodo_frecuente = None
+
+    # 7️⃣ Pagos reales registrados (si los usas)
     cur.execute("""
         SELECT 
             COALESCE(metodo_pago, 'efectivo') AS metodo_pago,
@@ -934,23 +966,40 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
             COALESCE(SUM(medico_neto), 0) AS total
         FROM pagos_consulta
         WHERE medico_id = %s
-          AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
-        GROUP BY metodo_pago;
+        AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
+        GROUP BY metodo_pago
     """, (medico_id,))
-    pagos = cur.fetchall()
+    
+    rows = cur.fetchall()
     detalle_pagos = {
-        row[0]: {"cantidad": int(row[1]), "monto": float(row[2])}
-        for row in pagos
+        row[0]: {
+            "cantidad": int(row[1]),
+            "monto": float(row[2])
+        }
+        for row in rows
     }
 
     db.close()
 
     return {
-        "consultas": int(consultas),
-        "ganancias": int(ganancias),
         "tipo": tipo,
         "periodo": f"{inicio_semana} → {fin_semana}",
-        "detalle_pagos": detalle_pagos
+
+        # Totales
+        "consultas": consultas_total,
+        "ganancias": ganancias_total,
+
+        # Diurnas / Nocturnas
+        "consultas_diurnas": consultas_diurnas,
+        "consultas_nocturnas": consultas_nocturnas,
+        "ganancias_diurnas": ganancias_diurnas,
+        "ganancias_nocturnas": ganancias_nocturnas,
+
+        # Método más frecuente
+        "metodo_frecuente": metodo_frecuente,
+
+        # Pagos registrados para el pie chart
+        "detalle_pagos": detalle_pagos,
     }
 
 
