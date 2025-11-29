@@ -1361,7 +1361,7 @@ def iniciar_consulta(consulta_id: int, db=Depends(get_db)):
             """
             UPDATE consultas
             SET estado = 'en_domicilio',
-                inicio_atencion = NOW()
+                inicio_atencion = (NOW() AT TIME ZONE 'UTC-3')
             WHERE id = %s
             RETURNING estado, inicio_atencion
             """,
@@ -1416,7 +1416,7 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
         UPDATE consultas
         SET estado = 'aceptada',
             medico_id = %s,
-            aceptada_en = NOW()     -- 👈 AÑADIDO, NO SE TOCA NADA MÁS
+            aceptada_en = (NOW() AT TIME ZONE 'UTC-3')     -- 👈 AÑADIDO, NO SE TOCA NADA MÁS
         WHERE id = %s AND estado = 'pendiente'
         RETURNING id
     """, (medico_id, consulta_id))
