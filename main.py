@@ -1591,10 +1591,10 @@ from fastapi import HTTPException
 @app.post("/consultas/{consulta_id}/finalizar")
 def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    
-    # 🔹 Obtener consulta + tipo de profesional
+
+    # 🔹 Obtener consulta + tipo de profesional + paciente_uuid + metodo_pago
     cur.execute("""
-        SELECT c.id, c.medico_id, m.tipo
+        SELECT c.id, c.medico_id, m.tipo, c.paciente_uuid, c.metodo_pago
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
         WHERE c.id = %s
@@ -1604,14 +1604,13 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    consulta_id, medico_id, tipo = row  # tipo = 'medico' o 'enfermero'
+    consulta_id, medico_id, tipo, paciente_uuid, metodo_pago = row
 
     # ============================================================
-    # 🕒 HORARIO ARGENTINA (UTC-3)
+    # 🕒 HORARIO ARGENTINA
     # ============================================================
     ahora_ar = datetime.utcnow() - timedelta(hours=3)
     hora = ahora_ar.hour
-
     es_nocturno = hora >= 22 or hora < 6
 
     # ============================================================
@@ -1619,46 +1618,58 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     # ============================================================
     if tipo == "medico":
         precio = 40000 if es_nocturno else 30000
-    else:  # enfermero
+    else:
         precio = 30000 if es_nocturno else 20000
 
     # ============================================================
     # 🔹 Finalizar consulta
     # ============================================================
-    cur.execute(
-        """
+    cur.execute("""
         UPDATE consultas
         SET estado = 'finalizada',
             fin_atencion = NOW(),
-            precio_final = %s         -- 🔥 GUARDA LA GANANCIA
+            precio_final = %s
         WHERE id = %s
         RETURNING estado, fin_atencion
-        """,
-        (precio, consulta_id)
-    )
+    """, (precio, consulta_id))
+    
     new_estado, fin = cur.fetchone()
 
     # ============================================================
     # 🔹 Liberar profesional
     # ============================================================
-    if medico_id:
-        cur.execute("""
-            UPDATE medicos
-            SET disponible = TRUE
-            WHERE id = %s
-        """, (medico_id,))
+    cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s", (medico_id,))
 
     db.commit()
 
+    # ============================================================
+    # 🔥 REGISTRAR PAGO AUTOMÁTICAMENTE
+    # ============================================================
+    from fastapi.testclient import TestClient
+    client = TestClient(app)
+
+    req = client.post(
+        f"/consultas/{consulta_id}/pago",
+        json={
+            "consulta_id": consulta_id,
+            "medico_id": medico_id,
+            "paciente_uuid": paciente_uuid
+        }
+    )
+
+    print("💰 Registro de pago:", req.json())
+
     return {
-        "msg": "Consulta finalizada",
+        "msg": "Consulta finalizada y pago registrado",
         "consulta_id": consulta_id,
         "tipo": tipo,
         "nocturno": es_nocturno,
-        "precio_cobrado": precio,     # 🔥 SE ENVÍA AL FRONT
+        "precio_cobrado": precio,
         "estado": new_estado,
-        "fin_atencion": fin
+        "fin_atencion": fin,
+        "pago": req.json()
     }
+
 
 
 @app.get("/pacientes/{paciente_uuid}/historia_clinica")
