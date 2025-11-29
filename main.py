@@ -1414,7 +1414,9 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     # 2) Marcar la consulta como aceptada (solo si estaba pendiente)
     cur.execute("""
         UPDATE consultas
-        SET estado = 'aceptada', medico_id = %s
+        SET estado = 'aceptada',
+            medico_id = %s,
+            aceptada_en = NOW()     -- 👈 AÑADIDO, NO SE TOCA NADA MÁS
         WHERE id = %s AND estado = 'pendiente'
         RETURNING id
     """, (medico_id, consulta_id))
