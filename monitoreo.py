@@ -303,7 +303,8 @@ def medicos_ubicacion(db=Depends(get_db)):
                 telefono,
                 especialidad,
                 provincia,
-                localidad
+                localidad,
+                tipo  
             FROM medicos
             WHERE disponible = TRUE
               AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '1 minute')
