@@ -1589,6 +1589,57 @@ def medico_llego(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 from datetime import datetime, timedelta
 from fastapi import HTTPException
 
+def registrar_pago_interno(consulta_id, medico_id, paciente_uuid, metodo_pago, db):
+    cur = db.cursor()
+
+    # Calcular valores según método de pago
+    # 20% comisión DocYa
+    cur.execute("SELECT precio_final FROM consultas WHERE id=%s", (consulta_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada para pago")
+
+    monto_total = row[0]
+    docya_comision = int(monto_total * 0.20)
+    
+    if metodo_pago == "efectivo":
+        medico_neto = monto_total
+        saldo_delta = -docya_comision
+    else:
+        medico_neto = int(monto_total * 0.80)
+        saldo_delta = medico_neto
+
+    # Insertar pago
+    cur.execute("""
+        INSERT INTO pagos_consulta 
+        (consulta_id, medico_id, paciente_uuid, metodo_pago, monto_total, medico_neto, docya_comision)
+        VALUES (%s,%s,%s,%s,%s,%s,%s)
+    """, (
+        consulta_id,
+        medico_id,
+        paciente_uuid,
+        metodo_pago,
+        monto_total,
+        medico_neto,
+        docya_comision
+    ))
+
+    # Actualizar saldo médico
+    cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id=%s", (medico_id,))
+    row2 = cur.fetchone()
+
+    if row2:
+        cur.execute(
+            "UPDATE saldo_medico SET saldo = saldo + %s WHERE medico_id=%s",
+            (saldo_delta, medico_id)
+        )
+    else:
+        cur.execute(
+            "INSERT INTO saldo_medico (medico_id, saldo) VALUES (%s, %s)",
+            (medico_id, saldo_delta)
+        )
+
+
 @app.post("/consultas/{consulta_id}/finalizar")
 def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
@@ -1619,7 +1670,7 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     # ============================================================
     if tipo == "medico":
         precio = 40000 if es_nocturno else 30000
-    else:
+    else:  # enfermero
         precio = 30000 if es_nocturno else 20000
 
     # ============================================================
@@ -1641,24 +1692,18 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     # ============================================================
     cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s", (medico_id,))
 
-    db.commit()
-
     # ============================================================
-    # 🔥 REGISTRAR PAGO AUTOMÁTICAMENTE
+    # 🔥 REGISTRAR PAGO AUTOMÁTICAMENTE (SIN TestClient)
     # ============================================================
-    from fastapi.testclient import TestClient
-    client = TestClient(app)
-
-    req = client.post(
-        f"/consultas/{consulta_id}/pago",
-        json={
-            "consulta_id": consulta_id,
-            "medico_id": medico_id,
-            "paciente_uuid": paciente_uuid
-        }
+    registrar_pago_interno(
+        consulta_id=consulta_id,
+        medico_id=medico_id,
+        paciente_uuid=paciente_uuid,
+        metodo_pago=metodo_pago or "efectivo",
+        db=db
     )
 
-    print("💰 Registro de pago:", req.json())
+    db.commit()
 
     return {
         "msg": "Consulta finalizada y pago registrado",
@@ -1668,9 +1713,7 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
         "precio_cobrado": precio,
         "estado": new_estado,
         "fin_atencion": fin,
-        "pago": req.json()
     }
-
 
 
 @app.get("/pacientes/{paciente_uuid}/historia_clinica")
