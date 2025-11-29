@@ -1592,39 +1592,41 @@ from fastapi import HTTPException
 def registrar_pago_interno(consulta_id, medico_id, paciente_uuid, metodo_pago, db):
     cur = db.cursor()
 
-    # Calcular valores según método de pago
-    # 20% comisión DocYa
+    # 1️⃣ Obtener monto total de la consulta
     cur.execute("SELECT precio_final FROM consultas WHERE id=%s", (consulta_id,))
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada para pago")
 
     monto_total = row[0]
-    docya_comision = int(monto_total * 0.20)
-    
-    if metodo_pago == "efectivo":
-        medico_neto = monto_total
-        saldo_delta = -docya_comision
-    else:
-        medico_neto = int(monto_total * 0.80)
-        saldo_delta = medico_neto
 
-    # Insertar pago
+    # 2️⃣ Calcular comisión y neto
+    docya_comision = int(monto_total * 0.20)
+
+    if metodo_pago == "efectivo":
+        # Médico cobra todo → luego DocYa descuenta su parte
+        medico_neto = monto_total
+        saldo_delta = -docya_comision     # médico debe a DocYa
+    else:
+        # MP / Tarjeta / Transferencia → DocYa recauda
+        medico_neto = int(monto_total * 0.80)
+        saldo_delta = medico_neto         # DocYa le debe al médico
+
+    # 3️⃣ Insertar pago (SIN paciente_uuid)
     cur.execute("""
         INSERT INTO pagos_consulta 
-        (consulta_id, medico_id, paciente_uuid, metodo_pago, monto_total, medico_neto, docya_comision)
-        VALUES (%s,%s,%s,%s,%s,%s,%s)
+        (consulta_id, medico_id, metodo_pago, monto_total, medico_neto, docya_comision)
+        VALUES (%s,%s,%s,%s,%s,%s)
     """, (
         consulta_id,
         medico_id,
-        paciente_uuid,
         metodo_pago,
         monto_total,
         medico_neto,
         docya_comision
     ))
 
-    # Actualizar saldo médico
+    # 4️⃣ Actualizar saldo del médico
     cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id=%s", (medico_id,))
     row2 = cur.fetchone()
 
@@ -1638,6 +1640,7 @@ def registrar_pago_interno(consulta_id, medico_id, paciente_uuid, metodo_pago, d
             "INSERT INTO saldo_medico (medico_id, saldo) VALUES (%s, %s)",
             (medico_id, saldo_delta)
         )
+
 
 
 @app.post("/consultas/{consulta_id}/finalizar")
