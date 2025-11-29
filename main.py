@@ -4063,28 +4063,60 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
 
     metodo_pago = row[0].lower().strip()
 
-    # 2️⃣ Calcular montos según método de pago
-    monto_total = 30000
-    if metodo_pago == "efectivo":
-        medico_neto = 30000
-        docya_comision = 6000
-        saldo_delta = -6000  # médico le debe a DocYa
-    else:  # débito o crédito
-        medico_neto = 24000
-        docya_comision = 6000
-        saldo_delta = 24000  # DocYa le debe al médico
+    # 2️⃣ Buscar el tipo de profesional (medico/enfermero)
+    cur.execute("SELECT tipo FROM personal WHERE id = %s", (data.medico_id,))
+    row_tipo = cur.fetchone()
+    if not row_tipo:
+        raise HTTPException(status_code=400, detail="No se encontró el profesional")
 
-    # 3️⃣ Registrar el pago
+    tipo = row_tipo[0].lower().strip()  # "medico" o "enfermero"
+
+    # 3️⃣ Determinar si es diurna o nocturna (22:00 - 06:00)
+    ahora = datetime.now().time()
+    es_nocturna = (ahora >= time(22, 0)) or (ahora < time(6, 0))
+
+    # 4️⃣ Asignar tarifa según tipo y horario
+    if tipo == "medico":
+        monto_total = 40000 if es_nocturna else 30000
+    elif tipo == "enfermero":
+        monto_total = 30000 if es_nocturna else 20000
+    else:
+        raise HTTPException(status_code=400, detail="Tipo de profesional inválido")
+
+    # 5️⃣ Calcular según método de pago
+    # Comisión estándar DocYa = 20%
+    docya_comision = int(monto_total * 0.20)
+
+    if metodo_pago == "efectivo":
+        # Médico cobró el total → le debe 20% a DocYa
+        medico_neto = monto_total
+        saldo_delta = -docya_comision  # médico le debe a DocYa
+        mensaje = f"Consulta registrada: el profesional debe a DocYa ${docya_comision}"
+    else:
+        # Tarjeta: DocYa cobra → debe pagar 80% al profesional
+        medico_neto = int(monto_total * 0.80)
+        saldo_delta = medico_neto      # DocYa le debe al profesional
+        mensaje = f"Consulta registrada: DocYa debe pagar ${medico_neto} al profesional"
+
+    # 6️⃣ Registrar el pago
     cur.execute("""
         INSERT INTO pagos_consulta 
         (consulta_id, medico_id, paciente_uuid, metodo_pago, monto_total, medico_neto, docya_comision)
         VALUES (%s,%s,%s,%s,%s,%s,%s)
-    """, (data.consulta_id, data.medico_id, data.paciente_uuid,
-          metodo_pago, monto_total, medico_neto, docya_comision))
+    """, (
+        data.consulta_id,
+        data.medico_id,
+        data.paciente_uuid,
+        metodo_pago,
+        monto_total,
+        medico_neto,
+        docya_comision
+    ))
 
-    # 4️⃣ Actualizar o crear saldo del médico
+    # 7️⃣ Actualizar saldo del profesional
     cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id = %s", (data.medico_id,))
     row = cur.fetchone()
+
     if row:
         cur.execute("UPDATE saldo_medico SET saldo = saldo + %s WHERE medico_id = %s",
                     (saldo_delta, data.medico_id))
@@ -4092,7 +4124,7 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
         cur.execute("INSERT INTO saldo_medico (medico_id, saldo) VALUES (%s, %s)",
                     (data.medico_id, saldo_delta))
 
-    # 5️⃣ Marcar la consulta como completada
+    # 8️⃣ Marcar consulta como finalizada
     cur.execute("UPDATE consultas SET estado = 'finalizada' WHERE id = %s", (consulta_id,))
 
     db.commit()
@@ -4102,15 +4134,15 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
         "ok": True,
         "consulta_id": consulta_id,
         "metodo_pago": metodo_pago,
-        "docya_comision": docya_comision,
+        "monto_total": monto_total,
         "medico_neto": medico_neto,
+        "docya_comision": docya_comision,
         "saldo_delta": saldo_delta,
-        "mensaje": (
-            "Consulta registrada: el médico debe a DocYa $6.000"
-            if metodo_pago == "efectivo"
-            else "Consulta registrada: DocYa debe pagar $24.000 al médico"
-        )
+        "tipo_profesional": tipo,
+        "nocturna": es_nocturna,
+        "mensaje": mensaje
     }
+
 
     #💰 2️⃣ Consultar saldo del médico
 @app.get("/medicos/{medico_id}/saldo")
