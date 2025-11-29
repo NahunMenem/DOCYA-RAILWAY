@@ -510,6 +510,22 @@ def medicos_por_comuna(db=Depends(get_db)):
     cur.close()
     return {"ok": True, "comunas": resultado}
 
+@router.get("/tiempo_llegada")
+def tiempo_llegada(db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT 
+            ROUND(
+                AVG(EXTRACT(EPOCH FROM (inicio_atencion - aceptada_en)) / 60)::numeric, 
+            1)
+        FROM consultas
+        WHERE inicio_atencion IS NOT NULL
+          AND aceptada_en IS NOT NULL;
+    """)
+    result = cur.fetchone()[0] or 0
+    return {"tiempo_llegada_min": float(result)}
+
+
 @router.get("/tiempo_llegada_promedio")
 def tiempo_llegada_promedio(db=Depends(get_db)):
     cur = db.cursor()
