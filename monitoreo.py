@@ -58,17 +58,32 @@ def resumen_monitoreo(db=Depends(get_db)):
         cur = db.cursor()
 
         # 🩺 Total médicos registrados
-        cur.execute("SELECT COUNT(*) FROM medicos;")
+        cur.execute("SELECT COUNT(*) FROM medicos WHERE tipo = 'medico';")
         total_medicos = cur.fetchone()[0]
+
+        # 👩‍⚕️ Total enfermeros registrados
+        cur.execute("SELECT COUNT(*) FROM medicos WHERE tipo = 'enfermero';")
+        total_enfermeros = cur.fetchone()[0]
 
         # 👨‍⚕️ Médicos conectados (último ping menor a 1 min)
         cur.execute("""
             SELECT COUNT(*)
             FROM medicos
-            WHERE disponible = TRUE
+            WHERE tipo = 'medico'
+            AND disponible = TRUE
             AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '1 minute');
         """)
         medicos_conectados = cur.fetchone()[0]
+
+        # 👩‍⚕️ Enfermeros conectados (último ping menor a 1 min)
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM medicos
+            WHERE tipo = 'enfermero'
+            AND disponible = TRUE
+            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '1 minute');
+        """)
+        enfermeros_conectados = cur.fetchone()[0]
 
         # 💬 Consultas activas
         cur.execute("""
@@ -79,17 +94,24 @@ def resumen_monitoreo(db=Depends(get_db)):
         consultas_en_curso = cur.fetchone()[0]
 
         # 📅 Consultas de hoy
-        cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
+        cur.execute("""
+            SELECT COUNT(*)
+            FROM consultas 
+            WHERE DATE(creado_en) = CURRENT_DATE;
+        """)
         consultas_hoy = cur.fetchone()[0]
 
-        # 👥 Total de usuarios registrados
+        # 👥 Total usuarios pacientes
         cur.execute("SELECT COUNT(*) FROM users WHERE role = 'patient';")
         total_usuarios = cur.fetchone()[0]
 
         cur.close()
+
         return {
             "total_medicos": total_medicos,
+            "total_enfermeros": total_enfermeros,
             "medicos_conectados": medicos_conectados,
+            "enfermeros_conectados": enfermeros_conectados,
             "consultas_en_curso": consultas_en_curso,
             "consultas_hoy": consultas_hoy,
             "total_usuarios": total_usuarios
