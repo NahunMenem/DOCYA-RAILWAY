@@ -3905,10 +3905,12 @@ from psycopg2.extras import RealDictCursor
 @app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
 def ver_receta(receta_id: int, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
+
+    # Traer datos principales
     cur.execute("""
         SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
                c.id AS consulta_id,
-               m.full_name AS medico_nombre, m.especialidad, m.matricula,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula, m.firma_url,
                u.full_name AS paciente_nombre, u.dni
         FROM recetas r
         JOIN consultas c ON c.id = r.consulta_id
@@ -3917,9 +3919,11 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         WHERE r.id = %s
     """, (receta_id,))
     receta = cur.fetchone()
+
     if not receta:
         return HTMLResponse("<h2>❌ Receta no encontrada</h2>", status_code=404)
 
+    # Traer medicamentos
     cur.execute("""
         SELECT nombre, dosis, frecuencia, duracion
         FROM receta_items
@@ -3928,6 +3932,8 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     medicamentos = cur.fetchall()
 
     fecha = receta["creado_en"].strftime("%d/%m/%Y %H:%M") if receta.get("creado_en") else "—"
+
+    firma_url = receta.get("firma_url")
 
     html = f"""
     <!DOCTYPE html>
@@ -4015,17 +4021,6 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
           font-size: 13px;
           margin-top: 50px;
         }}
-        @media (max-width: 600px) {{
-          .card {{
-            padding: 20px;
-          }}
-          .header img {{
-            height: 45px;
-          }}
-          .title {{
-            font-size: 20px;
-          }}
-        }}
       </style>
     </head>
     <body>
@@ -4062,8 +4057,18 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
 
         <div class="firma">
           <p><span class="label">Firma digital:</span></p>
-          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png" alt="Firma digital">
-          <p style="font-size:13px; color:#4b5563;">Documento firmado electrónicamente conforme Ley 25.506.</p>
+
+          {f'<img src="{firma_url}" alt="Firma del profesional">' 
+            if firma_url 
+            else '<p><i>El profesional no cargó su firma digital</i></p>'}
+
+          <p style="font-size:13px; color:#4b5563;">
+            Firmado electrónicamente conforme Ley 25.506 y Ley 27.553.
+          </p>
+
+          <p style="font-size:13px; color:#4b5563;">
+            Fecha de firma: {datetime.now().strftime("%d/%m/%Y %H:%M")}
+          </p>
         </div>
 
         <div class="qr">
@@ -4076,6 +4081,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
     </body>
     </html>
     """
+
     return HTMLResponse(html)
 
 
