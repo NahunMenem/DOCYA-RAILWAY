@@ -3113,14 +3113,17 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     cur.execute("""
         SELECT c.id, c.paciente_uuid, c.medico_id, c.estado, c.motivo, c.direccion, 
                c.lat, c.lng, c.creado_en,
-               m.full_name, m.matricula
+               m.full_name, m.matricula,
+               m.tipo   -- 👈🔥 AGREGADO
         FROM consultas c
         LEFT JOIN medicos m ON c.medico_id = m.id
         WHERE c.id = %s
     """, (consulta_id,))
+    
     row = cur.fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
+    
     return {
         "id": row[0],
         "paciente_uuid": row[1],
@@ -3130,10 +3133,12 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "direccion": row[5],
         "lat": row[6],
         "lng": row[7],
-        "creado_en": format_datetime_arg(row[8]),   # 👈
+        "creado_en": format_datetime_arg(row[8]),
         "medico_nombre": row[9],
         "medico_matricula": row[10],
+        "tipo": row[11],   # 👈🔥 DEVUELVE TIPO AL PACIENTE
     }
+
 
 
 #valoraciones medicos -------------------------------------------------------------------------------
