@@ -2524,14 +2524,14 @@ def obtener_direccion(user_id: UUID, db=Depends(get_db)):
 
 
 # ====================================================
-# 💊 GENERAR RECETA PDF PROFESIONAL
+# 💊 GENERAR RECETA PDF PROFESIONAL (CORREGIDO)
 # ====================================================
-from fastapi import Form, UploadFile, File
+from fastapi import Form
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 from reportlab.lib import colors
-import io, qrcode
+import io, qrcode, requests
 from datetime import datetime
 
 @app.post("/consultas/{consulta_id}/receta_pdf")
@@ -2541,23 +2541,31 @@ async def generar_receta_pdf(
     paciente_uuid: str = Form(...),
     obra_social: str = Form(""),
     nro_credencial: str = Form(""),
-    diagnostico: str = Form(""),
-    firma: UploadFile = File(None)
+    diagnostico: str = Form("")
 ):
     try:
         # Buscar datos del médico y paciente
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
-        cur.execute("SELECT full_name, matricula, especialidad FROM medicos WHERE id=%s", (medico_id,))
+
+        cur.execute("""
+            SELECT full_name, matricula, especialidad, firma_url
+            FROM medicos WHERE id=%s
+        """, (medico_id,))
         medico = cur.fetchone()
-        cur.execute("SELECT full_name, dni, fecha_nacimiento FROM users WHERE id=%s", (paciente_uuid,))
+
+        cur.execute("""
+            SELECT full_name, dni, fecha_nacimiento
+            FROM users WHERE id=%s
+        """, (paciente_uuid,))
         paciente = cur.fetchone()
+
         conn.close()
 
         if not medico or not paciente:
             raise Exception("Datos de médico o paciente no encontrados")
 
-        medico_nombre, matricula, especialidad = medico
+        medico_nombre, matricula, especialidad, firma_url = medico
         paciente_nombre, paciente_dni, paciente_nac = paciente
 
         # Crear PDF
@@ -2565,9 +2573,12 @@ async def generar_receta_pdf(
         c = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
 
-        # Fondo y encabezado
+        # ------------------------------------------------------
+        # ENCABEZADO
+        # ------------------------------------------------------
         c.setFillColorRGB(1, 1, 1)
         c.rect(0, 0, width, height, fill=1)
+
         c.drawImage(
             "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png",
             40, height - 90, width=140, preserveAspectRatio=True, mask='auto'
@@ -2577,82 +2588,114 @@ async def generar_receta_pdf(
         c.setFillColor(colors.HexColor("#14B8A6"))
         c.drawString(200, height - 70, "Receta Médica Digital")
 
-        # Línea divisoria
         c.setStrokeColor(colors.HexColor("#14B8A6"))
-        c.setLineWidth(1)
         c.line(40, height - 95, width - 40, height - 95)
 
-        # Datos del médico
+        # ------------------------------------------------------
+        # DATOS DEL PROFESIONAL
+        # ------------------------------------------------------
         c.setFillColor(colors.black)
         c.setFont("Helvetica-Bold", 12)
         c.drawString(40, height - 120, f"Médico: {medico_nombre}")
+
         c.setFont("Helvetica", 11)
         c.drawString(40, height - 135, f"Especialidad: {especialidad}")
         c.drawString(40, height - 150, f"Matrícula: {matricula}")
-        c.drawString(40, height - 165, f"Fecha: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+        c.drawString(40, height - 165, f"Fecha de emisión: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
-        # Datos del paciente
-        y = height - 200
+        # ------------------------------------------------------
+        # DATOS DEL PACIENTE
+        # ------------------------------------------------------
+        y = height - 205
         c.setFont("Helvetica-Bold", 12)
         c.drawString(40, y, "Paciente:")
+
         c.setFont("Helvetica", 11)
         c.drawString(120, y, f"{paciente_nombre}")
+
         y -= 18
         c.drawString(40, y, f"DNI: {paciente_dni or '—'}")
         c.drawString(200, y, f"Fecha nac.: {paciente_nac.strftime('%d/%m/%Y') if paciente_nac else '—'}")
+
         y -= 18
         c.drawString(40, y, f"Obra social: {obra_social or '—'}")
         c.drawString(250, y, f"Credencial: {nro_credencial or '—'}")
 
-        # Diagnóstico
+        # ------------------------------------------------------
+        # DIAGNOSTICO
+        # ------------------------------------------------------
         y -= 35
         c.setFont("Helvetica-Bold", 12)
         c.drawString(40, y, "Diagnóstico:")
+
         y -= 18
         c.setFont("Helvetica", 11)
         c.drawString(60, y, diagnostico or "—")
 
-        # Medicamentos
+        # ------------------------------------------------------
+        # MEDICAMENTOS
+        # ------------------------------------------------------
         y -= 35
         c.setFont("Helvetica-Bold", 12)
         c.drawString(40, y, "Rp / Indicaciones:")
-        y -= 20
 
-        # Consultar medicamentos de la receta
+        y -= 20
         conn = psycopg2.connect(DATABASE_URL, sslmode="require")
         cur = conn.cursor()
+
         cur.execute("""
             SELECT nombre, dosis, frecuencia, duracion
             FROM receta_items ri
             JOIN recetas r ON r.id = ri.receta_id
-            WHERE r.consulta_id = %s AND r.medico_id = %s
+            WHERE r.consulta_id=%s AND r.medico_id=%s
         """, (consulta_id, medico_id))
+
         medicamentos = cur.fetchall()
         conn.close()
 
         c.setFont("Helvetica", 11)
+
         for m in medicamentos:
             y -= 18
-            if y < 100:  # salto de página si se llena
+            if y < 100:
                 c.showPage()
                 y = height - 100
-            c.drawString(60, y, f"- {m[0]}  ({m[1]}), {m[2]}, {m[3]}")
+            c.drawString(60, y, f"- {m[0]} ({m[1]}), {m[2]}, {m[3]}")
 
-        # Firma
+        # ------------------------------------------------------
+        # FIRMA DEL MÉDICO
+        # ------------------------------------------------------
         y -= 60
-        if firma:
-            firma_bytes = await firma.read()
-            firma_img = ImageReader(io.BytesIO(firma_bytes))
-            c.drawImage(firma_img, 60, y - 20, width=160, height=60, mask="auto")
-        c.setFont("Helvetica", 10)
-        c.drawString(60, y - 30, "Firma digital del profesional")
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(40, y, "Firma electrónica del profesional:")
 
-        # QR con link de verificación
+        if firma_url:
+            try:
+                response = requests.get(firma_url)
+                img = ImageReader(io.BytesIO(response.content))
+                c.drawImage(img, 40, y - 70, width=180, height=70, mask='auto')
+            except:
+                c.setFont("Helvetica-Oblique", 10)
+                c.drawString(40, y - 50, "(Error cargando la firma digital)")
+        else:
+            c.setFont("Helvetica-Oblique", 10)
+            c.drawString(40, y - 50, "(El profesional no cargó su firma digital)")
+
+        c.setFont("Helvetica", 10)
+        c.drawString(40, y - 95, f"{medico_nombre} – Matrícula: {matricula}")
+        c.drawString(40, y - 110, "Firmado electrónicamente según Ley 25.506 y Ley 27.553")
+        c.drawString(40, y - 125, f"Fecha de firma: {datetime.now().strftime('%d/%m/%Y %H:%M')}")
+
+        # ------------------------------------------------------
+        # QR
+        # ------------------------------------------------------
         qr_data = f"https://docya-railway-production.up.railway.app/ver_receta/{consulta_id}"
         qr_img = qrcode.make(qr_data)
+
         qr_buf = io.BytesIO()
         qr_img.save(qr_buf)
         qr_buf.seek(0)
+
         c.drawImage(ImageReader(qr_buf), width - 150, 90, width=100, height=100)
         c.setFont("Helvetica", 8)
         c.drawString(width - 150, 80, "Verificar autenticidad")
@@ -2661,7 +2704,9 @@ async def generar_receta_pdf(
         c.save()
         buffer.seek(0)
 
-        # Subir a Cloudinary
+        # ------------------------------------------------------
+        # SUBIR A CLOUDINARY
+        # ------------------------------------------------------
         result = cloudinary.uploader.upload(
             buffer,
             resource_type="raw",
@@ -2671,19 +2716,23 @@ async def generar_receta_pdf(
             format="pdf"
         )
 
-        return {"status": "ok", "consulta_id": consulta_id, "pdf_url": result.get("secure_url")}
+        return {
+            "status": "ok",
+            "consulta_id": consulta_id,
+            "pdf_url": result.get("secure_url")
+        }
 
     except Exception as e:
         return {"error": str(e)}
 
 
 
+
 # ====================================================
-# 💾 GENERAR PDF DESDE HTML (receta verificada)
+# 💾 GENERAR PDF DESDE HTML (receta verificada) – CORREGIDO
 # ====================================================
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
-
 import tempfile
 
 @app.post("/consultas/{consulta_id}/receta_pdf_html")
@@ -2701,6 +2750,7 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         WHERE c.id = %s
     """, (consulta_id,))
     receta = cur.fetchone()
+
     if not receta:
         raise HTTPException(status_code=404, detail="Receta no encontrada")
 
@@ -2711,6 +2761,12 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         paciente_nombre, paciente_dni
     ) = receta
 
+    # Obtener firma del médico
+    cur.execute("SELECT firma_url FROM medicos WHERE id = %s", (medico_id,))
+    firma_row = cur.fetchone()
+    firma_url = firma_row[0] if firma_row and firma_row[0] else None
+
+    # Medicamentos
     cur.execute("""
         SELECT nombre, dosis, frecuencia, duracion
         FROM receta_items ri
@@ -2816,9 +2872,11 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         </ul>
 
         <div class="firma">
-            <p><b>Firma digital:</b></p>
-            <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/firma_docya_1_sjgxop.png">
-            <p>Documento firmado electrónicamente conforme Ley 25.506.</p>
+            <p><b>Firma electrónica del profesional:</b></p>
+            {f'<img src="{firma_url}">' if firma_url else '<p><i>El profesional no cargó firma digital</i></p>'}
+            <p><b>{medico_nombre}</b> – Matrícula: {matricula}</p>
+            <p>Firmado electrónicamente según Ley 25.506 y Ley 27.553.</p>
+            <p>Fecha de firma: {datetime.now().strftime("%d/%m/%Y %H:%M")}</p>
         </div>
 
         <div class="qr">
@@ -2835,13 +2893,10 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
 
     # Convertir HTML a PDF
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
-        HTML(string=html).write_pdf(tmp_pdf.name, stylesheets=[
-            CSS(string="body { font-family: Helvetica, sans-serif; }")
-        ])
+        HTML(string=html).write_pdf(tmp_pdf.name)
         tmp_pdf.seek(0)
         pdf_bytes = tmp_pdf.read()
 
-    # Subir a Cloudinary
     result = cloudinary.uploader.upload(
         io.BytesIO(pdf_bytes),
         resource_type="raw",
