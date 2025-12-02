@@ -2407,19 +2407,49 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
 def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
     project_id = service_account_info["project_id"]
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+
     headers = {
         "Authorization": f"Bearer {get_access_token()}",
         "Content-Type": "application/json; UTF-8",
     }
+
     payload = {
         "message": {
             "token": fcm_token,
-            "notification": {"title": titulo, "body": cuerpo},
-            "data": data,
+
+            # Notificación visible
+            "notification": {
+                "title": titulo,
+                "body": cuerpo,
+            },
+
+            # Config Android (OBLIGATORIO)
+            "android": {
+                "priority": "high",
+                "notification": {
+                    "sound": "default",
+                    "channel_id": "default_channel_id",
+                }
+            },
+
+            # Config iOS opcional
+            "apns": {
+                "payload": {
+                    "aps": {
+                        "alert": {"title": titulo, "body": cuerpo},
+                        "sound": "default"
+                    }
+                }
+            },
+
+            # DATOS personalizados
+            "data": {k: str(v) for k, v in data.items()},
         }
     }
+
     r = requests.post(url, headers=headers, json=payload)
     print("📤 Push enviado:", r.status_code, r.text)
+
 
 # --- Endpoint para testear notificación push ---
 @app.post("/test_push/{medico_id}")
