@@ -263,6 +263,26 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/users/{user_id}/fcm_token")
+def guardar_fcm_token_paciente(user_id: str, data: dict, db=Depends(get_db)):
+    fcm_token = data.get("fcm_token")
+    if not fcm_token:
+        return {"detail": "Token FCM faltante"}, 400
+
+    cur = db.cursor()
+    try:
+        cur.execute("""
+            UPDATE users
+            SET fcm_token = %s
+            WHERE id = %s
+        """, (fcm_token, user_id))
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return {"detail": f"Error guardando token: {e}"}, 500
+
+    return {"ok": True, "message": "Token actualizado"}
+    
 
 # ====================================================
 # 📸 ENDPOINT: Subir foto de perfil del paciente
