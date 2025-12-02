@@ -4124,7 +4124,8 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                         INSERT INTO mensajes_chat (consulta_id, remitente_tipo, remitente_id, mensaje)
                         VALUES (%s,%s,%s,%s) RETURNING id, creado_en
                     """, (consulta_id, remitente_tipo, remitente_id, mensaje))
-                    row = cur.fetchone(); conn.commit()
+                    row = cur.fetchone()
+                    conn.commit()
                 except Exception as e:
                     print(f"❌ Error guardando en DB: {e}")
                     conn.rollback()
@@ -4146,8 +4147,11 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                     except Exception as e:
                         print(f"⚠️ Error enviando a cliente: {e}")
 
-                # 🔔 Notificación push al otro participante
+                # --------------------------------------------------------
+                # 🔔 NOTIFICACIÓN PUSH — FIX DEFINITIVO
+                # --------------------------------------------------------
                 try:
+                    # ------------ Paciente -> Profesional ------------
                     if remitente_tipo == "paciente":
                         cur.execute("""
                             SELECT m.fcm_token
@@ -4156,14 +4160,9 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                             WHERE c.id = %s
                         """, (consulta_id,))
                         row_push = cur.fetchone()
-                        if row_push and row_push[0]:
-                            enviar_push(
-                                row_push[0],
-                                "💬 Nuevo mensaje de paciente",
-                                mensaje[:80],
-                                {"tipo": "nuevo_mensaje", "consulta_id": str(consulta_id), "remitente_id": remitente_id, "mensaje": mensaje}
-                            )
-                    else:  # médico/enfermero → notificar paciente
+
+                    # ------------ Profesional -> Paciente ------------
+                    else:
                         cur.execute("""
                             SELECT u.fcm_token
                             FROM consultas c
@@ -4171,13 +4170,21 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                             WHERE c.id = %s
                         """, (consulta_id,))
                         row_push = cur.fetchone()
-                        if row_push and row_push[0]:
-                            enviar_push(
-                                row_push[0],
-                                "💬 Nuevo mensaje del profesional",
-                                mensaje[:80],
-                                {"tipo": "nuevo_mensaje", "consulta_id": str(consulta_id), "remitente_id": remitente_id, "mensaje": mensaje}
-                            )
+
+                    # Enviar push si existe token
+                    if row_push and row_push[0]:
+                        enviar_push(
+                            row_push[0],
+                            "Nuevo mensaje",
+                            mensaje[:80],
+                            {
+                                "tipo": "nuevo_mensaje",
+                                "consulta_id": str(consulta_id),
+                                "remitente_id": str(remitente_id),
+                                "mensaje": mensaje
+                            }
+                        )
+
                 except Exception as e:
                     print(f"⚠️ Error enviando push: {e}")
 
@@ -4193,6 +4200,7 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
             del active_chats[consulta_id]
         cur.close()
         conn.close()
+
 
 @app.get("/consultas/{consulta_id}/chat")
 def historial_chat(consulta_id: int, db=Depends(get_db)):
