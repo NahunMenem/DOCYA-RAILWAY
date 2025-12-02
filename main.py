@@ -4848,4 +4848,50 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
     }
 
 
+# ================================
+# 🚀 TEST PUSH MANUAL (POSTMAN)
+# ================================
+@router.post("/consultas/{consulta_id}/test_push/{paciente_id}")
+async def test_push_manual(consulta_id: int, paciente_id: str, db=Depends(get_db)):
+    """Envía un push de prueba al paciente para verificar sonido, vibración y notificación."""
+
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    # Buscar el token FCM del paciente
+    cur.execute("SELECT full_name, fcm_token FROM users WHERE id = %s", (paciente_id,))
+    user = cur.fetchone()
+
+    if not user:
+        return {"ok": False, "error": "Paciente no encontrado"}
+
+    if not user.get("fcm_token"):
+        return {"ok": False, "error": "El paciente NO tiene fcm_token guardado"}
+
+    token = user["fcm_token"]
+    nombre = user["full_name"]
+
+    # Crear payload de prueba
+    data_push = {
+        "tipo": "nuevo_mensaje",
+        "consulta_id": str(consulta_id),
+        "remitente_id": "TEST",
+        "mensaje": f"Mensaje de prueba para {nombre}"
+    }
+
+    # Enviar push usando tu función real
+    response = enviar_push(
+        token,
+        "Nuevo mensaje (TEST)",
+        f"Hola {nombre}, este es un mensaje de prueba.",
+        data=data_push
+    )
+
+    return {
+        "ok": True,
+        "consulta_id": consulta_id,
+        "paciente_id": paciente_id,
+        "token_usado": token,
+        "firebase_response": response,
+        "mensaje_enviado": data_push
+    }
 
