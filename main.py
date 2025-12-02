@@ -4161,7 +4161,7 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                                 row_push[0],
                                 "💬 Nuevo mensaje de paciente",
                                 mensaje[:80],
-                                {"tipo": "chat", "consulta_id": str(consulta_id)}
+                                {"tipo": "nuevo_mensaje", "consulta_id": str(consulta_id), "remitente_id": remitente_id, "mensaje": mensaje}
                             )
                     else:  # médico/enfermero → notificar paciente
                         cur.execute("""
@@ -4176,7 +4176,7 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                                 row_push[0],
                                 "💬 Nuevo mensaje del profesional",
                                 mensaje[:80],
-                                {"tipo": "chat", "consulta_id": str(consulta_id)}
+                                {"tipo": "nuevo_mensaje", "consulta_id": str(consulta_id), "remitente_id": remitente_id, "mensaje": mensaje}
                             )
                 except Exception as e:
                     print(f"⚠️ Error enviando push: {e}")
