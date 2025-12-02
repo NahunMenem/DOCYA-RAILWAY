@@ -4851,11 +4851,32 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 # ================================
 # 🚀 TEST PUSH MANUAL (POSTMAN)
 # ================================
+from google.oauth2 import service_account
+import google.auth.transport.requests
+
+def get_firebase_access_token():
+    """Genera un Access Token válido usando service-account.json"""
+    try:
+        credentials = service_account.Credentials.from_service_account_file(
+            "service-account.json",
+            scopes=["https://www.googleapis.com/auth/firebase.messaging"]
+        )
+
+        request = google.auth.transport.requests.Request()
+        credentials.refresh(request)
+
+        return credentials.token
+    except Exception as e:
+        print("❌ Error generando access token:", e)
+        return None
+
+# ================================
+# 🚀 TEST PUSH MANUAL (POSTMAN)
+# ================================
 @app.post("/consultas/{consulta_id}/test_push/{paciente_id}")
 async def test_push(consulta_id: int, paciente_id: str, db=Depends(get_db)):
     print("🔥 Test push recibido desde Postman")
 
-    # LIMPIAR ID — SACA ENTERS, ESPACIOS, SALTOS
     paciente_id = paciente_id.strip()
 
     cur = db.cursor()
@@ -4868,7 +4889,12 @@ async def test_push(consulta_id: int, paciente_id: str, db=Depends(get_db)):
     token = row[0]
     print("📡 Enviando push a:", token)
 
-    # Payload de prueba
+    # ======== ACCESS TOKEN ========
+    google_access_token = get_firebase_access_token()
+    if not google_access_token:
+        return {"error": "No se pudo generar el Google Access Token"}
+
+    # ======== PAYLOAD ========
     message = {
         "message": {
             "token": token,
