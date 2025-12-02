@@ -4855,8 +4855,10 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 async def test_push(consulta_id: int, paciente_id: str, db=Depends(get_db)):
     print("🔥 Test push recibido desde Postman")
 
-    cur = db.cursor()
+    # LIMPIAR ID — SACA ENTERS, ESPACIOS, SALTOS
+    paciente_id = paciente_id.strip()
 
+    cur = db.cursor()
     cur.execute("SELECT fcm_token FROM users WHERE id = %s", (paciente_id,))
     row = cur.fetchone()
 
@@ -4883,7 +4885,6 @@ async def test_push(consulta_id: int, paciente_id: str, db=Depends(get_db)):
         }
     }
 
-    # Enviar push
     url = "https://fcm.googleapis.com/v1/projects/docya-pro/messages:send"
     headers = {
         "Content-Type": "application/json",
@@ -4891,7 +4892,7 @@ async def test_push(consulta_id: int, paciente_id: str, db=Depends(get_db)):
     }
 
     r = requests.post(url, headers=headers, data=json.dumps(message))
-
     print("📬 Respuesta FCM:", r.text)
 
     return {"ok": True, "fcm_response": r.text}
+
