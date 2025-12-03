@@ -1415,28 +1415,6 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     }
 
 
-@app.get("/consultas/{consulta_id}/eta")
-def obtener_eta(consulta_id: int, db=Depends(get_db)):
-    cur = db.cursor()
-
-    cur.execute("""
-        SELECT tiempo_estimado_min
-        FROM consultas
-        WHERE id = %s
-    """, (consulta_id,))
-
-    row = cur.fetchone()
-
-    if not row:
-        return {"tiempo_estimado_min": None}
-
-    # 🚨 Si está en NULL, lo devolvemos como None sin romper nada
-    if row[0] is None:
-        return {"tiempo_estimado_min": None}
-
-    # Si tiene valor, lo convertimos a float
-    return {"tiempo_estimado_min": float(row[0])}
-
 
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
@@ -3426,21 +3404,79 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
                 longitud = %s,
                 updated_at = %s,
                 ultimo_ping = %s
-
             WHERE id = %s
             RETURNING id, disponible;
         """, (data.lat, data.lng, ahora_arg, ahora_arg, medico_id))
 
         row = cur.fetchone()
-        db.commit()
-        cur.close()
 
         if not row:
+            db.commit()
+            cur.close()
             raise HTTPException(status_code=404, detail="Médico no encontrado")
 
         disponible_actual = row[1]
 
         print(f"📍 Médico {medico_id} → lat/lng actualizado (disponible={disponible_actual})")
+
+        # -------------------------------------------------------
+        # 🚑 NUEVO: BUSCAR CONSULTA PENDIENTE / EN CAMINO DEL MÉDICO
+        # -------------------------------------------------------
+        cur.execute("""
+            SELECT id, lat, lng
+            FROM consultas
+            WHERE medico_id = %s
+              AND estado IN ('pendiente','aceptada','en_camino')
+            ORDER BY creado_en DESC
+            LIMIT 1;
+        """, (medico_id,))
+
+        consulta = cur.fetchone()
+
+        if consulta:
+            consulta_id, lat_pac, lng_pac = consulta
+            print(f"📦 Consulta activa del médico {medico_id}: {consulta_id}")
+
+            # -------------------------------------------------------
+            # 🚑 CÁLCULO DE ETA (Google Directions)
+            # -------------------------------------------------------
+            try:
+                if lat_pac is not None and lng_pac is not None:
+                    directions_url = (
+                        f"https://maps.googleapis.com/maps/api/directions/json?"
+                        f"origin={data.lat},{data.lng}&destination={lat_pac},{lng_pac}"
+                        f"&mode=driving&departure_time=now&traffic_model=best_guess"
+                        f"&units=metric&key={GOOGLE_API_KEY}"
+                    )
+
+                    resp = requests.get(directions_url)
+                    gdata = resp.json()
+
+                    tiempo_min = None
+                    if gdata.get("status") == "OK":
+                        leg = gdata["routes"][0]["legs"][0]
+                        tiempo_min = (
+                            leg.get("duration_in_traffic", leg["duration"])["value"] / 60
+                        )
+
+                        print(f"⏱ ETA para consulta {consulta_id}: {tiempo_min:.1f} min")
+
+                        # Guardar ETA en la consulta
+                        cur.execute("""
+                            UPDATE consultas
+                            SET tiempo_estimado_min = %s,
+                                medico_lat = %s,
+                                medico_lng = %s
+                            WHERE id = %s
+                        """, (tiempo_min, data.lat, data.lng, consulta_id))
+
+            except Exception as e:
+                print("⚠️ Error calculando ETA:", e)
+
+        # -------------------------------------------------------
+
+        db.commit()
+        cur.close()
 
         return {
             "ok": True,
@@ -3448,7 +3484,8 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             "lat": data.lat,
             "lng": data.lng,
             "disponible": disponible_actual,
-            "ultimo_ping": ahora_arg.isoformat()
+            "ultimo_ping": ahora_arg.isoformat(),
+            "consulta_id": consulta[0] if consulta else None,
         }
 
     except Exception as e:
