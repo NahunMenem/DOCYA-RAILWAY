@@ -1415,7 +1415,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     }
 
 
-@router.get("/consultas/{consulta_id}/eta")
+@app.get("/consultas/{consulta_id}/eta")
 def obtener_eta(consulta_id: int, db = Depends(get_db)):
     cur = db.cursor()
 
