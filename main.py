@@ -1415,6 +1415,23 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     }
 
 
+@router.get("/consultas/{consulta_id}/eta")
+def obtener_eta(consulta_id: int, db = Depends(get_db)):
+    cur = db.cursor()
+
+    cur.execute("""
+        SELECT tiempo_estimado_min
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+    
+    row = cur.fetchone()
+
+    if not row:
+        return {"tiempo_estimado_min": None}
+
+    return {"tiempo_estimado_min": float(row[0])}
+
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
 @app.post("/consultas/{consulta_id}/iniciar")
