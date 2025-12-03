@@ -1416,7 +1416,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
 
 
 @app.get("/consultas/{consulta_id}/eta")
-def obtener_eta(consulta_id: int, db = Depends(get_db)):
+def obtener_eta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
     cur.execute("""
@@ -1424,13 +1424,19 @@ def obtener_eta(consulta_id: int, db = Depends(get_db)):
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
-    
+
     row = cur.fetchone()
 
     if not row:
         return {"tiempo_estimado_min": None}
 
+    # 🚨 Si está en NULL, lo devolvemos como None sin romper nada
+    if row[0] is None:
+        return {"tiempo_estimado_min": None}
+
+    # Si tiene valor, lo convertimos a float
     return {"tiempo_estimado_min": float(row[0])}
+
 
 
 # --- Aceptar / Rechazar / En camino / Llegó / Finalizar ---
