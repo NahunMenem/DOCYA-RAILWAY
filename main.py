@@ -1411,7 +1411,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "estado": estado,
         "tipo": tipo_profesional,    # 👈🔥 AHORA LLEGA A FLUTTER
         "distancia_km": round(distancia_km, 2) if distancia_km else None,
-        "tiempo_estimado_min": int(round(tiempo_min)) if tiempo_min else None
+        "tiempo_estimado_min": int(round(tiempo_min)) if tiempo_min is not None else 0
     }
 
 
