@@ -2341,7 +2341,7 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         if lat_med is None or lng_med is None:
             return {"error": "Faltan coordenadas"}
 
-        # 1️⃣ Guardar ubicación actual del médico en la tabla consultas
+        # 1️⃣ Guardar ubicación actual del médico
         cur.execute("""
             UPDATE consultas
             SET medico_lat = %s,
@@ -2350,7 +2350,7 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
             WHERE id = %s
         """, (lat_med, lng_med, consulta_id))
 
-        # 2️⃣ Traer ubicación del paciente
+        # 2️⃣ Traer la ubicación del paciente
         cur.execute("""
             SELECT lat, lng
             FROM consultas
@@ -2358,14 +2358,19 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         """, (consulta_id,))
         
         row = cur.fetchone()
+
+        # Si la consulta no existe o no tiene ubicación del paciente
         if not row or row[0] is None or row[1] is None:
             db.commit()
-            return {"status": "ubicacion guardada", "eta": None}
+            return {
+                "status": "ubicacion guardada",
+                "eta": None
+            }
 
         lat_pac, lng_pac = float(row[0]), float(row[1])
 
         # =============================
-        # 🚀 3️⃣ Calcular ETA usando Google
+        # 🚀 3️⃣ Calcular ETA con Google
         # =============================
         directions_url = (
             f"https://maps.googleapis.com/maps/api/directions/json?"
@@ -2378,13 +2383,14 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         data = resp.json()
 
         tiempo_min = None
+
         if data.get("status") == "OK":
             leg = data["routes"][0]["legs"][0]
-            tiempo_min = (
-                leg.get("duration_in_traffic", leg["duration"])["value"] / 60
-            )
+            tiempo_min = leg.get("duration_in_traffic", leg["duration"])["value"] / 60
+        else:
+            print("⚠️ Google Directions ERROR:", data.get("status"))
 
-        # 4️⃣ Guardar ETA calculado
+        # 4️⃣ Guardar ETA actualizado en la base de datos
         cur.execute("""
             UPDATE consultas
             SET tiempo_estimado_min = %s
