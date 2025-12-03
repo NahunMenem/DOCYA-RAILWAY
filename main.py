@@ -4806,7 +4806,7 @@ from fastapi import APIRouter, HTTPException, Depends
 
 router = APIRouter()
 
-ACCESS_TOKEN = "TEST-1283715201688491-111914-f6b44560371df235c8338df2e1deffdb-69224828"      # ⚠ Cambiar para producción
+ACCESS_TOKEN = "APP_USR-3994751004650593-120308-10836059a11ea7ee383226aab5aba42e-3016724569"      # ⚠ Cambiar para producción
 
 
 # ============================================================
