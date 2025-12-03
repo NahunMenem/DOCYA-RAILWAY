@@ -1744,13 +1744,17 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
 def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
-        SELECT c.id AS consulta_id,
-               c.creado_en AS fecha_consulta,
-               c.motivo,
-               c.estado,
-               m.full_name AS medico,
-               n.contenido AS historia_clinica,
-               n.creado_en AS fecha_nota
+        SELECT 
+            c.id AS consulta_id,
+            c.creado_en AS fecha_consulta,
+            c.motivo,
+            c.estado,
+
+            m.full_name AS medico_nombre,
+            m.tipo AS medico_tipo,   -- medico / enfermero
+
+            n.contenido AS historia_clinica,
+            n.creado_en AS fecha_nota
         FROM consultas c
         LEFT JOIN notas_medicas n ON c.id = n.consulta_id
         LEFT JOIN medicos m ON c.medico_id = m.id
@@ -1759,18 +1763,45 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
     """, (paciente_uuid,))
     rows = cur.fetchall()
 
-    return [
-        {
-            "consulta_id": r[0],
-            "fecha_consulta": format_datetime_arg(r[1]),
-            "motivo": r[2],
-            "estado": r[3],
-            "medico": r[4],
-            "historia_clinica": r[5],
-            "fecha_nota": format_datetime_arg(r[6]) if r[6] else None
-        }
-        for r in rows
-    ]
+    lista = []
+
+    for r in rows:
+        consulta_id = r[0]
+        fecha_consulta = r[1]
+        motivo = r[2]
+        estado = r[3]
+        nombre = r[4]
+        tipo = (r[5] or "").lower()
+        historia = r[6]
+        fecha_nota = r[7]
+
+        # ============================
+        # 🟢 Prefijo automático
+        # ============================
+        if tipo == "medico":
+            prefijo = "Dr."
+        elif tipo == "enfermero":
+            prefijo = "Enfermero/a"
+        else:
+            prefijo = ""
+
+        nombre_completo = f"{prefijo} {nombre}" if prefijo else nombre
+
+        lista.append({
+            "consulta_id": consulta_id,
+            "fecha_consulta": format_datetime_arg(fecha_consulta),
+            "motivo": motivo,
+            "estado": estado,
+
+            "medico": nombre_completo,       # ← ya viene listo para Flutter
+            "tipo_profesional": tipo,
+
+            "historia_clinica": historia,
+            "fecha_nota": format_datetime_arg(fecha_nota) if fecha_nota else None
+        })
+
+    return lista
+
 
 
 # --- Certificados ---
