@@ -1759,6 +1759,7 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
         LEFT JOIN notas_medicas n ON c.id = n.consulta_id
         LEFT JOIN medicos m ON c.medico_id = m.id
         WHERE c.paciente_uuid = %s
+          AND c.estado = 'finalizada'          -- 🔥 FILTRO SOLO FINALIZADAS
         ORDER BY c.creado_en DESC
     """, (paciente_uuid,))
     rows = cur.fetchall()
@@ -1770,37 +1771,36 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
         fecha_consulta = r[1]
         motivo = r[2]
         estado = r[3]
-        nombre = r[4]
+        nombre = r[4] or ""
         tipo = (r[5] or "").lower()
         historia = r[6]
         fecha_nota = r[7]
 
         # ============================
-        # 🟢 Prefijo automático
+        # 🟢 PREFIJO GENÉRICO
         # ============================
         if tipo == "medico":
-            prefijo = "Dr."
+            prefijo = "Dr/a."
         elif tipo == "enfermero":
-            prefijo = "Enfermero/a"
+            prefijo = "Enfermero/a."
         else:
             prefijo = ""
 
-        nombre_completo = f"{prefijo} {nombre}" if prefijo else nombre
+        nombre_completo = f"{prefijo} {nombre}".strip()
 
         lista.append({
             "consulta_id": consulta_id,
             "fecha_consulta": format_datetime_arg(fecha_consulta),
             "motivo": motivo,
             "estado": estado,
-
-            "medico": nombre_completo,       # ← ya viene listo para Flutter
+            "medico": nombre_completo,
             "tipo_profesional": tipo,
-
             "historia_clinica": historia,
             "fecha_nota": format_datetime_arg(fecha_nota) if fecha_nota else None
         })
 
     return lista
+
 
 
 
