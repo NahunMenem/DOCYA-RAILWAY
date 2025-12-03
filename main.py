@@ -2330,6 +2330,78 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
     }
 
 
+@app.post("/consultas/{consulta_id}/ubicacion_medico")
+def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db)):
+    cur = db.cursor()
+
+    try:
+        lat_med = datos.get("lat")
+        lng_med = datos.get("lng")
+
+        if lat_med is None or lng_med is None:
+            return {"error": "Faltan coordenadas"}
+
+        # 1️⃣ Guardar ubicación actual del médico en la tabla consultas
+        cur.execute("""
+            UPDATE consultas
+            SET medico_lat = %s,
+                medico_lng = %s,
+                actualizado_en = NOW()
+            WHERE id = %s
+        """, (lat_med, lng_med, consulta_id))
+
+        # 2️⃣ Traer ubicación del paciente
+        cur.execute("""
+            SELECT lat, lng
+            FROM consultas
+            WHERE id = %s
+        """, (consulta_id,))
+        
+        row = cur.fetchone()
+        if not row or row[0] is None or row[1] is None:
+            db.commit()
+            return {"status": "ubicacion guardada", "eta": None}
+
+        lat_pac, lng_pac = float(row[0]), float(row[1])
+
+        # =============================
+        # 🚀 3️⃣ Calcular ETA usando Google
+        # =============================
+        directions_url = (
+            f"https://maps.googleapis.com/maps/api/directions/json?"
+            f"origin={lat_med},{lng_med}&destination={lat_pac},{lng_pac}"
+            f"&mode=driving&departure_time=now&traffic_model=best_guess"
+            f"&units=metric&key={GOOGLE_API_KEY}"
+        )
+
+        resp = requests.get(directions_url)
+        data = resp.json()
+
+        tiempo_min = None
+        if data.get("status") == "OK":
+            leg = data["routes"][0]["legs"][0]
+            tiempo_min = (
+                leg.get("duration_in_traffic", leg["duration"])["value"] / 60
+            )
+
+        # 4️⃣ Guardar ETA calculado
+        cur.execute("""
+            UPDATE consultas
+            SET tiempo_estimado_min = %s
+            WHERE id = %s
+        """, (tiempo_min, consulta_id))
+
+        db.commit()
+
+        return {
+            "status": "ok",
+            "eta": tiempo_min
+        }
+
+    except Exception as e:
+        db.rollback()
+        print("❌ Error ETA:", e)
+        return {"error": str(e)}
 
 
 
