@@ -3420,7 +3420,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         print(f"📍 Médico {medico_id} → lat/lng actualizado (disponible={disponible_actual})")
 
         # -------------------------------------------------------
-        # 🚑 NUEVO: BUSCAR CONSULTA PENDIENTE / EN CAMINO DEL MÉDICO
+        # 🚑 BUSCAR CONSULTA ACTIVA PARA ESTE MÉDICO
         # -------------------------------------------------------
         cur.execute("""
             SELECT id, lat, lng
@@ -3437,11 +3437,13 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             consulta_id, lat_pac, lng_pac = consulta
             print(f"📦 Consulta activa del médico {medico_id}: {consulta_id}")
 
+            tiempo_min = None  # valor por default
+
             # -------------------------------------------------------
-            # 🚑 CÁLCULO DE ETA (Google Directions)
+            # 🚑 CALCULAR ETA SOLO SI HAY COORDENADAS DEL PACIENTE
             # -------------------------------------------------------
-            try:
-                if lat_pac is not None and lng_pac is not None:
+            if lat_pac is not None and lng_pac is not None:
+                try:
                     directions_url = (
                         f"https://maps.googleapis.com/maps/api/directions/json?"
                         f"origin={data.lat},{data.lng}&destination={lat_pac},{lng_pac}"
@@ -3452,29 +3454,32 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
                     resp = requests.get(directions_url)
                     gdata = resp.json()
 
-                    tiempo_min = None
                     if gdata.get("status") == "OK":
                         leg = gdata["routes"][0]["legs"][0]
-                        tiempo_min = (
-                            leg.get("duration_in_traffic", leg["duration"])["value"] / 60
-                        )
-
+                        tiempo_min = leg.get("duration_in_traffic", leg["duration"])["value"] / 60
                         print(f"⏱ ETA para consulta {consulta_id}: {tiempo_min:.1f} min")
 
-                        # Guardar ETA en la consulta
-                        cur.execute("""
-                            UPDATE consultas
-                            SET tiempo_estimado_min = %s,
-                                medico_lat = %s,
-                                medico_lng = %s
-                            WHERE id = %s
-                        """, (tiempo_min, data.lat, data.lng, consulta_id))
+                except Exception as e:
+                    print("⚠️ Error calculando ETA:", e)
 
-            except Exception as e:
-                print("⚠️ Error calculando ETA:", e)
+            # -------------------------------------------------------
+            # 📝 GUARDAR SIEMPRE MEDICO_LAT, MEDICO_LNG Y ETA
+            # -------------------------------------------------------
+            cur.execute("""
+                UPDATE consultas
+                SET tiempo_estimado_min = %s,
+                    medico_lat = %s,
+                    medico_lng = %s
+                WHERE id = %s
+            """, (
+                tiempo_min,          # puede ser None → está bien
+                data.lat,
+                data.lng,
+                consulta_id
+            ))
+
 
         # -------------------------------------------------------
-
         db.commit()
         cur.close()
 
@@ -3492,6 +3497,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         db.rollback()
         print(f"⚠️ Error en actualizar_ubicacion: {e}")
         raise HTTPException(status_code=500, detail="Error actualizando ubicación del médico")
+
 
 
 
