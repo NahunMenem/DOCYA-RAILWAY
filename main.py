@@ -4823,13 +4823,39 @@ def get_db():
 # ============================================================
 # 🔵 1) CREAR PREFERENCE DE PAGO
 # ============================================================
-@app.post("/pagos/preautorizar")
-def crear_preference(data: dict, db = Depends(get_db)):
+@app.post("/consultas/confirmar_pago")
+def confirmar_pago(data: dict, db=Depends(get_db)):
+    consulta_id = data["consulta_id"]
+    payment_id = data["payment_id"]
 
-    consulta_id = data.get("consulta_id")
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE consultas
+        SET 
+            payment_id = %s,
+            payment_status = 'authorized',
+            estado = 'pagado_pendiente_de_asignacion'
+        WHERE id = %s
+    """, (payment_id, consulta_id))
+
+    db.commit()
+    cur.close()
+    return {"ok": True}
+
+
+@app.post("/pagos/preautorizar")
+def crear_preference(data: dict, db=Depends(get_db)):
+
+    # -----------------------------------------------
+    # 🔐 1) Datos necesarios desde Flutter
+    # -----------------------------------------------
+    consulta_id = str(data["consulta_id"])   # SIEMPRE en string
     monto = float(data["monto"])
     email = data["email"]
 
+    # -----------------------------------------------
+    # 🔗 2) Endpoint de MercadoPago
+    # -----------------------------------------------
     url = "https://api.mercadopago.com/checkout/preferences"
 
     headers = {
@@ -4837,6 +4863,9 @@ def crear_preference(data: dict, db = Depends(get_db)):
         "Content-Type": "application/json",
     }
 
+    # -----------------------------------------------
+    # 🧠 3) Cuerpo de la operación
+    # -----------------------------------------------
     payload = {
         "items": [
             {
@@ -4847,25 +4876,43 @@ def crear_preference(data: dict, db = Depends(get_db)):
             }
         ],
         "payer": {"email": email},
-        "external_reference": str(consulta_id),
+
+        # 🔥 AHORA SIEMPRE MP RECIBE EL ID REAL DE LA CONSULTA
+        "external_reference": consulta_id,
+
+        # 🔗 Deep Links → Vuelta automática a DocYa
         "back_urls": {
             "success": "docya://pago_exitoso",
             "failure": "docya://pago_fallido",
             "pending": "docya://pago_pendiente"
         },
-        "auto_return": "approved"
+
+        # MP vuelve automáticamente cuando status = approved/authorized
+        "auto_return": "approved",
+
+        # RECOMENDADO por MP para preautorizaciones
+        "payment_methods": {
+            "installments": 1  # 1 cuota
+        }
     }
 
+    # -----------------------------------------------
+    # 🚀 4) Crear preference
+    # -----------------------------------------------
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
         raise HTTPException(status_code=400, detail=r)
 
+    # -----------------------------------------------
+    # 🔥 5) Respuesta a la app
+    # -----------------------------------------------
     return {
         "status": "preference_ok",
         "preference_id": r["id"],
         "init_point": r["init_point"]
     }
+
 
 
 # ============================================================
@@ -5063,14 +5110,26 @@ def crear_consulta_previa(data: dict, db=Depends(get_db)):
 
     cur = db.cursor()
     cur.execute("""
-        INSERT INTO consultas (paciente_uuid, motivo, direccion, lat, lng, tipo, estado, payment_status)
-        VALUES (%s, %s, %s, %s, %s, %s, 'esperando_pago', 'pending')
+        INSERT INTO consultas (
+            paciente_uuid, motivo, direccion, lat, lng,
+            tipo, estado, metodo_pago, payment_status
+        )
+        VALUES (%s, %s, %s, %s, %s, %s, 'esperando_pago', %s, 'pending')
         RETURNING id;
-    """, (paciente_uuid, motivo, direccion, lat, lng, tipo))
+    """, (
+        paciente_uuid,
+        motivo,
+        direccion,
+        lat,
+        lng,
+        tipo,
+        "tarjeta"   # siempre tarjeta en este flujo
+    ))
 
     consulta_id = cur.fetchone()[0]
     db.commit()
     cur.close()
 
     return {"consulta_id": consulta_id}
+
 
