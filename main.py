@@ -5052,76 +5052,25 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 
 
 # ================================
-# 🚀 TEST PUSH MANUAL (POSTMAN)
-# ================================
-from google.oauth2 import service_account
-import google.auth.transport.requests
-
-def get_firebase_access_token():
-    """Genera un Access Token válido usando service-account.json"""
-    try:
-        credentials = service_account.Credentials.from_service_account_file(
-            "service-account.json",
-            scopes=["https://www.googleapis.com/auth/firebase.messaging"]
-        )
-
-        request = google.auth.transport.requests.Request()
-        credentials.refresh(request)
-
-        return credentials.token
-    except Exception as e:
-        print("❌ Error generando access token:", e)
-        return None
-
-# ================================
-# 🚀 TEST PUSH MANUAL (POSTMAN)
-# ================================
-@app.post("/consultas/{consulta_id}/test_push/{paciente_id}")
-async def test_push(consulta_id: int, paciente_id: str, db=Depends(get_db)):
-    print("🔥 Test push recibido desde Postman")
-
-    paciente_id = paciente_id.strip()
+@app.post("/consultas/crear_previa")
+def crear_consulta_previa(data: dict, db=Depends(get_db)):
+    paciente_uuid = data["paciente_uuid"]
+    motivo = data.get("motivo", "")
+    direccion = data["direccion"]
+    lat = data["lat"]
+    lng = data["lng"]
+    tipo = data.get("tipo", "medico")
 
     cur = db.cursor()
-    cur.execute("SELECT fcm_token FROM users WHERE id = %s", (paciente_id,))
-    row = cur.fetchone()
+    cur.execute("""
+        INSERT INTO consultas (paciente_uuid, motivo, direccion, lat, lng, tipo, estado, payment_status)
+        VALUES (%s, %s, %s, %s, %s, %s, 'esperando_pago', 'pending')
+        RETURNING id;
+    """, (paciente_uuid, motivo, direccion, lat, lng, tipo))
 
-    if not row or not row[0]:
-        return {"error": "El paciente no tiene fcm_token"}
+    consulta_id = cur.fetchone()[0]
+    db.commit()
+    cur.close()
 
-    token = row[0]
-    print("📡 Enviando push a:", token)
-
-    # ======== ACCESS TOKEN ========
-    google_access_token = get_firebase_access_token()
-    if not google_access_token:
-        return {"error": "No se pudo generar el Google Access Token"}
-
-    # ======== PAYLOAD ========
-    message = {
-        "message": {
-            "token": token,
-            "data": {
-                "tipo": "nuevo_mensaje",
-                "consulta_id": str(consulta_id),
-                "remitente_id": "999",
-                "mensaje": "🔔 PUSH DE PRUEBA DESDE POSTMAN"
-            },
-            "notification": {
-                "title": "Test Push",
-                "body": "Funciona!"
-            }
-        }
-    }
-
-    url = "https://fcm.googleapis.com/v1/projects/docya-pro/messages:send"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {google_access_token}"
-    }
-
-    r = requests.post(url, headers=headers, data=json.dumps(message))
-    print("📬 Respuesta FCM:", r.text)
-
-    return {"ok": True, "fcm_response": r.text}
+    return {"consulta_id": consulta_id}
 
