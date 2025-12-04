@@ -5279,21 +5279,21 @@ def crear_consulta_previa(data: dict, db = Depends(get_db)):
     lng = data.get("lng")
     tipo = data.get("tipo", "medico")
 
-    # Crear consulta previa sin médico y sin pago todavía
+    # Crear consulta previa sin médico y marcada como pendiente
     cur.execute("""
         INSERT INTO consultas (
             paciente_uuid, medico_id, estado,
             motivo, direccion, lat, lng, tipo,
             metodo_pago,
             mp_preautorizado, mp_capturado,
-            mp_payment_id, mp_status, payment_id
+            mp_payment_id, mp_status
         )
         VALUES (
-            %s, NULL, 'creando',
+            %s, NULL, 'pendiente',
             %s, %s, %s, %s, %s,
             'tarjeta',
-            FALSE, FALSE,
-            NULL, NULL, NULL
+            TRUE, FALSE,
+            NULL, 'pending'
         )
         RETURNING id, creado_en;
     """, (
@@ -5315,6 +5315,5 @@ def crear_consulta_previa(data: dict, db = Depends(get_db)):
         "consulta_id": consulta_id,
         "creado_en": str(creado_en)
     }
-
 
 
