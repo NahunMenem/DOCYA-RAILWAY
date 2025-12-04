@@ -4826,38 +4826,39 @@ def get_db():
 @app.post("/consultas/confirmar_pago")
 def confirmar_pago(data: dict, db=Depends(get_db)):
     consulta_id = data["consulta_id"]
-    payment_id = data.get("payment_id")  # el webhook lo va a actualizar real
+    payment_id = data.get("payment_id", None)
 
     cur = db.cursor()
 
     cur.execute("""
         UPDATE consultas
-        SET payment_id = %s,
-            pagado = TRUE,
-            estado = 'preautorizada'
+        SET mp_preautorizado = TRUE,
+            mp_payment_id = %s,
+            mp_status = 'preauthorized'
         WHERE id = %s
+        RETURNING id;
     """, (payment_id, consulta_id))
 
+    row = cur.fetchone()
     db.commit()
-    cur.close()
 
-    return {"status": "ok", "consulta_id": consulta_id}
+    if not row:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    print(f"💳 Preautorización confirmada para consulta {consulta_id}")
+
+    return {"status": "pago_confirmado"}
+
 
 
 
 @app.post("/pagos/preautorizar")
-def crear_preference(data: dict, db=Depends(get_db)):
+def crear_preference(data: dict, db = Depends(get_db)):
 
-    # -----------------------------------------------
-    # 🔐 1) Datos necesarios desde Flutter
-    # -----------------------------------------------
-    consulta_id = str(data["consulta_id"])   # SIEMPRE en string
+    consulta_id = str(data["consulta_id"])
     monto = float(data["monto"])
     email = data["email"]
 
-    # -----------------------------------------------
-    # 🔗 2) Endpoint de MercadoPago
-    # -----------------------------------------------
     url = "https://api.mercadopago.com/checkout/preferences"
 
     headers = {
@@ -4865,9 +4866,6 @@ def crear_preference(data: dict, db=Depends(get_db)):
         "Content-Type": "application/json",
     }
 
-    # -----------------------------------------------
-    # 🧠 3) Cuerpo de la operación
-    # -----------------------------------------------
     payload = {
         "items": [
             {
@@ -4878,37 +4876,20 @@ def crear_preference(data: dict, db=Depends(get_db)):
             }
         ],
         "payer": {"email": email},
-
-        # 🔥 AHORA SIEMPRE MP RECIBE EL ID REAL DE LA CONSULTA
         "external_reference": consulta_id,
-
-        # 🔗 Deep Links → Vuelta automática a DocYa
         "back_urls": {
             "success": "docya://pago_exitoso",
             "failure": "docya://pago_fallido",
             "pending": "docya://pago_pendiente"
         },
-
-        # MP vuelve automáticamente cuando status = approved/authorized
-        "auto_return": "approved",
-
-        # RECOMENDADO por MP para preautorizaciones
-        "payment_methods": {
-            "installments": 1  # 1 cuota
-        }
+        "auto_return": "approved"
     }
 
-    # -----------------------------------------------
-    # 🚀 4) Crear preference
-    # -----------------------------------------------
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
         raise HTTPException(status_code=400, detail=r)
 
-    # -----------------------------------------------
-    # 🔥 5) Respuesta a la app
-    # -----------------------------------------------
     return {
         "status": "preference_ok",
         "preference_id": r["id"],
@@ -5105,24 +5086,34 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 def crear_consulta_previa(data: dict, db=Depends(get_db)):
     cur = db.cursor()
 
-    # Creamos una consulta SOLO para asociar payment_id más tarde
     cur.execute("""
         INSERT INTO consultas (
             paciente_uuid,
             motivo,
             direccion,
-            lat,
-            lng,
+            lat, lng,
             tipo,
             estado,
             metodo_pago,
-            payment_id,
-            pagado
+            mp_preautorizado,
+            mp_capturado,
+            mp_payment_id,
+            mp_status
         )
-        VALUES (%s, %s, %s, %s, %s, %s, 'preautorizando', 'tarjeta', NULL, FALSE)
-        RETURNING id
+        VALUES (
+            %s, %s, %s,
+            %s, %s,
+            %s,
+            'pendiente',
+            'tarjeta',
+            FALSE,
+            FALSE,
+            NULL,
+            NULL
+        )
+        RETURNING id, creado_en;
     """, (
-        str(data["paciente_uuid"]),
+        data["paciente_uuid"],
         data["motivo"],
         data["direccion"],
         data["lat"],
@@ -5130,10 +5121,16 @@ def crear_consulta_previa(data: dict, db=Depends(get_db)):
         data["tipo"]
     ))
 
-    consulta_id = cur.fetchone()[0]
+    consulta_id, creado_en = cur.fetchone()
     db.commit()
-    cur.close()
 
-    return {"consulta_id": consulta_id}
+    print(f"🟦 Consulta previa creada ID {consulta_id}")
+
+    return {
+        "consulta_id": consulta_id,
+        "creado_en": str(creado_en),
+        "status": "consulta_previa_ok"
+    }
+
 
 
