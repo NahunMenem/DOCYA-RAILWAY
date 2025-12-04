@@ -4793,7 +4793,7 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 
 # --------------------------------------------------------------------------------
 # ============================================================
-# DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook)
+# DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook) MERCADO PAGO
 # ============================================================
 
 # ============================================================
@@ -4826,21 +4826,23 @@ def get_db():
 @app.post("/consultas/confirmar_pago")
 def confirmar_pago(data: dict, db=Depends(get_db)):
     consulta_id = data["consulta_id"]
-    payment_id = data["payment_id"]
+    payment_id = data.get("payment_id")  # el webhook lo va a actualizar real
 
     cur = db.cursor()
+
     cur.execute("""
         UPDATE consultas
-        SET 
-            payment_id = %s,
-            payment_status = 'authorized',
-            estado = 'pagado_pendiente_de_asignacion'
+        SET payment_id = %s,
+            pagado = TRUE,
+            estado = 'preautorizada'
         WHERE id = %s
     """, (payment_id, consulta_id))
 
     db.commit()
     cur.close()
-    return {"ok": True}
+
+    return {"status": "ok", "consulta_id": consulta_id}
+
 
 
 @app.post("/pagos/preautorizar")
@@ -5103,6 +5105,7 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 def crear_consulta_previa(data: dict, db=Depends(get_db)):
     cur = db.cursor()
 
+    # Creamos una consulta SOLO para asociar payment_id más tarde
     cur.execute("""
         INSERT INTO consultas (
             paciente_uuid,
