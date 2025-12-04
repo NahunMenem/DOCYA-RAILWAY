@@ -1645,27 +1645,26 @@ class MedicoAccion(BaseModel):
 
 @app.post("/consultas/{consulta_id}/aceptar")
 def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
-    import httpx  # aseguramos import local si no está arriba
+    import httpx  # aseguremos import local si no está arriba
 
     medico_id = data.medico_id
-
     cur = db.cursor()
 
-    # 1) Traemos el payment_id de la consulta
-    cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    # 1) Traer el mp_payment_id (NO payment_id)
+    cur.execute("SELECT mp_payment_id FROM consultas WHERE id = %s", (consulta_id,))
     row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    payment_id = row[0]  # puede ser None si es efectivo
+    payment_id = row[0]   # puede ser None si es efectivo
 
-    # 2) Marcar la consulta como aceptada (solo si estaba pendiente)
+    # 2) Marcar consulta como aceptada (solo si estaba pendiente)
     cur.execute("""
         UPDATE consultas
         SET estado = 'aceptada',
             medico_id = %s,
-            aceptada_en = (NOW() AT TIME ZONE 'UTC-3')     -- 👈 AÑADIDO, NO SE TOCA NADA MÁS
+            aceptada_en = (NOW() AT TIME ZONE 'UTC-3')
         WHERE id = %s AND estado = 'pendiente'
         RETURNING id
     """, (medico_id, consulta_id))
@@ -1674,11 +1673,11 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     if not updated:
         raise HTTPException(status_code=400, detail="Consulta no disponible")
 
-    # 3) Marcar médico como ocupado
+    # 3) Marcar médico como NO disponible
     cur.execute("UPDATE medicos SET disponible = false WHERE id = %s", (medico_id,))
     db.commit()
 
-    # 4) Si la consulta tiene pago con tarjeta → CAPTURAMOS EL PAGO
+    # 4) Si la consulta tiene pago con tarjeta → capturar
     if payment_id:
         try:
             url = f"https://api.mercadopago.com/v1/payments/{payment_id}/capture"
@@ -5002,20 +5001,25 @@ def get_db():
 # 🔵 1) CREAR PREFERENCE DE PAGO
 # ============================================================
 @app.post("/consultas/confirmar_pago")
-def confirmar_pago(data: dict, db=Depends(get_db)):
-    consulta_id = data["consulta_id"]
-    payment_id = data.get("payment_id", None)
-
+def confirmar_pago(data: dict, db = Depends(get_db)):
     cur = db.cursor()
 
+    consulta_id = data.get("consulta_id")
+    payment_id = data.get("payment_id", "")
+
+    if not consulta_id:
+        raise HTTPException(status_code=400, detail="consulta_id requerido")
+
+    # Actualizar consulta marcada como preautorizada
     cur.execute("""
         UPDATE consultas
         SET mp_preautorizado = TRUE,
             mp_payment_id = %s,
-            mp_status = 'preauthorized'
+            payment_id = %s,
+            mp_status = 'preautorizado'
         WHERE id = %s
         RETURNING id;
-    """, (payment_id, consulta_id))
+    """, (payment_id, payment_id, consulta_id))
 
     row = cur.fetchone()
     db.commit()
@@ -5023,9 +5027,13 @@ def confirmar_pago(data: dict, db=Depends(get_db)):
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    print(f"💳 Preautorización confirmada para consulta {consulta_id}")
+    print(f"💳 Pago preautorizado → consulta {consulta_id}")
 
-    return {"status": "pago_confirmado"}
+    return {
+        "status": "ok",
+        "consulta_id": consulta_id,
+        "payment_id": payment_id
+    }
 
 
 
@@ -5261,53 +5269,51 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 
 # ================================
 @app.post("/consultas/crear_previa")
-def crear_consulta_previa(data: dict, db=Depends(get_db)):
+def crear_consulta_previa(data: dict, db = Depends(get_db)):
     cur = db.cursor()
 
+    paciente_uuid = data.get("paciente_uuid")
+    motivo = data.get("motivo", "")
+    direccion = data.get("direccion", "")
+    lat = data.get("lat")
+    lng = data.get("lng")
+    tipo = data.get("tipo", "medico")
+
+    # Crear consulta previa sin médico y sin pago todavía
     cur.execute("""
         INSERT INTO consultas (
-            paciente_uuid,
-            motivo,
-            direccion,
-            lat, lng,
-            tipo,
-            estado,
+            paciente_uuid, medico_id, estado,
+            motivo, direccion, lat, lng, tipo,
             metodo_pago,
-            mp_preautorizado,
-            mp_capturado,
-            mp_payment_id,
-            mp_status
+            mp_preautorizado, mp_capturado,
+            mp_payment_id, mp_status, payment_id
         )
         VALUES (
-            %s, %s, %s,
-            %s, %s,
-            %s,
-            'pendiente',
+            %s, NULL, 'creando',
+            %s, %s, %s, %s, %s,
             'tarjeta',
-            FALSE,
-            FALSE,
-            NULL,
-            NULL
+            FALSE, FALSE,
+            NULL, NULL, NULL
         )
         RETURNING id, creado_en;
     """, (
-        data["paciente_uuid"],
-        data["motivo"],
-        data["direccion"],
-        data["lat"],
-        data["lng"],
-        data["tipo"]
+        str(paciente_uuid),
+        motivo,
+        direccion,
+        lat,
+        lng,
+        tipo
     ))
 
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-    print(f"🟦 Consulta previa creada ID {consulta_id}")
+    print(f"🆕 Consulta previa creada ID={consulta_id}")
 
     return {
+        "status": "ok",
         "consulta_id": consulta_id,
-        "creado_en": str(creado_en),
-        "status": "consulta_previa_ok"
+        "creado_en": str(creado_en)
     }
 
 
