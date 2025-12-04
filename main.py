@@ -1085,9 +1085,192 @@ class SolicitarConsultaIn(BaseModel):
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    # ----------------------------------------------------
-    # 🔍 1) Buscar profesional más cercano disponible
-    # ----------------------------------------------------
+    # ============================================================
+    # 🚨 NUEVO — SI ES TARJETA, ACTUALIZAR CONSULTA PREVIA
+    # ============================================================
+    consulta_id_previa = getattr(data, "consulta_id", None)
+
+    if data.metodo_pago == "tarjeta" and consulta_id_previa:
+        print(f"💳 Actualizando consulta previa {consulta_id_previa}")
+
+        # Buscar profesional más cercano (igual que antes)
+        cur.execute("""
+            SELECT id, full_name, latitud, longitud, tipo,
+            (6371 * acos(
+                cos(radians(%s)) * cos(radians(latitud)) *
+                cos(radians(longitud) - radians(%s)) +
+                sin(radians(%s)) * sin(radians(latitud))
+            )) AS distancia
+            FROM medicos
+            WHERE disponible = TRUE
+              AND tipo = %s
+              AND latitud IS NOT NULL
+              AND longitud IS NOT NULL
+              AND (
+                    (6371 * acos(
+                        cos(radians(%s)) * cos(radians(latitud)) *
+                        cos(radians(longitud) - radians(%s)) +
+                        sin(radians(%s)) * sin(radians(latitud))
+                    )) <= 10
+              )
+            ORDER BY distancia ASC
+            LIMIT 1
+        """, (
+            data.lat, data.lng, data.lat,
+            data.tipo,
+            data.lat, data.lng, data.lat
+        ))
+
+        row = cur.fetchone()
+
+        # ----------------------------------------------------
+        # 🟡 No profesional → SOLO ACTUALIZA Y DEVUELVE PENDIENTE
+        # ----------------------------------------------------
+        if not row:
+            cur.execute("""
+                UPDATE consultas
+                SET motivo=%s,
+                    direccion=%s,
+                    lat=%s,
+                    lng=%s,
+                    metodo_pago='tarjeta',
+                    estado='pendiente',
+                    tipo=%s
+                WHERE id=%s
+                RETURNING creado_en;
+            """, (
+                data.motivo,
+                data.direccion,
+                data.lat,
+                data.lng,
+                data.tipo,
+                consulta_id_previa
+            ))
+
+            creado_en = cur.fetchone()[0]
+            db.commit()
+
+            print("⚠️ Consulta previa sin médicos disponibles → queda pendiente")
+
+            return {
+                "consulta_id": consulta_id_previa,
+                "estado": "pendiente",
+                "mensaje": f"Consulta registrada. Aún no hay {data.tipo}s disponibles.",
+                "profesional": None,
+                "creado_en": str(creado_en)
+            }
+
+        # ----------------------------------------------------
+        # 🟢 Sí hay profesional → ACTUALIZA CONSULTA EXISTENTE
+        # ----------------------------------------------------
+        profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
+
+        cur.execute("""
+            UPDATE consultas
+            SET medico_id=%s,
+                estado='pendiente',
+                motivo=%s,
+                direccion=%s,
+                lat=%s,
+                lng=%s,
+                metodo_pago='tarjeta',
+                tipo=%s
+            WHERE id=%s
+            RETURNING creado_en;
+        """, (
+            profesional_id,
+            data.motivo,
+            data.direccion,
+            data.lat,
+            data.lng,
+            data.tipo,
+            consulta_id_previa
+        ))
+
+        creado_en = cur.fetchone()[0]
+        db.commit()
+
+        print(f"🟢 Consulta previa {consulta_id_previa} asignada al médico {profesional_id}")
+
+        # 🔔 WS y Push = igual a tu código original
+        if profesional_id in active_medicos:
+            try:
+                pro = active_medicos[profesional_id]
+
+                if pro["tipo"] == tipo:
+                    cur.execute("""
+                        SELECT full_name, telefono 
+                        FROM users
+                        WHERE id = %s
+                    """, (str(data.paciente_uuid),))
+                    user_row = cur.fetchone()
+                    paciente_nombre = user_row[0] if user_row else "Paciente"
+                    paciente_telefono = user_row[1] if user_row else "Sin número"
+
+                    await pro["ws"].send_json({
+                        "tipo": "consulta_nueva",
+                        "consulta_id": consulta_id_previa,
+                        "paciente_uuid": str(data.paciente_uuid),
+                        "paciente_nombre": paciente_nombre,
+                        "paciente_telefono": paciente_telefono,
+                        "motivo": data.motivo,
+                        "direccion": data.direccion,
+                        "lat": data.lat,
+                        "lng": data.lng,
+                        "distancia_km": round(float(distancia), 2),
+                        "metodo_pago": "tarjeta",
+                        "profesional_tipo": tipo,
+                        "creado_en": str(creado_en)
+                    })
+
+                    print(f"📤 WS enviado al {tipo} {profesional_id}")
+            except Exception as e:
+                print(f"⚠️ Error WS profesional {profesional_id}: {e}")
+
+        # Push igual que antes
+        cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
+        row = cur.fetchone()
+        if row and row[0]:
+            try:
+                enviar_push(
+                    row[0],
+                    "📢 Nueva consulta",
+                    f"{data.motivo}",
+                    {
+                        "tipo": "consulta_nueva",
+                        "consulta_id": str(consulta_id_previa),
+                        "medico_id": str(profesional_id),
+                        "profesional_tipo": tipo,
+                        "metodo_pago": "tarjeta"
+                    }
+                )
+                print(f"📤 Push enviado a médico {profesional_id}")
+            except Exception as e:
+                print(f"⚠️ Error enviando push: {e}")
+
+        return {
+            "consulta_id": consulta_id_previa,
+            "paciente_uuid": str(data.paciente_uuid),
+            "profesional": {
+                "id": profesional_id,
+                "nombre": profesional_nombre,
+                "lat": profesional_lat,
+                "lng": profesional_lng,
+                "tipo": tipo,
+                "distancia_km": round(float(distancia), 2)
+            },
+            "motivo": data.motivo,
+            "direccion": data.direccion,
+            "metodo_pago": "tarjeta",
+            "estado": "pendiente",
+            "creado_en": str(creado_en)
+        }
+
+    # ============================================================
+    # 💵 FLUJO ORIGINAL — EFECTIVO (SIN TOCAR NADA)
+    # ============================================================
+
+    # 🔍 Buscar profesional (igual que antes)
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -1117,8 +1300,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     row = cur.fetchone()
 
-    # 🟡 2) No hay profesionales → Crear consulta pendiente
-    # ----------------------------------------------------
+    # 🟡 No profesional — flujo original
     if not row:
         cur.execute("""
             INSERT INTO consultas (
@@ -1139,13 +1321,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     
         consulta_id, creado_en = cur.fetchone()
         db.commit()
-    
+
         print(f"⚠️ No hay {data.tipo}s disponibles → consulta creada sin asignar")
-    
-        # ❌ NO ENVIAR PUSH A NADIE
-        # ❌ NO AVISAR POR WS
-        # Solo dejar la consulta como pendiente.
-    
+
         return {
             "consulta_id": consulta_id,
             "estado": "pendiente",
@@ -1154,11 +1332,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             "creado_en": str(creado_en)
         }
 
-
-
-    # ----------------------------------------------------
-    # 🟢 3) Sí hay profesional → Asignar normal
-    # ----------------------------------------------------
+    # 🟢 Sí hay profesional — flujo original
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
     cur.execute("""
@@ -1182,6 +1356,10 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     db.commit()
 
     print(f"🟢 Consulta {consulta_id} asignada al médico {profesional_id}")
+
+    # 🔔 WS + Push = IDÉNTICO AL TUYO (no se toca)
+    # (código igual al original)
+
 
     # ----------------------------------------------------
     # 🔔 WS en tiempo real con todos los datos completos
