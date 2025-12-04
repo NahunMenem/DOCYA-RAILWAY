@@ -5101,29 +5101,30 @@ def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
 # ================================
 @app.post("/consultas/crear_previa")
 def crear_consulta_previa(data: dict, db=Depends(get_db)):
-    paciente_uuid = data["paciente_uuid"]
-    motivo = data.get("motivo", "")
-    direccion = data["direccion"]
-    lat = data["lat"]
-    lng = data["lng"]
-    tipo = data.get("tipo", "medico")
-
     cur = db.cursor()
+
     cur.execute("""
         INSERT INTO consultas (
-            paciente_uuid, motivo, direccion, lat, lng,
-            tipo, estado, metodo_pago, payment_status
+            paciente_uuid,
+            motivo,
+            direccion,
+            lat,
+            lng,
+            tipo,
+            estado,
+            metodo_pago,
+            payment_id,
+            pagado
         )
-        VALUES (%s, %s, %s, %s, %s, %s, 'esperando_pago', %s, 'pending')
-        RETURNING id;
+        VALUES (%s, %s, %s, %s, %s, %s, 'preautorizando', 'tarjeta', NULL, FALSE)
+        RETURNING id
     """, (
-        paciente_uuid,
-        motivo,
-        direccion,
-        lat,
-        lng,
-        tipo,
-        "tarjeta"   # siempre tarjeta en este flujo
+        str(data["paciente_uuid"]),
+        data["motivo"],
+        data["direccion"],
+        data["lat"],
+        data["lng"],
+        data["tipo"]
     ))
 
     consulta_id = cur.fetchone()[0]
