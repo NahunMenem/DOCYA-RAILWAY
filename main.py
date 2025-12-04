@@ -4876,9 +4876,10 @@ def webhook_mp(payload: dict, db = Depends(get_db)):
 
     payment_id = payload.get("data", {}).get("id")
     if not payment_id:
+        print("⚠ Webhook sin payment_id")
         return {"received": False}
 
-    # obtener info del pago
+    # obtener info real del pago desde MP
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     info = requests.get(url, headers=headers).json()
@@ -4886,22 +4887,37 @@ def webhook_mp(payload: dict, db = Depends(get_db)):
     estado = info.get("status")
     consulta_id = info.get("external_reference")
 
-    if not consulta_id:
-        print("⚠ ERROR: Payment sin external_reference")
-        return {"received": False}
+    # 🚫 SI MP NO MANDA external_reference → NO ACTUALIZAR
+    if not consulta_id or consulta_id == "None":
+        print(f"⚠ PAYMENT {payment_id} sin external_reference. Ignorado.")
+        return {"received": True}   # ⭐ SIEMPRE devolver 200 OK
 
-    # guardar en consulta
+    # --------------------------
+    # Validamos que consulta exista
+    # --------------------------
     cur = db.cursor()
+    cur.execute("SELECT id FROM consultas WHERE id = %s", (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        print(f"⚠ PAYMENT {payment_id} → consulta inexistente {consulta_id}. Ignorado.")
+        cur.close()
+        return {"received": True}
+
+    # --------------------------
+    # Guardamos datos del pago
+    # --------------------------
     cur.execute("""
         UPDATE consultas
         SET payment_id = %s,
             payment_status = %s
         WHERE id = %s
     """, (payment_id, estado, consulta_id))
+
     db.commit()
     cur.close()
 
-    print(f"🔔 Webhook MP: consulta {consulta_id} → pago {payment_id} → {estado}")
+    print(f"🔔 Webhook: consulta {consulta_id} → pago {payment_id} → {estado}")
 
     return {"received": True}
 
