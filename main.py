@@ -5098,33 +5098,41 @@ def webhook_mp(request: Request, db=Depends(get_db)):
 
     cur = db.cursor()
 
-    # 1) PAYMENT (tarjeta)
+    # ============================================================
+    # 1) PAYMENT (cuando MercadoPago notifica pago)
+    # ============================================================
     if tipo == "payment":
         print(f"🔔 Webhook PAYMENT {data_id}")
 
         try:
+            # Traer info del pago
             r = requests.get(
                 f"https://api.mercadopago.com/v1/payments/{data_id}",
                 headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
             ).json()
 
-            external_ref = r.get("external_reference")
+            payment_id = r.get("id")                   # 👈 DEFINIDO AHORA
             status = r.get("status")
+            external_ref = r.get("external_reference") # consulta_id
 
             if not external_ref:
-                print("⚠ PAYMENT sin external_reference. Ignorado.")
+                print("⚠ PAYMENT sin external_reference, ignorado.")
                 return {"ok": True}
 
             consulta_id = int(external_ref)
 
-            # 👉 Guardamos en las columnas reales:
-            # Guardar estado del pago en la consulta
+            print(f"💾 Actualizando consulta {consulta_id} (status={status})")
+
+            # Actualizar con tus columnas reales
             cur.execute("""
                 UPDATE consultas
                 SET 
                     mp_status = %s,
                     mp_payment_id = %s,
-                    mp_preautorizado = CASE WHEN %s = 'approved' THEN TRUE ELSE mp_preautorizado END
+                    mp_preautorizado = CASE 
+                        WHEN %s = 'approved' THEN TRUE 
+                        ELSE mp_preautorizado 
+                    END
                 WHERE id = %s
             """, (
                 status,
@@ -5135,16 +5143,17 @@ def webhook_mp(request: Request, db=Depends(get_db)):
 
             db.commit()
 
-            print(f"💾 Consulta {consulta_id} actualizada por webhook MP (status={status})")
-
         except Exception as e:
             print("❌ Error procesando webhook PAYMENT:", e)
 
         return {"ok": True}
 
-    # 2) merchant_order (no toca nada)
+    # ============================================================
+    # 2) MERCHANT ORDER → no toca nada
+    # ============================================================
     print(f"ℹ Webhook merchant order {data_id}")
     return {"ok": True}
+
 
 
 @app.get("/consultas/{consulta_id}/estado")
