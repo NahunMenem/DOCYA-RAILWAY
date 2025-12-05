@@ -1581,7 +1581,7 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
     ]
 
 # --- Consulta asignada ---
-GOOGLE_API_KEY = "AIzaSyB5sBLD81Hg3MRIggPhqL1a_57tjOo7vAk"  # 🔒 Reemplazá con tu API Key real de Google Cloud
+GOOGLE_API_KEY = "AIzaSyDVv_barlVwHJTgLF66dP4ESUffCBuS3uA"  # 🔒 Reemplazá con tu API Key real de Google Cloud
 
 
 @app.get("/consultas/asignadas/{medico_id}")
