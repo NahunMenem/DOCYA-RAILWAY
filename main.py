@@ -1126,29 +1126,26 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         # 🟡 NO HAY PROFESIONAL → REEMBOLSO AUTOMÁTICO UBER
         # ----------------------------------------------------
         if not row:
+            print("⚠️ No hay profesionales → reembolso automático activado")
 
-            # ===============================
-            # 🔥 NUEVO: REEMBOLSO AUTOMÁTICO
-            # ===============================
-            try:
-                # Traer payment ID que guardó el webhook
-                cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s",
-                            (consulta_id_previa,))
-                r = cur.fetchone()
+            # Obtener payment_id que guardó el webhook
+            cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s",
+                        (consulta_id_previa,))
+            r = cur.fetchone()
+            payment_id = r[0] if r else None
 
-                if r and r[0]:
-                    mp_payment_id = r[0]
-                    print(f"💳 Intentando reembolso de MP: payment {mp_payment_id}")
+            if payment_id:
+                try:
+                    print(f"💸 Refund → MP payment_id={payment_id}")
 
-                    import requests
-                    refund = requests.post(
-                        f"https://api.mercadopago.com/v1/payments/{mp_payment_id}/refunds",
+                    refund_resp = requests.post(
+                        f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
                         headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
                     )
 
-                    print("🔄 Respuesta reembolso:", refund.status_code, refund.text)
+                    print("🔄 Respuesta refund:", refund_resp.status_code, refund_resp.text)
 
-                    # marcar consulta como cancelada
+                    # Marcar como reembolsada
                     cur.execute("""
                         UPDATE consultas
                         SET estado='cancelada', mp_status='refunded'
@@ -1159,20 +1156,20 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     return {
                         "consulta_id": consulta_id_previa,
                         "estado": "cancelada",
+                        "refunded": True,
                         "mensaje": "No hay profesionales disponibles. Tu pago fue devuelto automáticamente.",
                         "profesional": None
                     }
 
-                else:
-                    print("⚠ No había mp_payment_id (no se pudo reembolsar)")
+                except Exception as e:
+                    print("❌ Error al intentar refund:", e)
 
-            except Exception as e:
-                print("❌ Error intentando reembolso MP:", e)
-                # sigue flujo para no romper nada
+            else:
+                print("⚠ Consulta sin mp_payment_id, no se puede reembolsar")
 
-            # ===============================
-            # 🟡 FLUJO ORIGINAL (sin modificar)
-            # ===============================
+            # —————————————————————————
+            # 🔄 FLUJO ORIGINAL (back-up)
+            # —————————————————————————
             cur.execute("""
                 UPDATE consultas
                 SET motivo=%s,
@@ -1195,8 +1192,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
             creado_en = cur.fetchone()[0]
             db.commit()
-
-            print("⚠️ Consulta previa sin médicos disponibles → queda pendiente")
 
             return {
                 "consulta_id": consulta_id_previa,
@@ -1238,7 +1233,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
         print(f"🟢 Consulta previa {consulta_id_previa} asignada al médico {profesional_id}")
 
-        # WS + PUSH (idéntico al anterior)
+        # WS + PUSH intactos (tu código original)
         if profesional_id in active_medicos:
             try:
                 pro = active_medicos[profesional_id]
@@ -1269,6 +1264,26 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     })
             except Exception as e:
                 print(f"⚠️ Error WS profesional {profesional_id}: {e}")
+
+        # Respuesta completa
+        return {
+            "consulta_id": consulta_id_previa,
+            "paciente_uuid": str(data.paciente_uuid),
+            "profesional": {
+                "id": profesional_id,
+                "nombre": profesional_nombre,
+                "lat": profesional_lat,
+                "lng": profesional_lng,
+                "tipo": tipo,
+                "distancia_km": round(float(distancia), 2)
+            },
+            "motivo": data.motivo,
+            "direccion": data.direccion,
+            "metodo_pago": "tarjeta",
+            "estado": "pendiente",
+            "creado_en": str(creado_en)
+        }
+
 
         # Push igual que antes
         cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
