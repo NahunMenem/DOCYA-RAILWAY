@@ -1086,14 +1086,14 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
     # ============================================================
-    # 🚨 NUEVO — SI ES TARJETA, ACTUALIZAR CONSULTA PREVIA
+    # 🚨 SI ES TARJETA → ACTUALIZA CONSULTA PREVIA
     # ============================================================
     consulta_id_previa = getattr(data, "consulta_id", None)
 
     if data.metodo_pago == "tarjeta" and consulta_id_previa:
         print(f"💳 Actualizando consulta previa {consulta_id_previa}")
 
-        # Buscar profesional más cercano (igual que antes)
+        # Buscar profesional más cercano
         cur.execute("""
             SELECT id, full_name, latitud, longitud, tipo,
             (6371 * acos(
@@ -1107,11 +1107,11 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
               AND latitud IS NOT NULL
               AND longitud IS NOT NULL
               AND (
-                    (6371 * acos(
-                        cos(radians(%s)) * cos(radians(latitud)) *
-                        cos(radians(longitud) - radians(%s)) +
-                        sin(radians(%s)) * sin(radians(latitud))
-                    )) <= 10
+                (6371 * acos(
+                    cos(radians(%s)) * cos(radians(latitud)) *
+                    cos(radians(longitud) - radians(%s)) +
+                    sin(radians(%s)) * sin(radians(latitud))
+                )) <= 10
               )
             ORDER BY distancia ASC
             LIMIT 1
@@ -1120,13 +1120,59 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             data.tipo,
             data.lat, data.lng, data.lat
         ))
-
         row = cur.fetchone()
 
         # ----------------------------------------------------
-        # 🟡 No profesional → SOLO ACTUALIZA Y DEVUELVE PENDIENTE
+        # 🟡 NO HAY PROFESIONAL → REEMBOLSO AUTOMÁTICO UBER
         # ----------------------------------------------------
         if not row:
+
+            # ===============================
+            # 🔥 NUEVO: REEMBOLSO AUTOMÁTICO
+            # ===============================
+            try:
+                # Traer payment ID que guardó el webhook
+                cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s",
+                            (consulta_id_previa,))
+                r = cur.fetchone()
+
+                if r and r[0]:
+                    mp_payment_id = r[0]
+                    print(f"💳 Intentando reembolso de MP: payment {mp_payment_id}")
+
+                    import requests
+                    refund = requests.post(
+                        f"https://api.mercadopago.com/v1/payments/{mp_payment_id}/refunds",
+                        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+                    )
+
+                    print("🔄 Respuesta reembolso:", refund.status_code, refund.text)
+
+                    # marcar consulta como cancelada
+                    cur.execute("""
+                        UPDATE consultas
+                        SET estado='cancelada', mp_status='refunded'
+                        WHERE id=%s
+                    """, (consulta_id_previa,))
+                    db.commit()
+
+                    return {
+                        "consulta_id": consulta_id_previa,
+                        "estado": "cancelada",
+                        "mensaje": "No hay profesionales disponibles. Tu pago fue devuelto automáticamente.",
+                        "profesional": None
+                    }
+
+                else:
+                    print("⚠ No había mp_payment_id (no se pudo reembolsar)")
+
+            except Exception as e:
+                print("❌ Error intentando reembolso MP:", e)
+                # sigue flujo para no romper nada
+
+            # ===============================
+            # 🟡 FLUJO ORIGINAL (sin modificar)
+            # ===============================
             cur.execute("""
                 UPDATE consultas
                 SET motivo=%s,
@@ -1161,7 +1207,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             }
 
         # ----------------------------------------------------
-        # 🟢 Sí hay profesional → ACTUALIZA CONSULTA EXISTENTE
+        # 🟢 SÍ HAY PROFESIONAL → ACTUALIZA
         # ----------------------------------------------------
         profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
@@ -1192,11 +1238,10 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
         print(f"🟢 Consulta previa {consulta_id_previa} asignada al médico {profesional_id}")
 
-        # 🔔 WS y Push = igual a tu código original
+        # WS + PUSH (idéntico al anterior)
         if profesional_id in active_medicos:
             try:
                 pro = active_medicos[profesional_id]
-
                 if pro["tipo"] == tipo:
                     cur.execute("""
                         SELECT full_name, telefono 
@@ -1222,8 +1267,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                         "profesional_tipo": tipo,
                         "creado_en": str(creado_en)
                     })
-
-                    print(f"📤 WS enviado al {tipo} {profesional_id}")
             except Exception as e:
                 print(f"⚠️ Error WS profesional {profesional_id}: {e}")
 
@@ -1244,7 +1287,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                         "metodo_pago": "tarjeta"
                     }
                 )
-                print(f"📤 Push enviado a médico {profesional_id}")
             except Exception as e:
                 print(f"⚠️ Error enviando push: {e}")
 
@@ -1267,10 +1309,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         }
 
     # ============================================================
-    # 💵 FLUJO ORIGINAL — EFECTIVO (SIN TOCAR NADA)
+    # 💵 EFECTIVO (flujo original SIN CAMBIOS)
     # ============================================================
-
-    # 🔍 Buscar profesional (igual que antes)
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -1284,11 +1324,11 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
           AND (
-                (6371 * acos(
-                    cos(radians(%s)) * cos(radians(latitud)) *
-                    cos(radians(longitud) - radians(%s)) +
-                    sin(radians(%s)) * sin(radians(latitud))
-                )) <= 10
+            (6371 * acos(
+                cos(radians(%s)) * cos(radians(latitud)) *
+                cos(radians(longitud) - radians(%s)) +
+                sin(radians(%s)) * sin(radians(latitud))
+            )) <= 10
           )
         ORDER BY distancia ASC
         LIMIT 1
@@ -1300,7 +1340,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     row = cur.fetchone()
 
-    # 🟡 No profesional — flujo original
+    # NO profesional (efectivo)
     if not row:
         cur.execute("""
             INSERT INTO consultas (
@@ -1332,7 +1372,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             "creado_en": str(creado_en)
         }
 
-    # 🟢 Sí hay profesional — flujo original
+    # SÍ profesional (efectivo)
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
     cur.execute("""
@@ -1437,6 +1477,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     # ----------------------------------------------------
     # 🔙 6) Respuesta a la app del paciente
     # ----------------------------------------------------
+    # Respuesta final
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
@@ -1454,7 +1495,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": str(creado_en)
     }
-
 
 
 
