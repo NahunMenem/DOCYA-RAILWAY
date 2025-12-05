@@ -5118,20 +5118,21 @@ def webhook_mp(request: Request, db=Depends(get_db)):
             consulta_id = int(external_ref)
 
             # 👉 Guardamos en las columnas reales:
+            # Guardar estado del pago en la consulta
             cur.execute("""
                 UPDATE consultas
-                SET mp_payment_id = %s,
+                SET 
                     mp_status = %s,
-                    mp_preautorizado = (CASE WHEN %s = 'authorized' THEN TRUE ELSE FALSE END),
-                    mp_capturado = (CASE WHEN %s = 'approved' THEN TRUE ELSE FALSE END)
+                    mp_payment_id = %s,
+                    mp_preautorizado = CASE WHEN %s = 'approved' THEN TRUE ELSE mp_preautorizado END
                 WHERE id = %s
             """, (
-                str(data_id),
                 status,
-                status,
+                payment_id,
                 status,
                 consulta_id
             ))
+
             db.commit()
 
             print(f"💾 Consulta {consulta_id} actualizada por webhook MP (status={status})")
@@ -5144,6 +5145,29 @@ def webhook_mp(request: Request, db=Depends(get_db)):
     # 2) merchant_order (no toca nada)
     print(f"ℹ Webhook merchant order {data_id}")
     return {"ok": True}
+
+
+@app.get("/consultas/{consulta_id}/estado")
+def estado_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, estado, mp_status, mp_preautorizado, mp_payment_id 
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(404, "Consulta no encontrada")
+
+    return {
+        "consulta_id": row[0],
+        "estado": row[1],
+        "mp_status": row[2],
+        "mp_preautorizado": row[3],
+        "payment_id": row[4],
+    }
 
 
 
