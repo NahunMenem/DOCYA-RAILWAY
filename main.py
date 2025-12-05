@@ -1079,6 +1079,7 @@ class SolicitarConsultaIn(BaseModel):
     lng: float
     tipo: str = "medico"   # 👈 puede ser "medico" o "enfermero"
     metodo_pago: str       # 👈 'efectivo', 'debito', 'credito'
+    consulta_id: int | None = None   # 👈 NECESARIO PARA TARJETA
 
 
 @app.post("/consultas/solicitar")
@@ -1086,9 +1087,16 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
 
     # ============================================================
+    # 🟦 NORMALIZAR MÉTODO DE PAGO
+    # ============================================================
+    data.metodo_pago = (
+        "tarjeta" if data.metodo_pago in ["debito", "credito", "tarjeta"] else data.metodo_pago
+    )
+
+    # ============================================================
     # 🚨 SI ES TARJETA → ACTUALIZA CONSULTA PREVIA
     # ============================================================
-    consulta_id_previa = getattr(data, "consulta_id", None)
+    consulta_id_previa = data.consulta_id
 
     if data.metodo_pago == "tarjeta" and consulta_id_previa:
         print(f"💳 Actualizando consulta previa {consulta_id_previa}")
@@ -1128,7 +1136,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         if not row:
             print("⚠️ No hay profesionales → reembolso automático activado")
 
-            # Obtener payment_id que guardó el webhook
+            # Obtener payment_id guardado por el webhook
             cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s",
                         (consulta_id_previa,))
             r = cur.fetchone()
@@ -1167,9 +1175,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             else:
                 print("⚠ Consulta sin mp_payment_id, no se puede reembolsar")
 
-            # —————————————————————————
-            # 🔄 FLUJO ORIGINAL (back-up)
-            # —————————————————————————
+            # FLUJO BACKUP (rara vez se usa)
             cur.execute("""
                 UPDATE consultas
                 SET motivo=%s,
@@ -1202,7 +1208,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             }
 
         # ----------------------------------------------------
-        # 🟢 SÍ HAY PROFESIONAL → ACTUALIZA
+        # 🟢 SÍ HAY PROFESIONAL → ACTUALIZA CONSULTA
         # ----------------------------------------------------
         profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
@@ -1233,7 +1239,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
         print(f"🟢 Consulta previa {consulta_id_previa} asignada al médico {profesional_id}")
 
-        # WS + PUSH intactos (tu código original)
+        # WS + PUSH intactos
         if profesional_id in active_medicos:
             try:
                 pro = active_medicos[profesional_id]
@@ -1265,7 +1271,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             except Exception as e:
                 print(f"⚠️ Error WS profesional {profesional_id}: {e}")
 
-        # Respuesta completa
         return {
             "consulta_id": consulta_id_previa,
             "paciente_uuid": str(data.paciente_uuid),
