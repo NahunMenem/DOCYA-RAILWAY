@@ -8,6 +8,7 @@ import jwt
 from datetime import datetime, timedelta, date, time
 import psycopg2
 import requests
+import uuid
 from uuid import UUID
 from typing import Optional, Dict
 from datetime import datetime, timedelta, date
