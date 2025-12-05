@@ -5076,6 +5076,52 @@ def confirmar_pago(data: dict, db = Depends(get_db)):
     }
 
 
+@app.get("/consultas/reembolsadas")
+def consultas_reembolsadas(db=Depends(get_db)):
+    cur = db.cursor()
+
+    cur.execute("""
+        SELECT 
+            c.id,
+            c.paciente_uuid,
+            u.full_name,
+            u.telefono,
+            c.motivo,
+            c.direccion,
+            c.creado_en,
+            c.mp_payment_id,
+            c.mp_status,
+            c.metodo_pago
+        FROM consultas c
+        LEFT JOIN users u ON u.id = c.paciente_uuid
+        WHERE c.estado = 'cancelada'
+          AND c.mp_payment_id IS NOT NULL
+          AND c.mp_status = 'refunded'
+        ORDER BY c.creado_en DESC
+    """)
+
+    rows = cur.fetchall()
+
+    resultados = []
+    for r in rows:
+        resultados.append({
+            "consulta_id": r[0],
+            "paciente_uuid": r[1],
+            "paciente_nombre": r[2],
+            "paciente_telefono": r[3],
+            "motivo": r[4],
+            "direccion": r[5],
+            "fecha": str(r[6]),
+            "mp_payment_id": r[7],
+            "status": r[8],
+            "metodo_pago": r[9]
+        })
+
+    return {
+        "total": len(resultados),
+        "reembolsos": resultados
+    }
+
 
 
 @app.post("/pagos/preautorizar")
