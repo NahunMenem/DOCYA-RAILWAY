@@ -1145,11 +1145,14 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             if payment_id:
                 try:
                     print(f"💸 Refund → MP payment_id={payment_id}")
-
                     refund_resp = requests.post(
                         f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
-                        headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
+                        headers={
+                            "Authorization": f"Bearer {ACCESS_TOKEN}",
+                            "X-Idempotency-Key": str(uuid.uuid4())
+                        }
                     )
+
 
                     print("🔄 Respuesta refund:", refund_resp.status_code, refund_resp.text)
 
