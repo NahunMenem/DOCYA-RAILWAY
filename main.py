@@ -1136,6 +1136,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         # ----------------------------------------------------
         if not row:
             print("⚠️ No hay profesionales → reembolso automático activado")
+            return {"status": "sin_profesionales"}
 
             # Obtener payment_id guardado por el webhook
             cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s",
