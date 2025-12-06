@@ -35,7 +35,7 @@ from google.oauth2 import service_account
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
-# Cloudinary
+# Cloudinary.
 import cloudinary
 import cloudinary.uploader
 import httpx
