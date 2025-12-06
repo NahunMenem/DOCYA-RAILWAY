@@ -1136,7 +1136,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         # ----------------------------------------------------
         if not row:
             print("⚠️ No hay profesionales → reembolso automático activado")
-            return {"status": "sin_profesionales"}
 
             # Obtener payment_id guardado por el webhook
             cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s",
@@ -1144,40 +1143,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             r = cur.fetchone()
             payment_id = r[0] if r else None
 
-            # payment_id puede ser "pending" si webhook aún no llegó
-            if payment_id and payment_id != "pending":
-                try:
-                    print(f"💸 Refund → MP payment_id REAL={payment_id}")
-                    refund_resp = requests.post(
-                        f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
-                        headers={
-                            "Authorization": f"Bearer {ACCESS_TOKEN}",
-                            "X-Idempotency-Key": str(uuid.uuid4())
-                        }
-                    )
-
-                    print("🔄 Respuesta refund:", refund_resp.status_code, refund_resp.text)
-
-                    cur.execute("""
-                        UPDATE consultas
-                        SET estado='cancelada', mp_status='refunded'
-                        WHERE id=%s
-                    """, (consulta_id_previa,))
-                    db.commit()
-
-                    return {
-                        "consulta_id": consulta_id_previa,
-                        "estado": "cancelada",
-                        "refunded": True,
-                        "mensaje": "No hay profesionales disponibles. Tu pago fue devuelto automáticamente.",
-                        "profesional": None
-                    }
-
-                except Exception as e:
-                    print("❌ Error refund:", e)
-
-            else:
-                print("⏳ mp_payment_id todavía no llegó (pending). Marcando para refund luego.")
+            # 🔹 Si el webhook de MP todavía no trajo el payment_id
+            if not payment_id or payment_id == "pending":
+                print("⏳ payment_id todavía no llegó → pendiente de refund")
 
                 cur.execute("""
                     UPDATE consultas
@@ -1189,42 +1157,44 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 return {
                     "consulta_id": consulta_id_previa,
                     "estado": "pendiente_de_refund",
-                    "mensaje": "Pago recibido. Esperando confirmación de MercadoPago para procesar reembolso automático.",
+                    "mensaje": "Esperando confirmación de MercadoPago para reembolso automático.",
                     "profesional": None
                 }
 
+            # 🔹 Refund inmediato
+            try:
+                print(f"💸 Refund → MP payment_id REAL={payment_id}")
 
-            # FLUJO BACKUP (rara vez se usa)
-            cur.execute("""
-                UPDATE consultas
-                SET motivo=%s,
-                    direccion=%s,
-                    lat=%s,
-                    lng=%s,
-                    metodo_pago='tarjeta',
-                    estado='pendiente',
-                    tipo=%s
-                WHERE id=%s
-                RETURNING creado_en;
-            """, (
-                data.motivo,
-                data.direccion,
-                data.lat,
-                data.lng,
-                data.tipo,
-                consulta_id_previa
-            ))
+                refund_resp = requests.post(
+                    f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
+                    headers={
+                        "Authorization": f"Bearer {ACCESS_TOKEN}",
+                        "X-Idempotency-Key": str(uuid.uuid4())
+                    }
+                )
 
-            creado_en = cur.fetchone()[0]
-            db.commit()
+                print("🔄 Respuesta refund:", refund_resp.status_code, refund_resp.text)
 
-            return {
-                "consulta_id": consulta_id_previa,
-                "estado": "pendiente",
-                "mensaje": f"Consulta registrada. Aún no hay {data.tipo}s disponibles.",
-                "profesional": None,
-                "creado_en": str(creado_en)
-            }
+                # Actualizar consulta como cancelada
+                cur.execute("""
+                    UPDATE consultas
+                    SET estado='cancelada', mp_status='refunded'
+                    WHERE id=%s
+                """, (consulta_id_previa,))
+                db.commit()
+
+                return {
+                    "consulta_id": consulta_id_previa,
+                    "estado": "cancelada",
+                    "refunded": True,
+                    "mensaje": "No hay profesionales disponibles. Pago devuelto automáticamente.",
+                    "profesional": None
+                }
+
+            except Exception as e:
+                print("❌ Error refund:", e)
+                raise HTTPException(500, "Error procesando reembolso")
+
 
         # ----------------------------------------------------
         # 🟢 SÍ HAY PROFESIONAL → ACTUALIZA CONSULTA
