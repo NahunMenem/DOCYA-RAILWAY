@@ -1967,6 +1967,48 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
         "fin_atencion": fin,
     }
 
+@app.get("/consultas/{consulta_id}/estado_pago")
+def estado_pago_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+
+    cur.execute("""
+        SELECT metodo_pago, mp_status
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+
+    row = cur.fetchone()
+
+    if not row:
+        return {"pagado": False, "metodo": None}
+
+    metodo_pago, mp_status = row
+
+    # ---------------------------
+    #   EFECTIVO
+    # ---------------------------
+    if metodo_pago == "efectivo":
+        return {
+            "pagado": False,       # en efectivo nunca aparece como pagado
+            "metodo": "efectivo",
+            "mp_status": None
+        }
+
+    # ---------------------------
+    #   TARJETA (Mercado Pago)
+    # ---------------------------
+    pagado = mp_status in [
+        "approved",
+        "captured",
+        "refunded"
+    ]
+
+    return {
+        "pagado": pagado,
+        "metodo": "tarjeta",
+        "mp_status": mp_status
+    }
+
 
 @app.get("/pacientes/{paciente_uuid}/historia_clinica")
 def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
