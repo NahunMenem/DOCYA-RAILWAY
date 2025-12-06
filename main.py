@@ -1164,7 +1164,13 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     """, (consulta_id_previa,))
                     db.commit()
 
-                    return { … }
+                    return {
+                        "consulta_id": consulta_id_previa,
+                        "estado": "cancelada",
+                        "refunded": True,
+                        "mensaje": "No hay profesionales disponibles. Tu pago fue devuelto automáticamente.",
+                        "profesional": None
+                    }
 
                 except Exception as e:
                     print("❌ Error refund:", e)
