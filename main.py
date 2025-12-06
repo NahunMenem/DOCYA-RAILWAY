@@ -1143,9 +1143,10 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             r = cur.fetchone()
             payment_id = r[0] if r else None
 
-            if payment_id:
+            # payment_id puede ser "pending" si webhook aún no llegó
+            if payment_id and payment_id != "pending":
                 try:
-                    print(f"💸 Refund → MP payment_id={payment_id}")
+                    print(f"💸 Refund → MP payment_id REAL={payment_id}")
                     refund_resp = requests.post(
                         f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
                         headers={
@@ -1154,10 +1155,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                         }
                     )
 
-
                     print("🔄 Respuesta refund:", refund_resp.status_code, refund_resp.text)
 
-                    # Marcar como reembolsada
                     cur.execute("""
                         UPDATE consultas
                         SET estado='cancelada', mp_status='refunded'
@@ -1165,19 +1164,28 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     """, (consulta_id_previa,))
                     db.commit()
 
-                    return {
-                        "consulta_id": consulta_id_previa,
-                        "estado": "cancelada",
-                        "refunded": True,
-                        "mensaje": "No hay profesionales disponibles. Tu pago fue devuelto automáticamente.",
-                        "profesional": None
-                    }
+                    return { … }
 
                 except Exception as e:
-                    print("❌ Error al intentar refund:", e)
+                    print("❌ Error refund:", e)
 
             else:
-                print("⚠ Consulta sin mp_payment_id, no se puede reembolsar")
+                print("⏳ mp_payment_id todavía no llegó (pending). Marcando para refund luego.")
+
+                cur.execute("""
+                    UPDATE consultas
+                    SET estado='pendiente_de_refund'
+                    WHERE id=%s
+                """, (consulta_id_previa,))
+                db.commit()
+
+                return {
+                    "consulta_id": consulta_id_previa,
+                    "estado": "pendiente_de_refund",
+                    "mensaje": "Pago recibido. Esperando confirmación de MercadoPago para procesar reembolso automático.",
+                    "profesional": None
+                }
+
 
             # FLUJO BACKUP (rara vez se usa)
             cur.execute("""
@@ -1519,6 +1527,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         "estado": "pendiente",
         "creado_en": str(creado_en)
     }
+
+
 
 
 
@@ -5209,31 +5219,31 @@ def webhook_mp(request: Request, db=Depends(get_db)):
     cur = db.cursor()
 
     # ============================================================
-    # 1) PAYMENT (cuando MercadoPago notifica pago)
+    # 🟦 1) PAYMENT (EVENTO IMPORTANTE)
     # ============================================================
     if tipo == "payment":
         print(f"🔔 Webhook PAYMENT {data_id}")
 
         try:
-            # Traer info del pago
+            # Traer info del pago desde MP
             r = requests.get(
                 f"https://api.mercadopago.com/v1/payments/{data_id}",
                 headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
             ).json()
 
-            payment_id = r.get("id")                   # 👈 DEFINIDO AHORA
+            payment_id = r.get("id")
             status = r.get("status")
-            external_ref = r.get("external_reference") # consulta_id
+            external_ref = r.get("external_reference")  # consulta_id real
 
             if not external_ref:
-                print("⚠ PAYMENT sin external_reference, ignorado.")
+                print("⚠ PAYMENT sin external_reference → ignorado")
                 return {"ok": True}
 
             consulta_id = int(external_ref)
 
-            print(f"💾 Actualizando consulta {consulta_id} (status={status})")
+            print(f"💾 Actualizando consulta {consulta_id} → estado_pago={status}, payment_id={payment_id}")
 
-            # Actualizar con tus columnas reales
+            # Guardar payment_id real + estado
             cur.execute("""
                 UPDATE consultas
                 SET 
@@ -5244,14 +5254,39 @@ def webhook_mp(request: Request, db=Depends(get_db)):
                         ELSE mp_preautorizado 
                     END
                 WHERE id = %s
-            """, (
-                status,
-                payment_id,
-                status,
-                consulta_id
-            ))
-
+            """, (status, payment_id, status, consulta_id))
             db.commit()
+
+            # ====================================================
+            # 🟣 2) VER SI LA CONSULTA QUEDÓ "pendiente_de_refund"
+            # ====================================================
+            cur.execute("SELECT estado FROM consultas WHERE id=%s", (consulta_id,))
+            row = cur.fetchone()
+
+            estado_actual = row[0] if row else None
+
+            if estado_actual == "pendiente_de_refund":
+                print(f"🔁 Ejecutando refund retrasado para consulta {consulta_id}")
+
+                refund_resp = requests.post(
+                    f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
+                    headers={
+                        "Authorization": f"Bearer {ACCESS_TOKEN}",
+                        "X-Idempotency-Key": str(uuid.uuid4())
+                    }
+                )
+
+                print("🔄 Refund:", refund_resp.status_code, refund_resp.text)
+
+                # Guardar refund exitoso en base
+                cur.execute("""
+                    UPDATE consultas
+                    SET estado='cancelada', mp_status='refunded'
+                    WHERE id=%s
+                """, (consulta_id,))
+                db.commit()
+
+                print(f"✅ Refund completado para consulta {consulta_id}")
 
         except Exception as e:
             print("❌ Error procesando webhook PAYMENT:", e)
@@ -5259,7 +5294,7 @@ def webhook_mp(request: Request, db=Depends(get_db)):
         return {"ok": True}
 
     # ============================================================
-    # 2) MERCHANT ORDER → no toca nada
+    # 2) MERCHANT ORDER → INFORMACIÓN, NO ACCIÓN
     # ============================================================
     print(f"ℹ Webhook merchant order {data_id}")
     return {"ok": True}
