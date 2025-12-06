@@ -5054,18 +5054,14 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 # DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook) MERCADO PAGO
 # ============================================================
 
-# ============================================================
-# DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook)
-# ============================================================
-
+import uuid
 import requests
 import psycopg2
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Request
 
 router = APIRouter()
 
-ACCESS_TOKEN = "APP_USR-3994751004650593-120308-10836059a11ea7ee383226aab5aba42e-3016724569"      # ⚠ Cambiar para producción
-
+ACCESS_TOKEN = "APP_USR-3994751004650593-120308-10836059a11ea7ee383226aab5aba42e-3016724569"   # PRODUCCIÓN
 
 # ============================================================
 # 🔌 USAMOS TU MÉTODO DE CONEXIÓN ORIGINAL
@@ -5079,22 +5075,18 @@ def get_db():
 
 
 # ============================================================
-# 🔵 1) CREAR PREFERENCE DE PAGO
+# 🔵 1) USUARIO VUELVE DEL PAGO — NO MARCAMOS NADA
 # ============================================================
 @app.post("/consultas/confirmar_pago")
-def confirmar_pago(data: dict, db = Depends(get_db)):
-    # NO marcamos nada de pago
+def confirmar_pago(data: dict, db=Depends(get_db)):
     consulta_id = data.get("consulta_id")
-
-    if not consulta_id:
-        raise HTTPException(status_code=400, detail="consulta_id requerido")
-
     print(f"📩 Usuario volvió del pago → consulta {consulta_id}")
-
-    # No hacemos nada, solo registramos que volvió
     return {"status": "ok"}
 
 
+# ============================================================
+# LISTAR REEMBOLSADAS (no tocar)
+# ============================================================
 @app.get("/consultas/reembolsadas")
 def consultas_reembolsadas(db=Depends(get_db)):
     cur = db.cursor()
@@ -5136,36 +5128,33 @@ def consultas_reembolsadas(db=Depends(get_db)):
             "metodo_pago": r[9]
         })
 
-    return {
-        "total": len(resultados),
-        "reembolsos": resultados
-    }
+    return {"total": len(resultados), "reembolsos": resultados}
 
 
-
+# ============================================================
+# 🔵 2) PREAUTORIZAR PAGO (Checkout)
+# ============================================================
 @app.post("/pagos/preautorizar")
-def crear_preference(data: dict, db = Depends(get_db)):
+def crear_preference(data: dict, db=Depends(get_db)):
 
     consulta_id = str(data["consulta_id"])
     monto = float(data["monto"])
     email = data["email"]
 
     url = "https://api.mercadopago.com/checkout/preferences"
-
     headers = {
         "Authorization": f"Bearer {ACCESS_TOKEN}",
         "Content-Type": "application/json",
     }
 
+    # ⚠ auto_return debe ser "all" (NO approved)
     payload = {
-        "items": [
-            {
-                "title": "Consulta médica a domicilio - DOCYA",
-                "quantity": 1,
-                "currency_id": "ARS",
-                "unit_price": monto
-            }
-        ],
+        "items": [{
+            "title": "Consulta médica a domicilio - DOCYA",
+            "quantity": 1,
+            "currency_id": "ARS",
+            "unit_price": monto
+        }],
         "payer": {"email": email},
         "external_reference": consulta_id,
         "back_urls": {
@@ -5173,13 +5162,13 @@ def crear_preference(data: dict, db = Depends(get_db)):
             "failure": "docya://pago_fallido",
             "pending": "docya://pago_pendiente"
         },
-        "auto_return": "approved"
+        "auto_return": "all"
     }
 
     r = requests.post(url, headers=headers, json=payload).json()
 
     if "id" not in r:
-        raise HTTPException(status_code=400, detail=r)
+        raise HTTPException(400, r)
 
     return {
         "status": "preference_ok",
@@ -5188,9 +5177,9 @@ def crear_preference(data: dict, db = Depends(get_db)):
     }
 
 
-
 # ============================================================
-# 🔔 2) WEBHOOK MP → Recibe payment_id
+# 🔔 3) WEBHOOK — **NO MARCA APPROVED**
+# Marca SOLO "preautorizado"
 # ============================================================
 @app.post("/webhook/mp")
 def webhook_mp(request: Request, db=Depends(get_db)):
@@ -5204,13 +5193,12 @@ def webhook_mp(request: Request, db=Depends(get_db)):
     cur = db.cursor()
 
     # ============================================================
-    # 🟦 1) PAYMENT (EVENTO IMPORTANTE)
+    # 🟦 PAYMENT EVENTO IMPORTANTE
     # ============================================================
     if tipo == "payment":
         print(f"🔔 Webhook PAYMENT {data_id}")
 
         try:
-            # Traer info del pago desde MP
             r = requests.get(
                 f"https://api.mercadopago.com/v1/payments/{data_id}",
                 headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
@@ -5218,40 +5206,36 @@ def webhook_mp(request: Request, db=Depends(get_db)):
 
             payment_id = r.get("id")
             status = r.get("status")
-            external_ref = r.get("external_reference")  # consulta_id real
+            consulta_id = r.get("external_reference")
 
-            if not external_ref:
+            if not consulta_id:
                 print("⚠ PAYMENT sin external_reference → ignorado")
                 return {"ok": True}
 
-            consulta_id = int(external_ref)
+            consulta_id = int(consulta_id)
 
-            print(f"💾 Actualizando consulta {consulta_id} → estado_pago={status}, payment_id={payment_id}")
+            print(f"💾 Webhook → consulta {consulta_id} status={status}")
 
-            # Guardar payment_id real + estado
-            cur.execute("""
-                UPDATE consultas
-                SET 
-                    mp_status = %s,
-                    mp_payment_id = %s,
-                    mp_preautorizado = CASE 
-                        WHEN %s = 'approved' THEN TRUE 
-                        ELSE mp_preautorizado 
-                    END
-                WHERE id = %s
-            """, (status, payment_id, status, consulta_id))
-            db.commit()
+            # 🔥 Cualquier estado menos rejected → preautorizado verdadero
+            if status in ["authorized", "in_process", "pending", "approved"]:
+                cur.execute("""
+                    UPDATE consultas
+                    SET 
+                        mp_status='preautorizado',
+                        mp_preautorizado=TRUE,
+                        mp_payment_id=%s
+                    WHERE id=%s
+                """, (payment_id, consulta_id))
+                db.commit()
 
-            # ====================================================
-            # 🟣 2) VER SI LA CONSULTA QUEDÓ "pendiente_de_refund"
-            # ====================================================
+            # ======================================================
+            # 🔄 REFUND DIFERIDO
+            # ======================================================
             cur.execute("SELECT estado FROM consultas WHERE id=%s", (consulta_id,))
             row = cur.fetchone()
 
-            estado_actual = row[0] if row else None
-
-            if estado_actual == "pendiente_de_refund":
-                print(f"🔁 Ejecutando refund retrasado para consulta {consulta_id}")
+            if row and row[0] == "pendiente_de_refund":
+                print(f"🔁 Ejecutando refund diferido para consulta {consulta_id}")
 
                 refund_resp = requests.post(
                     f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
@@ -5263,7 +5247,6 @@ def webhook_mp(request: Request, db=Depends(get_db)):
 
                 print("🔄 Refund:", refund_resp.status_code, refund_resp.text)
 
-                # Guardar refund exitoso en base
                 cur.execute("""
                     UPDATE consultas
                     SET estado='cancelada', mp_status='refunded'
@@ -5271,28 +5254,26 @@ def webhook_mp(request: Request, db=Depends(get_db)):
                 """, (consulta_id,))
                 db.commit()
 
-                print(f"✅ Refund completado para consulta {consulta_id}")
-
         except Exception as e:
-            print("❌ Error procesando webhook PAYMENT:", e)
+            print("❌ Error procesando webhook:", e)
 
         return {"ok": True}
 
-    # ============================================================
-    # 2) MERCHANT ORDER → INFORMACIÓN, NO ACCIÓN
-    # ============================================================
+    # Merchant order info
     print(f"ℹ Webhook merchant order {data_id}")
     return {"ok": True}
 
 
-
+# ============================================================
+# ESTADO CONSULTA
+# ============================================================
 @app.get("/consultas/{consulta_id}/estado")
 def estado_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         SELECT id, estado, mp_status, mp_preautorizado, mp_payment_id 
         FROM consultas
-        WHERE id = %s
+        WHERE id=%s
     """, (consulta_id,))
 
     row = cur.fetchone()
@@ -5305,89 +5286,79 @@ def estado_consulta(consulta_id: int, db=Depends(get_db)):
         "estado": row[1],
         "mp_status": row[2],
         "mp_preautorizado": row[3],
-        "payment_id": row[4],
+        "payment_id": row[4]
     }
 
 
-
 # ============================================================
-# 🟢 3) CAPTURAR (cuando un médico acepta)
+# 🟢 4) CAPTURAR (solo cuando médico acepta)
 # ============================================================
 @app.post("/pagos/capturar")
-def capturar_pago(data: dict, db = Depends(get_db)):
+def capturar_pago(data: dict, db=Depends(get_db)):
 
     consulta_id = data["consulta_id"]
 
-    # obtener payment_id
     cur = db.cursor()
-    cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s", (consulta_id,))
     row = cur.fetchone()
-    cur.close()
 
     if not row or not row[0]:
-        raise HTTPException(status_code=400, detail="❌ Payment no encontrado")
+        raise HTTPException(400, "Payment no encontrado")
 
     payment_id = row[0]
 
-    # capturar si es tarjeta de crédito
+    # 🔥 CAPTURAR EL PAGO
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"capture": True}
 
     r = requests.put(url, headers=headers, json=payload).json()
-    estado = r.get("status")
+    status = r.get("status")
 
-    if estado not in ["approved"]:
-        raise HTTPException(status_code=400, detail=r)
+    if status != "approved":
+        raise HTTPException(400, r)
 
-    # marcar como pagada
-    cur = db.cursor()
     cur.execute("""
         UPDATE consultas
-        SET payment_status = %s, pagado = TRUE
-        WHERE id = %s
-    """, (estado, consulta_id))
+        SET mp_status='approved', pagado=TRUE
+        WHERE id=%s
+    """, (consulta_id,))
     db.commit()
-    cur.close()
 
-    return {"status": "capturado", "payment_status": estado}
+    return {"status": "capturado", "payment_status": "approved"}
+
 
 
 # ============================================================
-# 🔴 4) CANCELAR (si no hay médicos)
+# 🔴 5) CANCELAR (si no hay médicos)
 # ============================================================
 @app.post("/pagos/cancelar")
-def cancelar_pago(data: dict, db = Depends(get_db)):
+def cancelar_pago(data: dict, db=Depends(get_db)):
 
     consulta_id = data["consulta_id"]
 
-    # obtener payment
     cur = db.cursor()
-    cur.execute("SELECT payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s", (consulta_id,))
     row = cur.fetchone()
-    cur.close()
 
     if not row or not row[0]:
-        raise HTTPException(status_code=400, detail="Payment no encontrado")
+        raise HTTPException(400, "Payment no encontrado")
 
     payment_id = row[0]
 
-    # cancelar en MP
+    # 🔥 CANCELAR LA PREAUTORIZACIÓN
     url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
     headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
     payload = {"status": "cancelled"}
 
-    requests.put(url, headers=headers, json=payload).json()
+    requests.put(url, headers=headers, json=payload)
 
-    # actualizar BD
-    cur = db.cursor()
     cur.execute("""
         UPDATE consultas
-        SET payment_status = %s
-        WHERE id = %s
-    """, ("cancelled", consulta_id))
+        SET mp_status='cancelled'
+        WHERE id=%s
+    """, (consulta_id,))
     db.commit()
-    cur.close()
 
     return {"status": "cancelado"}
 
