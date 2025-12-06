@@ -5082,38 +5082,16 @@ def get_db():
 # ============================================================
 @app.post("/consultas/confirmar_pago")
 def confirmar_pago(data: dict, db = Depends(get_db)):
-    cur = db.cursor()
-
+    # NO marcamos nada de pago
     consulta_id = data.get("consulta_id")
-    payment_id = data.get("payment_id", "")
 
     if not consulta_id:
         raise HTTPException(status_code=400, detail="consulta_id requerido")
 
-    # Actualizar consulta marcada como preautorizada
-    cur.execute("""
-        UPDATE consultas
-        SET mp_preautorizado = TRUE,
-            mp_payment_id = %s,
-            payment_id = %s,
-            mp_status = 'preautorizado'
-        WHERE id = %s
-        RETURNING id;
-    """, (payment_id, payment_id, consulta_id))
+    print(f"📩 Usuario volvió del pago → consulta {consulta_id}")
 
-    row = cur.fetchone()
-    db.commit()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
-
-    print(f"💳 Pago preautorizado → consulta {consulta_id}")
-
-    return {
-        "status": "ok",
-        "consulta_id": consulta_id,
-        "payment_id": payment_id
-    }
+    # No hacemos nada, solo registramos que volvió
+    return {"status": "ok"}
 
 
 @app.get("/consultas/reembolsadas")
@@ -5472,7 +5450,7 @@ def crear_consulta_previa(data: dict, db = Depends(get_db)):
     lng = data.get("lng")
     tipo = data.get("tipo", "medico")
 
-    # Crear consulta previa sin médico y marcada como pendiente
+    # Crear consulta previa correctamente SIN marcar pago
     cur.execute("""
         INSERT INTO consultas (
             paciente_uuid, medico_id, estado,
@@ -5485,8 +5463,8 @@ def crear_consulta_previa(data: dict, db = Depends(get_db)):
             %s, NULL, 'pendiente',
             %s, %s, %s, %s, %s,
             'tarjeta',
-            TRUE, FALSE,
-            NULL, 'pending'
+            FALSE, FALSE,
+            NULL, NULL
         )
         RETURNING id, creado_en;
     """, (
