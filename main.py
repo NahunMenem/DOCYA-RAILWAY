@@ -2804,51 +2804,66 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
 
 
 # --- Función para enviar notificaciones push ---
+# --- Función para enviar notificaciones push ---
 def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
     project_id = service_account_info["project_id"]
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 
     headers = {
         "Authorization": f"Bearer {get_access_token()}",
-        "Content-Type": "application/json; UTF-8",
+        "Content-Type": "application/json; charset=UTF-8",
     }
 
     payload = {
         "message": {
             "token": fcm_token,
 
-            # Notificación visible
+            # ================================
+            # 🔔 NOTIFICACIÓN VISIBLE
+            # ================================
             "notification": {
                 "title": titulo,
                 "body": cuerpo,
             },
 
-            # Config Android (OBLIGATORIO)
+            # ================================
+            # 🤖 ANDROID
+            # ================================
             "android": {
                 "priority": "high",
                 "notification": {
-                    "sound": "default",
+                    # Sonido personalizado (alerta.mp3 en /res/raw/)
+                    "sound": "alerta",
                     "channel_id": "default_channel_id",
                 }
             },
 
-            # Config iOS opcional
+            # ================================
+            # 🍏 iOS / APNS
+            # ================================
             "apns": {
+                "headers": {
+                    "apns-priority": "10"  # entrega inmediata
+                },
                 "payload": {
                     "aps": {
                         "alert": {"title": titulo, "body": cuerpo},
-                        "sound": "default"
+                        "sound": "alert.caf",   # tu sonido convertido
+                        "badge": 1
                     }
                 }
             },
 
-            # DATOS personalizados
+            # ================================
+            # 📦 DATA personalizada (obligatoria como string)
+            # ================================
             "data": {k: str(v) for k, v in data.items()},
         }
     }
 
     r = requests.post(url, headers=headers, json=payload)
     print("📤 Push enviado:", r.status_code, r.text)
+
 
 
 # --- Endpoint para testear notificación push ---
