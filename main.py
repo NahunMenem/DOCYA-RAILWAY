@@ -2669,14 +2669,17 @@ def ubicacion_medico_consulta(consulta_id: int, db=Depends(get_db)):
         WHERE c.id = %s 
           AND c.estado IN ('aceptada','en_camino','en_domicilio')
     """, (consulta_id,))
+    
     row = cur.fetchone()
+
     if not row:
         raise HTTPException(status_code=404, detail="No se encontró ubicación")
+
     return {
         "medico_id": row[0],
         "nombre": row[1],
-        "lat": row[2],
-        "lng": row[3],
+        "lat": float(row[2]) if row[2] is not None else None,
+        "lng": float(row[3]) if row[3] is not None else None,
         "telefono": row[4],
     }
 
@@ -2695,7 +2698,20 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         lat_med = float(lat_med)
         lng_med = float(lng_med)
 
-        # 1️⃣ Guardar ubicación actual del médico
+        # ⭐ 1. ACTUALIZAR COORDENADAS EN TABLA MEDICOS (FUNDAMENTAL)
+        cur.execute("""
+            UPDATE medicos
+            SET latitud = %s,
+                longitud = %s,
+                updated_at = NOW(),
+                ultimo_ping = NOW()
+            WHERE id = (
+                SELECT medico_id FROM consultas WHERE id = %s
+            )
+        """, (lat_med, lng_med, consulta_id))
+
+
+        # ⭐ 2. ACTUALIZAR COORDENADAS EN TABLA CONSULTAS
         cur.execute("""
             UPDATE consultas
             SET medico_lat = %s,
@@ -2704,7 +2720,8 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
             WHERE id = %s
         """, (lat_med, lng_med, consulta_id))
 
-        # 2️⃣ Traer la ubicación del paciente
+
+        # ⭐ 3. TRAER UBICACIÓN DEL PACIENTE
         cur.execute("""
             SELECT lat, lng
             FROM consultas
@@ -2722,16 +2739,16 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
 
         lat_pac, lng_pac = float(row[0]), float(row[1])
 
-        # =============================
-        # 🚀 3️⃣ Calcular ETA GRATIS con ORS
-        # =============================
+
+        # ⭐ 4. CALCULAR ETA GRATIS (ORS)
         tiempo_min = calcular_eta_ors(lat_med, lng_med, lat_pac, lng_pac)
 
         if tiempo_min is None:
-            print("⚠️ ORS no devolvió ETA, usando ETA=0")
+            print("⚠️ ORS no devolvió ETA, usando 0")
             tiempo_min = 0
 
-        # 4️⃣ Guardar ETA actualizado en la base de datos
+
+        # ⭐ 5. GUARDAR ETA
         cur.execute("""
             UPDATE consultas
             SET tiempo_estimado_min = %s
@@ -2749,7 +2766,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         db.rollback()
         print("❌ Error ETA:", e)
         return {"error": str(e)}
-
 
 
 import asyncio
