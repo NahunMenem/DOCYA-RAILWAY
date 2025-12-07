@@ -251,14 +251,21 @@ def calcular_eta_ors(origen_lat, origen_lng, destino_lat, destino_lng):
 
     resp = requests.post(url, json=body, headers=headers)
 
+    print("🔍 ORS STATUS:", resp.status_code)
+    print("🔍 ORS RAW:", resp.text)   # <--- AGREGADO
+
     if resp.status_code == 200:
         data = resp.json()
-        duration_seconds = data["features"][0]["properties"]["summary"]["duration"]
-        tiempo_min = duration_seconds / 60
-        return tiempo_min
+        try:
+            duration_seconds = data["features"][0]["properties"]["summary"]["duration"]
+            return duration_seconds / 60
+        except Exception as e:
+            print("❌ Parse error:", e)
+            return None
 
     print("❌ Error ORS:", resp.text)
     return None
+
 
 
 
