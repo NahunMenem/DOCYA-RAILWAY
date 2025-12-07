@@ -1662,27 +1662,29 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     try:
         if all(v is not None for v in [lat, lng, med_lat, med_lng]):
             lat, lng, med_lat, med_lng = float(lat), float(lng), float(med_lat), float(med_lng)
-
-            directions_url = (
-                f"https://maps.googleapis.com/maps/api/directions/json?"
-                f"origin={med_lat},{med_lng}&destination={lat},{lng}"
-                f"&mode=driving&departure_time=now&traffic_model=best_guess"
-                f"&units=metric&key={GOOGLE_API_KEY}"
+    
+            # 🔥 Cálculo gratuito con OpenRouteService
+            tiempo_min = calcular_eta_ors(med_lat, med_lng, lat, lng)
+    
+            # 🔥 Distancia aproximada (sin Directions)
+            # ORS también puede devolver distancia, pero usamos Haversine para hacerlo liviano
+            R = 6371  # Radio de la tierra en km
+            dlat = math.radians(lat - med_lat)
+            dlng = math.radians(lng - med_lng)
+            a = (
+                math.sin(dlat/2)**2
+                + math.cos(math.radians(med_lat))
+                * math.cos(math.radians(lat))
+                * math.sin(dlng/2)**2
             )
-            resp = requests.get(directions_url)
-            data = resp.json()
-
-            if data.get("status") == "OK":
-                leg = data["routes"][0]["legs"][0]
-                distancia_km = leg["distance"]["value"] / 1000
-                tiempo_min = (
-                    leg.get("duration_in_traffic", leg["duration"])["value"] / 60
-                )
-            else:
-                print("⚠️ Error Google Directions:", data.get("status"))
-
+            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
+            distancia_km = R * c
+    
+            print(f"⏱ ETA ORS: {tiempo_min} min | 📏 Distancia: {distancia_km:.2f} km")
+    
     except Exception as e:
-        print("❌ Error cálculo distancia:", e)
+        print("❌ Error cálculo ETA ORS:", e)
+
 
     return {
         "id": consulta_id,
@@ -2692,6 +2694,7 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
             WHERE id = %s
         """, (lat_med, lng_med, consulta_id))
 
+
         # 2️⃣ Traer la ubicación del paciente
         cur.execute("""
             SELECT lat, lng
@@ -2701,7 +2704,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         
         row = cur.fetchone()
 
-        # Si la consulta no existe o no tiene ubicación del paciente
         if not row or row[0] is None or row[1] is None:
             db.commit()
             return {
@@ -2710,27 +2712,16 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
             }
 
         lat_pac, lng_pac = float(row[0]), float(row[1])
+        lat_med, lng_med = float(lat_med), float(lng_med)
 
         # =============================
-        # 🚀 3️⃣ Calcular ETA con Google
+        # 🚀 3️⃣ Calcular ETA GRATIS con ORS
         # =============================
-        directions_url = (
-            f"https://maps.googleapis.com/maps/api/directions/json?"
-            f"origin={lat_med},{lng_med}&destination={lat_pac},{lng_pac}"
-            f"&mode=driving&departure_time=now&traffic_model=best_guess"
-            f"&units=metric&key={GOOGLE_API_KEY}"
-        )
+        tiempo_min = calcular_eta_ors(lat_med, lng_med, lat_pac, lng_pac)
 
-        resp = requests.get(directions_url)
-        data = resp.json()
-
-        tiempo_min = None
-
-        if data.get("status") == "OK":
-            leg = data["routes"][0]["legs"][0]
-            tiempo_min = leg.get("duration_in_traffic", leg["duration"])["value"] / 60
-        else:
-            print("⚠️ Google Directions ERROR:", data.get("status"))
+        if tiempo_min is None:
+            print("⚠️ Error ORS ETA")
+            tiempo_min = 0
 
         # 4️⃣ Guardar ETA actualizado en la base de datos
         cur.execute("""
@@ -3818,37 +3809,30 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 
         consulta = cur.fetchone()
 
+        tiempo_min = None
+
         if consulta:
             consulta_id, lat_pac, lng_pac = consulta
             print(f"📦 Consulta activa del médico {medico_id}: {consulta_id}")
 
-            tiempo_min = None  # valor por default
-
             # -------------------------------------------------------
-            # 🚑 CALCULAR ETA SOLO SI HAY COORDENADAS DEL PACIENTE
+            # 🚑 CALCULAR ETA GRATIS CON ORS
             # -------------------------------------------------------
             if lat_pac is not None and lng_pac is not None:
                 try:
-                    directions_url = (
-                        f"https://maps.googleapis.com/maps/api/directions/json?"
-                        f"origin={data.lat},{data.lng}&destination={lat_pac},{lng_pac}"
-                        f"&mode=driving&departure_time=now&traffic_model=best_guess"
-                        f"&units=metric&key={GOOGLE_API_KEY}"
+                    tiempo_min = calcular_eta_ors(
+                        data.lat,
+                        data.lng,
+                        float(lat_pac),
+                        float(lng_pac)
                     )
-
-                    resp = requests.get(directions_url)
-                    gdata = resp.json()
-
-                    if gdata.get("status") == "OK":
-                        leg = gdata["routes"][0]["legs"][0]
-                        tiempo_min = leg.get("duration_in_traffic", leg["duration"])["value"] / 60
-                        print(f"⏱ ETA para consulta {consulta_id}: {tiempo_min:.1f} min")
+                    print(f"⏱ ETA ORS consulta {consulta_id}: {tiempo_min} min")
 
                 except Exception as e:
-                    print("⚠️ Error calculando ETA:", e)
+                    print("⚠️ Error ORS ETA:", e)
 
             # -------------------------------------------------------
-            # 📝 GUARDAR SIEMPRE MEDICO_LAT, MEDICO_LNG Y ETA
+            # 📝 GUARDAR ETA + UBICACIÓN EN CONSULTA
             # -------------------------------------------------------
             cur.execute("""
                 UPDATE consultas
@@ -3857,12 +3841,11 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
                     medico_lng = %s
                 WHERE id = %s
             """, (
-                tiempo_min,          # puede ser None → está bien
+                tiempo_min,
                 data.lat,
                 data.lng,
                 consulta_id
             ))
-
 
         # -------------------------------------------------------
         db.commit()
@@ -3876,12 +3859,14 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             "disponible": disponible_actual,
             "ultimo_ping": ahora_arg.isoformat(),
             "consulta_id": consulta[0] if consulta else None,
+            "eta": tiempo_min
         }
 
     except Exception as e:
         db.rollback()
         print(f"⚠️ Error en actualizar_ubicacion: {e}")
         raise HTTPException(status_code=500, detail="Error actualizando ubicación del médico")
+
 
 
 
