@@ -1984,30 +1984,26 @@ def estado_pago_consulta(consulta_id: int, db=Depends(get_db)):
 
     metodo_pago, mp_status = row
 
-    # ---------------------------
+    # --------------------------------
     #   EFECTIVO
-    # ---------------------------
+    # --------------------------------
     if metodo_pago == "efectivo":
         return {
-            "pagado": False,       # en efectivo nunca aparece como pagado
+            "pagado": False,
             "metodo": "efectivo",
-            "mp_status": None
+            "mp_status": mp_status
         }
 
-    # ---------------------------
-    #   TARJETA (Mercado Pago)
-    # ---------------------------
-    pagado = mp_status in [
-        "approved",
-        "captured",
-        "refunded"
-    ]
-
+    # --------------------------------
+    #   TARJETA (mercado pago)
+    #   Marcamos SIEMPRE como pagado
+    # --------------------------------
     return {
-        "pagado": pagado,
+        "pagado": True,
         "metodo": "tarjeta",
         "mp_status": mp_status
     }
+
 
 
 @app.get("/pacientes/{paciente_uuid}/historia_clinica")
