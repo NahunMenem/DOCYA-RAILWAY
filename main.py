@@ -945,6 +945,13 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     consultas_nocturnas = 0
     ganancias_diurnas = 0
     ganancias_nocturnas = 0
+    
+    # 🔥 Nuevos contadores por método de pago
+    consultas_diurnas_tarjeta = 0
+    consultas_nocturnas_tarjeta = 0
+    consultas_diurnas_efectivo = 0
+    consultas_nocturnas_efectivo = 0
+
 
     # Tarifa según tipo
     tarifa_dia = 30000 if tipo == "medico" else 20000
