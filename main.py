@@ -3797,7 +3797,12 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
     try:
         ahora_arg = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
 
+        lat_med = float(data.lat)
+        lng_med = float(data.lng)
+
         cur = db.cursor()
+
+        # 1️⃣ ACTUALIZAR UBICACIÓN EN TABLA MEDICOS
         cur.execute("""
             UPDATE medicos
             SET latitud = %s,
@@ -3805,8 +3810,8 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
                 updated_at = %s,
                 ultimo_ping = %s
             WHERE id = %s
-            RETURNING id, disponible;
-        """, (data.lat, data.lng, ahora_arg, ahora_arg, medico_id))
+            RETURNING disponible;
+        """, (lat_med, lng_med, ahora_arg, ahora_arg, medico_id))
 
         row = cur.fetchone()
 
@@ -3815,13 +3820,11 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             cur.close()
             raise HTTPException(status_code=404, detail="Médico no encontrado")
 
-        disponible_actual = row[1]
+        disponible_actual = row[0]
 
         print(f"📍 Médico {medico_id} → lat/lng actualizado (disponible={disponible_actual})")
 
-        # -------------------------------------------------------
-        # 🚑 BUSCAR CONSULTA ACTIVA PARA ESTE MÉDICO
-        # -------------------------------------------------------
+        # 2️⃣ BUSCAR CONSULTA ACTIVA
         cur.execute("""
             SELECT id, lat, lng
             FROM consultas
@@ -3833,56 +3836,57 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 
         consulta = cur.fetchone()
 
+        consulta_id = consulta[0] if consulta else None
         tiempo_min = None
 
         if consulta:
-            consulta_id, lat_pac, lng_pac = consulta
+            _, lat_pac, lng_pac = consulta
+
             print(f"📦 Consulta activa del médico {medico_id}: {consulta_id}")
 
-            # -------------------------------------------------------
-            # 🚑 CALCULAR ETA GRATIS CON ORS
-            # -------------------------------------------------------
             if lat_pac is not None and lng_pac is not None:
                 try:
                     tiempo_min = calcular_eta_ors(
-                        data.lat,
-                        data.lng,
-                        float(lat_pac),
-                        float(lng_pac)
+                        lat_med, lng_med,
+                        float(lat_pac), float(lng_pac)
                     )
                     print(f"⏱ ETA ORS consulta {consulta_id}: {tiempo_min} min")
-
                 except Exception as e:
                     print("⚠️ Error ORS ETA:", e)
+                    tiempo_min = 0
 
-            # -------------------------------------------------------
-            # 📝 GUARDAR ETA + UBICACIÓN EN CONSULTA
-            # -------------------------------------------------------
+            # 3️⃣ GUARDAR ETA + UBICACIÓN EN CONSULTAS
             cur.execute("""
                 UPDATE consultas
                 SET tiempo_estimado_min = %s,
                     medico_lat = %s,
-                    medico_lng = %s
+                    medico_lng = %s,
+                    actualizado_en = NOW()
                 WHERE id = %s
-            """, (
-                tiempo_min,
-                data.lat,
-                data.lng,
-                consulta_id
-            ))
+            """, (tiempo_min, lat_med, lng_med, consulta_id))
 
-        # -------------------------------------------------------
+        else:
+            # ⭐ SIN CONSULTA ACTIVA → IGUAL SINCRONIZAMOS CONSULTAS
+            cur.execute("""
+                UPDATE consultas
+                SET medico_lat = %s,
+                    medico_lng = %s,
+                    actualizado_en = NOW()
+                WHERE medico_id = %s
+                  AND estado = 'pendiente'
+            """, (lat_med, lng_med, medico_id))
+
         db.commit()
         cur.close()
 
         return {
             "ok": True,
             "medico_id": medico_id,
-            "lat": data.lat,
-            "lng": data.lng,
+            "lat": lat_med,
+            "lng": lng_med,
             "disponible": disponible_actual,
             "ultimo_ping": ahora_arg.isoformat(),
-            "consulta_id": consulta[0] if consulta else None,
+            "consulta_id": consulta_id,
             "eta": tiempo_min
         }
 
