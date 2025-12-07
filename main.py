@@ -1972,7 +1972,7 @@ def estado_pago_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
     cur.execute("""
-        SELECT metodo_pago, mp_status
+        SELECT metodo_pago
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
@@ -1982,27 +1982,32 @@ def estado_pago_consulta(consulta_id: int, db=Depends(get_db)):
     if not row:
         return {"pagado": False, "metodo": None}
 
-    metodo_pago, mp_status = row
+    metodo_pago = row[0]
 
     # --------------------------------
-    #   EFECTIVO
+    #   EFECTIVO → médico cobra
     # --------------------------------
     if metodo_pago == "efectivo":
         return {
-            "pagado": False,
-            "metodo": "efectivo",
-            "mp_status": mp_status
+            "pagado": False,      # debe cobrar
+            "metodo": "efectivo"
         }
 
     # --------------------------------
-    #   TARJETA (mercado pago)
-    #   Marcamos SIEMPRE como pagado
+    #   TARJETA → paciente ya pagó a través de la app
     # --------------------------------
+    if metodo_pago == "tarjeta":
+        return {
+            "pagado": True,        # NO debe cobrar
+            "metodo": "tarjeta"
+        }
+
+    # fallback (por si agregás otro método)
     return {
-        "pagado": True,
-        "metodo": "tarjeta",
-        "mp_status": mp_status
+        "pagado": False,
+        "metodo": metodo_pago
     }
+
 
 
 
