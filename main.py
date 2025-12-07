@@ -2692,6 +2692,9 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         if lat_med is None or lng_med is None:
             return {"error": "Faltan coordenadas"}
 
+        lat_med = float(lat_med)
+        lng_med = float(lng_med)
+
         # 1️⃣ Guardar ubicación actual del médico
         cur.execute("""
             UPDATE consultas
@@ -2700,7 +2703,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
                 actualizado_en = NOW()
             WHERE id = %s
         """, (lat_med, lng_med, consulta_id))
-
 
         # 2️⃣ Traer la ubicación del paciente
         cur.execute("""
@@ -2719,7 +2721,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
             }
 
         lat_pac, lng_pac = float(row[0]), float(row[1])
-        lat_med, lng_med = float(lat_med), float(lng_med)
 
         # =============================
         # 🚀 3️⃣ Calcular ETA GRATIS con ORS
@@ -2727,7 +2728,7 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         tiempo_min = calcular_eta_ors(lat_med, lng_med, lat_pac, lng_pac)
 
         if tiempo_min is None:
-            print("⚠️ Error ORS ETA")
+            print("⚠️ ORS no devolvió ETA, usando ETA=0")
             tiempo_min = 0
 
         # 4️⃣ Guardar ETA actualizado en la base de datos
