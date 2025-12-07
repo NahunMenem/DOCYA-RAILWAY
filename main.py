@@ -229,6 +229,39 @@ def register(data: RegisterIn, db=Depends(get_db)):
     }
 
 
+#MAPA
+import requests
+
+ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjNiZGFiZGMxOGJjYjQzNTlhY2Y1Y2Y5ZDcxZmI3ZTJkIiwiaCI6Im11cm11cjY0In0="  # gratis
+
+def calcular_eta_ors(origen_lat, origen_lng, destino_lat, destino_lng):
+    url = "https://api.openrouteservice.org/v2/directions/driving-car"
+
+    body = {
+        "coordinates": [
+            [origen_lng, origen_lat],
+            [destino_lng, destino_lat]
+        ]
+    }
+
+    headers = {
+        "Authorization": ORS_KEY,
+        "Content-Type": "application/json"
+    }
+
+    resp = requests.post(url, json=body, headers=headers)
+
+    if resp.status_code == 200:
+        data = resp.json()
+        duration_seconds = data["features"][0]["properties"]["summary"]["duration"]
+        tiempo_min = duration_seconds / 60
+        return tiempo_min
+
+    print("❌ Error ORS:", resp.text)
+    return None
+
+
+
 
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db=Depends(get_db)):
