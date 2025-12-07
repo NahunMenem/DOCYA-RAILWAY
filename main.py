@@ -929,7 +929,7 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     inicio_semana = date.today() - timedelta(days=date.today().weekday())
     fin_semana = inicio_semana + timedelta(days=6)
 
-    # 3️⃣ Consultas finalizadas esta semana (diurnas y nocturnas)
+    # 3️⃣ Consultas finalizadas esta semana
     cur.execute("""
         SELECT id, fin_atencion, metodo_pago
         FROM consultas
@@ -945,13 +945,12 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     consultas_nocturnas = 0
     ganancias_diurnas = 0
     ganancias_nocturnas = 0
-    
-    # 🔥 Nuevos contadores por método de pago
+
+    # 🔥 Nuevos contadores por método de pago (diurna/nocturna)
     consultas_diurnas_tarjeta = 0
     consultas_nocturnas_tarjeta = 0
     consultas_diurnas_efectivo = 0
     consultas_nocturnas_efectivo = 0
-
 
     # Tarifa según tipo
     tarifa_dia = 30000 if tipo == "medico" else 20000
@@ -967,27 +966,37 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
         # Contar métodos
         metodo_contador[metodo] = metodo_contador.get(metodo, 0) + 1
 
-        # Determinar nocturna o diurna
+        # Determinar si es nocturna
         es_nocturna = (hora >= time(22, 0)) or (hora < time(6, 0))
 
         if es_nocturna:
             consultas_nocturnas += 1
             ganancias_nocturnas += tarifa_noche
+
+            # *** Método nocturno ***
+            if metodo == "tarjeta":
+                consultas_nocturnas_tarjeta += 1
+            else:
+                consultas_nocturnas_efectivo += 1
+
         else:
             consultas_diurnas += 1
             ganancias_diurnas += tarifa_dia
+
+            # *** Método diurno ***
+            if metodo == "tarjeta":
+                consultas_diurnas_tarjeta += 1
+            else:
+                consultas_diurnas_efectivo += 1
 
     # 5️⃣ Ganancia total
     ganancias_total = ganancias_diurnas + ganancias_nocturnas
     consultas_total = consultas_diurnas + consultas_nocturnas
 
-    # 6️⃣ Determinar método frecuente
-    if metodo_contador:
-        metodo_frecuente = max(metodo_contador, key=metodo_contador.get)
-    else:
-        metodo_frecuente = None
+    # 6️⃣ Método más frecuente
+    metodo_frecuente = max(metodo_contador, key=metodo_contador.get) if metodo_contador else None
 
-    # 7️⃣ Pagos reales registrados (si los usas)
+    # 7️⃣ Pagos reales registrados (pie chart)
     cur.execute("""
         SELECT 
             COALESCE(metodo_pago, 'efectivo') AS metodo_pago,
@@ -1000,6 +1009,7 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     """, (medico_id,))
     
     rows = cur.fetchall()
+
     detalle_pagos = {
         row[0]: {
             "cantidad": int(row[1]),
@@ -1024,10 +1034,16 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
         "ganancias_diurnas": ganancias_diurnas,
         "ganancias_nocturnas": ganancias_nocturnas,
 
+        # 🔥 NUEVOS CAMPOS (para tu nuevo diseño Flutter)
+        "consultas_diurnas_tarjeta": consultas_diurnas_tarjeta,
+        "consultas_nocturnas_tarjeta": consultas_nocturnas_tarjeta,
+        "consultas_diurnas_efectivo": consultas_diurnas_efectivo,
+        "consultas_nocturnas_efectivo": consultas_nocturnas_efectivo,
+
         # Método más frecuente
         "metodo_frecuente": metodo_frecuente,
 
-        # Pagos registrados para el pie chart
+        # Gráfico de pagos
         "detalle_pagos": detalle_pagos,
     }
 
