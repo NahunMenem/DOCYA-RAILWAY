@@ -3813,16 +3813,17 @@ def calcular_distancia_km(lat1, lon1, lat2, lon2):
 def calcular_eta_local(distancia_km):
     ahora = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).time()
 
-    # Velocidad promedio en CABA (probado)
-    if time(8, 0) <= ahora <= time(20, 0):
-        velocidad_kmh = 22  # día
+    # Velocidades promedio REALISTAS
+    if time(7, 30) <= ahora <= time(20, 30):   # día + tráfico
+        velocidad_kmh = 15   # <-- ANTES era 22, ahora es REAL
     else:
-        velocidad_kmh = 30  # noche (menos tráfico)
+        velocidad_kmh = 28   # noche
 
     if distancia_km <= 0.15:
         return 1
 
-    return round((distancia_km / velocidad_kmh) * 60)  # minutos
+    return round((distancia_km / velocidad_kmh) * 60)
+
 
 
 # --------------------------------------
