@@ -229,43 +229,6 @@ def register(data: RegisterIn, db=Depends(get_db)):
     }
 
 
-#MAPA
-import requests
-
-ORS_KEY = "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjNiZGFiZGMxOGJjYjQzNTlhY2Y1Y2Y5ZDcxZmI3ZTJkIiwiaCI6Im11cm11cjY0In0="  # gratis
-
-def calcular_eta_ors(origen_lat, origen_lng, destino_lat, destino_lng):
-    url = "https://api.openrouteservice.org/v2/directions/driving-car"
-
-    body = {
-        "coordinates": [
-            [origen_lng, origen_lat],
-            [destino_lng, destino_lat]
-        ]
-    }
-
-    headers = {
-        "Authorization": ORS_KEY,
-        "Content-Type": "application/json"
-    }
-
-    resp = requests.post(url, json=body, headers=headers)
-
-    print("🔍 ORS STATUS:", resp.status_code)
-    print("🔍 ORS RAW:", resp.text)
-
-    if resp.status_code == 200:
-        data = resp.json()
-
-        try:
-            duration_seconds = data["routes"][0]["summary"]["duration"]
-            return duration_seconds / 60  # convertir a minutos
-        except Exception as e:
-            print("❌ Parse error:", e)
-            return None
-
-    print("❌ Error ORS:", resp.text)
-    return None
 
 
 
@@ -1643,7 +1606,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
                COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
                c.motivo, c.direccion, c.lat, c.lng, c.estado,
                m.latitud, m.longitud,
-               m.tipo   -- 👈🔥 AGREGADO (NO ROMPE NADA)
+               m.tipo
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
         LEFT JOIN users u ON c.paciente_uuid = u.id
@@ -1660,38 +1623,32 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     (
         consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
         motivo, direccion, lat, lng, estado,
-        med_lat, med_lng, tipo_profesional   # 👈🔥 AGREGADO
+        med_lat, med_lng, tipo_profesional
     ) = row
 
     distancia_km = None
     tiempo_min = None
 
+    # ------------------------------------------------------
+    # 🔥 Cálculo local de distancia y ETA
+    # ------------------------------------------------------
     try:
         if all(v is not None for v in [lat, lng, med_lat, med_lng]):
-            lat, lng, med_lat, med_lng = float(lat), float(lng), float(med_lat), float(med_lng)
-    
-            # 🔥 Cálculo gratuito con OpenRouteService
-            tiempo_min = calcular_eta_ors(med_lat, med_lng, lat, lng)
-    
-            # 🔥 Distancia aproximada (sin Directions)
-            # ORS también puede devolver distancia, pero usamos Haversine para hacerlo liviano
-            R = 6371  # Radio de la tierra en km
-            dlat = math.radians(lat - med_lat)
-            dlng = math.radians(lng - med_lng)
-            a = (
-                math.sin(dlat/2)**2
-                + math.cos(math.radians(med_lat))
-                * math.cos(math.radians(lat))
-                * math.sin(dlng/2)**2
-            )
-            c = 2 * math.atan2(math.sqrt(a), math.sqrt(1-a))
-            distancia_km = R * c
-    
-            print(f"⏱ ETA ORS: {tiempo_min} min | 📏 Distancia: {distancia_km:.2f} km")
-    
-    except Exception as e:
-        print("❌ Error cálculo ETA ORS:", e)
+            lat = float(lat)
+            lng = float(lng)
+            med_lat = float(med_lat)
+            med_lng = float(med_lng)
 
+            # 1️⃣ Distancia Haversine
+            distancia_km = calcular_distancia_km(med_lat, med_lng, lat, lng)
+
+            # 2️⃣ ETA local
+            tiempo_min = calcular_eta_local(distancia_km)
+
+            print(f"🧮 ETA local: {tiempo_min} min | 📏 Distancia: {distancia_km:.2f} km")
+
+    except Exception as e:
+        print("❌ Error cálculo ETA:", e)
 
     return {
         "id": consulta_id,
@@ -1703,9 +1660,9 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "lat": lat,
         "lng": lng,
         "estado": estado,
-        "tipo": tipo_profesional,    # 👈🔥 AHORA LLEGA A FLUTTER
+        "tipo": tipo_profesional,
         "distancia_km": round(distancia_km, 2) if distancia_km else None,
-        "tiempo_estimado_min": int(round(tiempo_min)) if tiempo_min is not None else 0
+        "tiempo_estimado_min": tiempo_min if tiempo_min is not None else 0
     }
 
 
@@ -2698,7 +2655,9 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         lat_med = float(lat_med)
         lng_med = float(lng_med)
 
-        # ⭐ 1. ACTUALIZAR COORDENADAS EN TABLA MEDICOS (FUNDAMENTAL)
+        # -----------------------------------------
+        # 1) ACTUALIZAR UBICACIÓN EN TABLA MEDICOS
+        # -----------------------------------------
         cur.execute("""
             UPDATE medicos
             SET latitud = %s,
@@ -2711,7 +2670,9 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         """, (lat_med, lng_med, consulta_id))
 
 
-        # ⭐ 2. ACTUALIZAR COORDENADAS EN TABLA CONSULTAS
+        # -----------------------------------------
+        # 2) ACTUALIZAR UBICACIÓN EN CONSULTAS
+        # -----------------------------------------
         cur.execute("""
             UPDATE consultas
             SET medico_lat = %s,
@@ -2721,7 +2682,9 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         """, (lat_med, lng_med, consulta_id))
 
 
-        # ⭐ 3. TRAER UBICACIÓN DEL PACIENTE
+        # -----------------------------------------
+        # 3) TRAER UBICACIÓN DEL PACIENTE
+        # -----------------------------------------
         cur.execute("""
             SELECT lat, lng
             FROM consultas
@@ -2737,28 +2700,38 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
                 "eta": None
             }
 
-        lat_pac, lng_pac = float(row[0]), float(row[1])
+        lat_pac = float(row[0])
+        lng_pac = float(row[1])
 
 
-        # ⭐ 4. CALCULAR ETA GRATIS (ORS)
-        tiempo_min = calcular_eta_ors(lat_med, lng_med, lat_pac, lng_pac)
+        # -----------------------------------------
+        # 4) CALCULAR DISTANCIA HAVERSINE (km)
+        # -----------------------------------------
+        distancia_km = calcular_distancia_km(lat_med, lng_med, lat_pac, lng_pac)
 
-        if tiempo_min is None:
-            print("⚠️ ORS no devolvió ETA, usando 0")
-            tiempo_min = 0
+        # -----------------------------------------
+        # 5) CALCULAR ETA LOCAL
+        # -----------------------------------------
+        tiempo_min = calcular_eta_local(distancia_km)
+
+        print(f"🧮 ETA local consulta {consulta_id}: {tiempo_min} min (dist {distancia_km:.2f} km)")
 
 
-        # ⭐ 5. GUARDAR ETA
+        # -----------------------------------------
+        # 6) GUARDAR ETA EN CONSULTAS
+        # -----------------------------------------
         cur.execute("""
             UPDATE consultas
             SET tiempo_estimado_min = %s
             WHERE id = %s
         """, (tiempo_min, consulta_id))
 
+
         db.commit()
 
         return {
             "status": "ok",
+            "distancia_km": round(distancia_km, 2),
             "eta": tiempo_min
         }
 
@@ -2767,8 +2740,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         print("❌ Error ETA:", e)
         return {"error": str(e)}
 
-
-import asyncio
 
 # --- WebSocket de médicos ---
 # ====================================================
@@ -3641,7 +3612,9 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
             m.full_name, 
             m.matricula,
             m.tipo,
-            c.tiempo_estimado_min   -- 👈🔥 AGREGADO AQUÍ
+            c.tiempo_estimado_min,
+            c.medico_lat,
+            c.medico_lng
         FROM consultas c
         LEFT JOIN medicos m ON c.medico_id = m.id
         WHERE c.id = %s
@@ -3651,22 +3624,44 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
-    
+
+    (
+        cid, paciente_uuid, medico_id, estado,
+        motivo, direccion, lat, lng, creado_en,
+        medico_nombre, medico_matricula, tipo,
+        tiempo_estimado_raw,
+        medico_lat, medico_lng
+    ) = row
+
+    # -------------------------
+    # 🔥 Normalizar ETA
+    # -------------------------
+    if tiempo_estimado_raw is None:
+        tiempo_estimado_min = 0
+    else:
+        try:
+            tiempo_estimado_min = int(round(float(tiempo_estimado_raw)))
+        except:
+            tiempo_estimado_min = 0
+
     return {
-        "id": row[0],
-        "paciente_uuid": row[1],
-        "medico_id": row[2],
-        "estado": row[3],
-        "motivo": row[4],
-        "direccion": row[5],
-        "lat": row[6],
-        "lng": row[7],
-        "creado_en": format_datetime_arg(row[8]),
-        "medico_nombre": row[9],
-        "medico_matricula": row[10],
-        "tipo": row[11],
-        "tiempo_estimado_min": row[12],   # 👈🔥 DEVUELTO AL PACIENTE
+        "id": cid,
+        "paciente_uuid": paciente_uuid,
+        "medico_id": medico_id,
+        "estado": estado,
+        "motivo": motivo,
+        "direccion": direccion,
+        "lat": lat,
+        "lng": lng,
+        "creado_en": format_datetime_arg(creado_en),
+        "medico_nombre": medico_nombre,
+        "medico_matricula": medico_matricula,
+        "tipo": tipo,
+        "tiempo_estimado_min": tiempo_estimado_min,  # ✔ SIEMPRE DEVUELVE ENTERO
+        "medico_lat": medico_lat,   # ✔ NUEVO
+        "medico_lng": medico_lng,   # ✔ NUEVO
     }
+
 
 
 
@@ -3792,6 +3787,47 @@ def actualizar_status(medico_id: int, data: dict, db=Depends(get_db)):
     return {"ok": True, "disponible": disponible}
 
 
+from fastapi import HTTPException
+from datetime import datetime, time
+from zoneinfo import ZoneInfo
+import math
+
+# --------------------------------------
+# 🔵 Cálculo de distancia (Haversine)
+# --------------------------------------
+def calcular_distancia_km(lat1, lon1, lat2, lon2):
+    R = 6371  # radio de la Tierra en km
+    lat1 = math.radians(lat1)
+    lat2 = math.radians(lat2)
+    dlat = lat2 - lat1
+    dlon = math.radians(lon2 - lon2)
+
+    a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
+    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    return R * c
+
+
+# --------------------------------------
+# 🔵 ETA LOCAL (sin Google, sin ORS)
+# --------------------------------------
+def calcular_eta_local(distancia_km):
+    ahora = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).time()
+
+    # Velocidad promedio en CABA (probado)
+    if time(8, 0) <= ahora <= time(20, 0):
+        velocidad_kmh = 22  # día
+    else:
+        velocidad_kmh = 30  # noche (menos tráfico)
+
+    if distancia_km <= 0.15:
+        return 1
+
+    return round((distancia_km / velocidad_kmh) * 60)  # minutos
+
+
+# --------------------------------------
+# 🟦 NUEVO ENDPOINT SIN ORS (LISTO)
+# --------------------------------------
 @app.post("/medico/{medico_id}/ubicacion")
 def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
     try:
@@ -3802,7 +3838,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 
         cur = db.cursor()
 
-        # 1️⃣ ACTUALIZAR UBICACIÓN EN TABLA MEDICOS
+        # 1️⃣ ACTUALIZAR UBICACIÓN DEL MÉDICO
         cur.execute("""
             UPDATE medicos
             SET latitud = %s,
@@ -3814,14 +3850,12 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         """, (lat_med, lng_med, ahora_arg, ahora_arg, medico_id))
 
         row = cur.fetchone()
-
         if not row:
             db.commit()
             cur.close()
             raise HTTPException(status_code=404, detail="Médico no encontrado")
 
         disponible_actual = row[0]
-
         print(f"📍 Médico {medico_id} → lat/lng actualizado (disponible={disponible_actual})")
 
         # 2️⃣ BUSCAR CONSULTA ACTIVA
@@ -3845,17 +3879,15 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             print(f"📦 Consulta activa del médico {medico_id}: {consulta_id}")
 
             if lat_pac is not None and lng_pac is not None:
-                try:
-                    tiempo_min = calcular_eta_ors(
-                        lat_med, lng_med,
-                        float(lat_pac), float(lng_pac)
-                    )
-                    print(f"⏱ ETA ORS consulta {consulta_id}: {tiempo_min} min")
-                except Exception as e:
-                    print("⚠️ Error ORS ETA:", e)
-                    tiempo_min = 0
+                # 3️⃣ DISTANCIA LOCAL (sin ORS)
+                distancia_km = calcular_distancia_km(lat_med, lng_med, float(lat_pac), float(lng_pac))
 
-            # 3️⃣ GUARDAR ETA + UBICACIÓN EN CONSULTAS
+                # 4️⃣ ETA LOCAL
+                tiempo_min = calcular_eta_local(distancia_km)
+
+                print(f"🧮 Distancia: {distancia_km:.2f} km → ETA: {tiempo_min} min")
+
+            # 5️⃣ GUARDAR ETA + UBICACION EN CONSULTAS
             cur.execute("""
                 UPDATE consultas
                 SET tiempo_estimado_min = %s,
@@ -3866,7 +3898,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             """, (tiempo_min, lat_med, lng_med, consulta_id))
 
         else:
-            # ⭐ SIN CONSULTA ACTIVA → IGUAL SINCRONIZAMOS CONSULTAS
+            # ⭐ SIN CONSULTA ACTIVA → ACTUALIZA SOLO UBICACIÓN
             cur.execute("""
                 UPDATE consultas
                 SET medico_lat = %s,
@@ -3894,6 +3926,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         db.rollback()
         print(f"⚠️ Error en actualizar_ubicacion: {e}")
         raise HTTPException(status_code=500, detail="Error actualizando ubicación del médico")
+
 
 
 
@@ -5555,5 +5588,25 @@ def crear_consulta_previa(data: dict, db = Depends(get_db)):
         "consulta_id": consulta_id,
         "creado_en": str(creado_en)
     }
+
+#FUNCIONES PARA CALCULOAR ETA ----------------------------------------------------
+import math
+
+from datetime import datetime, time
+
+def calcular_eta_minutos(distancia_km):
+    ahora = datetime.now().time()
+
+    # Definir velocidades según horario
+    if time(8, 0) <= ahora <= time(20, 0):
+        velocidad = 22  # km/h
+    else:
+        velocidad = 30  # km/h (menos tráfico)
+
+    if distancia_km <= 0.1:
+        return 1  # está demasiado cerca, 1 minuto
+
+    minutos = (distancia_km / velocidad) * 60
+    return round(minutos)
 
 
