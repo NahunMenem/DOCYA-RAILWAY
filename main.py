@@ -5632,3 +5632,39 @@ def calcular_eta_minutos(distancia_km):
     return round(minutos)
 
 
+@app.delete("/usuarios/{user_id}/delete", tags=["usuarios"])
+def delete_account(user_id: str, db=Depends(get_db)):
+    """
+    Eliminación PERMANENTE de cuenta del paciente.
+    Requisito de Apple (App Store Guideline 5.1.1(v)).
+    """
+
+    cur = db.cursor()
+
+    # 1) Verificar si existe
+    cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="El usuario no existe")
+
+    # 2) Borrar pagos de consultas asociadas
+    cur.execute("""
+        DELETE FROM pagos_consulta
+        WHERE consulta_id IN (
+            SELECT id FROM consultas WHERE paciente_uuid = %s
+        )
+    """, (user_id,))
+
+    # 3) Borrar consultas del paciente
+    cur.execute("DELETE FROM consultas WHERE paciente_uuid = %s", (user_id,))
+
+    # 4) Borrar al usuario
+    cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "message": "Cuenta eliminada permanentemente"
+    }
+
