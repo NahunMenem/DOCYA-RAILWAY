@@ -5666,3 +5666,38 @@ def delete_account(user_id: str, db=Depends(get_db)):
         "message": "Cuenta eliminada permanentemente"
     }
 
+@app.delete("/medicos/{medico_id}/delete", tags=["medicos"])
+def delete_medico(medico_id: int, db=Depends(get_db)):
+    """
+    Eliminación PERMANENTE de la cuenta del médico.
+    Cumple con Apple (Guideline 5.1.1(v)).
+    No elimina consultas históricas para preservar historia clínica.
+    """
+
+    cur = db.cursor()
+
+    # 1) Verificar si el médico existe
+    cur.execute("SELECT id FROM medicos WHERE id = %s", (medico_id,))
+    medico = cur.fetchone()
+    if not medico:
+        raise HTTPException(status_code=404, detail="El médico no existe")
+
+    # 2) Desvincular consultas históricas (NO se eliminan)
+    cur.execute("""
+        UPDATE consultas
+        SET medico_id = NULL
+        WHERE medico_id = %s
+    """, (medico_id,))
+
+    # 3) Eliminar tokens push del médico
+    cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
+
+    # 4) Eliminar la cuenta del médico
+    cur.execute("DELETE FROM medicos WHERE id = %s", (medico_id,))
+
+    db.commit()
+
+    return {
+        "status": "ok",
+        "message": "Cuenta de médico eliminada permanentemente"
+    }
