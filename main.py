@@ -143,8 +143,9 @@ class RegisterIn(BaseModel):
     acepto_condiciones: bool = False
 
 class LoginIn(BaseModel):
-    email: EmailStr
+    email: str   # ahora acepta DNI O email sin validar formato
     password: str
+
 
 class GoogleIn(BaseModel):
     id_token: str
@@ -446,7 +447,8 @@ def enviar_email_validacion_paciente(email: str, user_id: int, full_name: str):
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
 
-    input_value = data.email.strip().lower()   # puede ser email o DNI
+    # Acepta email o DNI sin validar formato
+    input_value = data.email.strip().lower()
     password = data.password.strip()
 
     # Buscar al usuario por EMAIL o DNI
@@ -459,40 +461,35 @@ def login(data: LoginIn, db=Depends(get_db)):
 
     row = cur.fetchone()
 
-    # Usuario inexistente
     if not row:
         raise HTTPException(status_code=400, detail="Usuario no encontrado")
 
     user_id, full_name, password_hash, role, validado, email, dni = row
 
-    # Contraseña incorrecta
     if not pwd_context.verify(password, password_hash):
         raise HTTPException(status_code=400, detail="Contraseña incorrecta")
 
-    # Bloquear si NO validó email
     if not validado:
         raise HTTPException(
             status_code=403,
             detail="Debes validar tu correo electrónico para iniciar sesión."
         )
 
-    # Generar token
     token = create_access_token({
         "sub": str(user_id),
         "email": email,
         "role": role,
     })
 
-    # Respuesta profesional y completa
     return {
         "access_token": token,
         "token_type": "bearer",
-    
-        # 👇 COMPATIBILIDAD con tu Flutter actual (LO QUE NECESITAS)
+
+        # Compatibilidad con Flutter
         "user_id": str(user_id),
         "full_name": full_name,
-    
-        # 👇 Nuevo formato mejorado (queda para futuro)
+
+        # Formato mejorado
         "user": {
             "id": str(user_id),
             "full_name": full_name,
@@ -502,6 +499,7 @@ def login(data: LoginIn, db=Depends(get_db)):
             "validado": True
         }
     }
+
 
 
 
