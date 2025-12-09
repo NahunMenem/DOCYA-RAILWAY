@@ -4427,56 +4427,77 @@ def cambio_exitoso():
         <title>Contraseña Actualizada – DocYa</title>
 
         <style>
-            body {
-                margin: 0;
-                padding: 0;
-                font-family: 'Arial', sans-serif;
-                background: linear-gradient(135deg, #0F2027, #203A43, #2C5364);
-                color: white;
-                text-align: center;
-                padding: 40px 20px;
-            }
-
-            .card {
-                background: rgba(255, 255, 255, 0.08);
-                padding: 35px 30px;
-                border-radius: 20px;
-                max-width: 500px;
-                margin: 0 auto;
-                backdrop-filter: blur(14px);
-                -webkit-backdrop-filter: blur(14px);
-                box-shadow: 0 8px 25px rgba(0,0,0,0.25);
-                border: 1px solid rgba(255, 255, 255, 0.12);
-            }
-
-            img.logo {
-                width: 160px;
-                margin-bottom: 20px;
-                filter: drop-shadow(0px 4px 8px rgba(0,0,0,0.4));
-            }
-
-            h1 {
-                font-size: 26px;
-                margin-top: 10px;
-                margin-bottom: 20px;
-                font-weight: 700;
-                color: #14B8A6;
-            }
-
-            p {
-                font-size: 17px;
-                color: #e8e8e8;
-                line-height: 1.6;
-                margin-bottom: 10px;
-            }
-
-            .footer {
-                margin-top: 40px;
-                font-size: 13px;
-                color: #cccccc;
-                opacity: 0.8;
-            }
+          @page {
+            size: A4;
+            margin: 18mm 12mm; /* 🔥 Márgenes reducidos para entrar en 1 sola hoja */
+          }
+        
+          body {
+            font-family: 'Helvetica', Arial, sans-serif;
+            background-color: #ffffff;
+            color: #1f2937;
+            padding: 0;
+            line-height: 1.45; /* 🔥 Compactado */
+            font-size: 14px;
+          }
+        
+          .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #14B8A6;
+            padding-bottom: 6px;
+            margin-bottom: 16px;
+          }
+        
+          .logo {
+            height: 55px; /* 🔥 Antes 65px */
+          }
+        
+          h1 {
+            color: #14B8A6;
+            text-align: center;
+            font-size: 22px; /* 🔥 Antes 26px */
+            margin-top: 10px;
+            margin-bottom: 15px; /* 🔥 Antes 40px */
+          }
+        
+          .box {
+            border: 1px solid #14B8A6;
+            border-radius: 8px;
+            background: #f9fdfc;
+            padding: 18px 20px; /* 🔥 Antes 25px 30px */
+            margin-bottom: 18px;
+            page-break-inside: avoid;
+          }
+        
+          .firma {
+            margin-top: 25px; /* 🔥 Antes 60px */
+            text-align: right;
+          }
+        
+          .firma img {
+            height: 65px; /* 🔥 Antes 85px */
+            margin-bottom: -5px;
+          }
+        
+          .qr {
+            text-align: left;
+            margin-top: 20px; /* 🔥 Antes 40px */
+          }
+        
+          .qr img {
+            height: 80px; /* 🔥 Antes 100px */
+          }
+        
+          footer {
+            text-align: center;
+            color: #6b7280;
+            font-size: 11px;
+            margin-top: 20px; /* 🔥 Antes 60px */
+          }
         </style>
+
     </head>
 
     <body>
