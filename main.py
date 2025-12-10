@@ -2926,63 +2926,81 @@ import json
 import asyncio
 from datetime import datetime
 
+monitor_tasks = {}       # NEW: para guardar la task del monitor
+last_ping_times = {}     # NEW: ping global por médico
+
+
 @app.websocket("/ws/medico/{medico_id}")
 async def medico_ws(websocket: WebSocket, medico_id: int):
     await websocket.accept()
     print(f"🟢 Nuevo WebSocket aceptado para profesional {medico_id}")
 
-    # ⭐ 1) Obtener tipo profesional
-    try:
-        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-        cur = conn.cursor()
-        cur.execute("SELECT tipo FROM medicos WHERE id=%s", (medico_id,))
-        row = cur.fetchone()
-        tipo_profesional = row[0] if row else "medico"
-        cur.close()
-        conn.close()
-    except Exception as e:
-        print("⚠️ Error obteniendo tipo profesional:", e)
-        tipo_profesional = "medico"
+    # ---------------------------------------
+    # 🔥 SI YA HABÍA UN WS PREVIO → CERRARLO
+    # ---------------------------------------
+    if medico_id in active_medicos:
+        old_ws = active_medicos[medico_id]["ws"]
+        try:
+            await old_ws.close()
+            print(f"♻️ Cerrando WebSocket previo del médico {medico_id}")
+        except:
+            pass
 
-    # ⭐ 2) Registrar WS en memoria
+        # Cancelar monitor viejo
+        if medico_id in monitor_tasks:
+            monitor_tasks[medico_id].cancel()
+            print(f"♻️ Cancelando monitor previo del médico {medico_id}")
+
+        # Eliminar registros viejos
+        del active_medicos[medico_id]
+
+
+    # ⭐ Registrar WS nuevo
     active_medicos[medico_id] = {
         "ws": websocket,
-        "tipo": tipo_profesional
+        "tipo": "medico"
     }
 
-    # ⭐ 4) PING/PONG – usar lista para mutabilidad entre closures
-    last_ping = [datetime.now()]  # LISTA → referencia compartida
+    last_ping_times[medico_id] = datetime.now()
 
+
+    # ---------------------------------------
+    # 🔥 MONITOR DE PING (solo 1 por médico)
+    # ---------------------------------------
     async def monitor_ping():
-        """Monitoreo del ping con timeout seguro para iPhone."""
         while True:
             await asyncio.sleep(5)
-            diff = datetime.now() - last_ping[0]
+            last = last_ping_times.get(medico_id, datetime.now())
+            diff = (datetime.now() - last).total_seconds()
 
-            # ⚠ iOS puede tardar 40–60s → usamos 90s (Uber/Rappi standard)
-            if diff.total_seconds() > 90:
-                print(f"⏳ Profesional {medico_id} sin ping por {diff.total_seconds():.1f}s → desconectado realmente")
+            if diff > 90:
+                print(f"⏳ Profesional {medico_id} sin ping {diff:.1f}s → timeout")
                 raise Exception("Ping timeout")
 
-    asyncio.create_task(monitor_ping())
+    # Guardar la task
+    monitor_tasks[medico_id] = asyncio.create_task(monitor_ping())
 
+
+    # ---------------------------------------
+    # 🔥 LOOP PRINCIPAL DEL WEBSOCKET
+    # ---------------------------------------
     try:
         while True:
             data = await websocket.receive_text()
             print(f"📩 Mensaje recibido de profesional {medico_id}: {data}")
 
-            # Intentar parsear JSON
             try:
                 msg = json.loads(data)
                 tipo = msg.get("tipo", "").lower()
             except:
                 tipo = data.strip().lower()
 
+
             # 🟢 PING
             if tipo == "ping":
-                last_ping[0] = datetime.now()   # ACTUALIZA correctamente
+                last_ping_times[medico_id] = datetime.now()
 
-                # Guardar ping en DB
+                # Guardar ping
                 try:
                     conn = psycopg2.connect(DATABASE_URL, sslmode="require")
                     cur = conn.cursor()
@@ -2991,19 +3009,24 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                     cur.close()
                     conn.close()
                 except Exception as e2:
-                    print(f"⚠️ Error guardando ultimo_ping del profesional {medico_id}: {e2}")
+                    print(f"⚠️ Error guardando ping medico {medico_id}: {e2}")
 
                 await websocket.send_text("pong")
                 continue
 
     except Exception as e:
-        print(f"❌ Profesional desconectado: {medico_id} → {e}")
+        print(f"❌ Profesional desconectado {medico_id}: {e}")
 
-        # ✔ Sacar del diccionario siempre
+        # Eliminar socket activo
         if medico_id in active_medicos:
             del active_medicos[medico_id]
 
-        # ❗ Se marca NO disponible SOLO si es timeout real
+        # Detener monitor
+        if medico_id in monitor_tasks:
+            monitor_tasks[medico_id].cancel()
+            del monitor_tasks[medico_id]
+
+        # Marcar no disponible SOLO si fue timeout real
         if "timeout" in str(e).lower() or "ping" in str(e).lower():
             try:
                 conn = psycopg2.connect(DATABASE_URL, sslmode="require")
@@ -3017,6 +3040,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                 print(f"⚠️ Error al marcar desconexión del profesional {medico_id}: {e2}")
 
         print(f"🔻 Total conectados ahora: {len(active_medicos)}")
+
 
 
 
