@@ -1235,13 +1235,18 @@ async def intentar_reasignar(consulta_id, db):
         return True  # Se envió a un nuevo médico
 
     # No quedan médicos disponibles
-    print("❌ No quedan médicos para reasignar → sin_medicos")
+    print("❌ No quedan médicos para reasignar → marcando consulta como pendiente sin médico")
+    
     cur.execute("""
-        
+        UPDATE consultas
+        SET estado='pendiente',
+            medico_id=NULL
         WHERE id=%s
     """, (consulta_id,))
+    
     db.commit()
     return False
+
 
 
 
