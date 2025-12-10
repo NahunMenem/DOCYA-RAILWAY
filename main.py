@@ -1107,6 +1107,86 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
 # ====================================================
 # 📋 CONSULTAS (todas las rutas originales)
 # ====================================================
+# Motor inteligente de asignación CEREBRO--------------------------------
+async def intentar_reasignar(consulta_id, db):
+    cur = db.cursor()
+
+    # Obtener datos de la consulta
+    cur.execute("""
+        SELECT lat, lng, tipo
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+    row = cur.fetchone()
+    if not row:
+        print("❌ Consulta no encontrada para reasignar")
+        return False
+
+    lat, lng, tipo = row
+
+    # Médicos ya intentados para evitar repetir
+    cur.execute("""
+        SELECT medico_id FROM intentos_asignacion
+        WHERE consulta_id = %s
+    """, (consulta_id,))
+    intentados = [r[0] for r in cur.fetchall()]
+
+    # Buscar siguiente médico
+    cur.execute("""
+        SELECT id, latitud, longitud,
+        (6371 * acos(
+            cos(radians(%s)) * cos(radians(latitud)) *
+            cos(radians(longitud) - radians(%s)) +
+            sin(radians(%s)) * sin(radians(latitud))
+        )) AS distancia
+        FROM medicos
+        WHERE disponible = TRUE
+          AND tipo = %s
+          AND latitud IS NOT NULL
+          AND longitud IS NOT NULL
+        ORDER BY distancia ASC
+    """, (lat, lng, lat, tipo))
+
+    medicos = cur.fetchall()
+
+    for medico_id, mlat, mlng, dist in medicos:
+
+        if medico_id in intentados:
+            continue
+
+        # Registrar intento
+        cur.execute("""
+            INSERT INTO intentos_asignacion (consulta_id, medico_id)
+            VALUES (%s, %s)
+        """, (consulta_id, medico_id))
+        db.commit()
+
+        print(f"🔁 Reintentando con médico {medico_id}")
+
+        # WS → notificación al médico
+        if medico_id in active_medicos:
+            try:
+                pro = active_medicos[medico_id]
+                await pro["ws"].send_json({
+                    "tipo": "consulta_nueva",
+                    "consulta_id": consulta_id
+                })
+            except Exception as e:
+                print("⚠️ Error WS reasignación:", e)
+
+        return True  # Se envió a un nuevo médico
+
+    # No quedan médicos disponibles
+    print("❌ No quedan médicos para reasignar → sin_medicos")
+    cur.execute("""
+        UPDATE consultas SET estado='sin_medicos'
+        WHERE id=%s
+    """, (consulta_id,))
+    db.commit()
+    return False
+
+
+
 
 # --- Modelo para solicitar consulta ---
 class SolicitarConsultaIn(BaseModel):
@@ -1264,6 +1344,13 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         db.commit()
 
         print(f"🟢 Consulta previa {consulta_id_previa} asignada al médico {profesional_id}")
+        # Registrar intento para el médico asignado
+        cur.execute("""
+            INSERT INTO intentos_asignacion (consulta_id, medico_id)
+            VALUES (%s, %s)
+        """, (consulta_id_previa, profesional_id))
+        db.commit()
+        
 
         # WS + PUSH intactos
         if profesional_id in active_medicos:
@@ -1442,6 +1529,13 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     db.commit()
 
     print(f"🟢 Consulta {consulta_id} asignada al médico {profesional_id}")
+    # Registrar intento para el médico asignado
+    cur.execute("""
+        INSERT INTO intentos_asignacion (consulta_id, medico_id)
+        VALUES (%s, %s)
+    """, (consulta_id, profesional_id))
+    db.commit()
+    
 
     # 🔔 WS + Push = IDÉNTICO AL TUYO (no se toca)
     # (código igual al original)
@@ -1784,72 +1878,81 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
 
 @app.post("/consultas/{consulta_id}/rechazar")
-def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
+async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     """
-    Cuando un médico rechaza una consulta:
-    - Se marca como disponible nuevamente.
-    - La consulta vuelve a estado 'pendiente'.
-    - Se reasigna automáticamente al médico disponible más cercano.
+    Un médico rechazó la consulta:
+    - Registrar el intento.
+    - Marcarlo como disponible otra vez.
+    - Intentar reasignar al siguiente médico más cercano.
     """
     cur = db.cursor()
-
     medico_id = int(data.get("medico_id"))
 
-    # 1️⃣ Dejar al médico disponible otra vez
+    print(f"❌ Médico {medico_id} rechazó consulta {consulta_id}")
+
+    # 1️⃣ Registrar que este médico ya fue intentado
+    cur.execute("""
+        INSERT INTO intentos_asignacion (consulta_id, medico_id)
+        VALUES (%s, %s)
+    """, (consulta_id, medico_id))
+
+    # 2️⃣ Volver a ponerlo disponible
     cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s", (medico_id,))
-
-    # 2️⃣ Obtener ubicación del paciente (lat/lng) de la consulta
-    cur.execute("SELECT lat, lng FROM consultas WHERE id = %s", (consulta_id,))
-    pos = cur.fetchone()
-    if not pos or pos[0] is None or pos[1] is None:
-        db.commit()
-        return {"ok": True, "mensaje": "Consulta sin ubicación para reasignar"}
-
-    paciente_lat, paciente_lng = float(pos[0]), float(pos[1])
-
-    # 3️⃣ Buscar otro médico disponible más cercano
-    cur.execute("""
-        SELECT id, latitud, longitud,
-            (6371 * acos(
-                cos(radians(%s)) * cos(radians(latitud)) *
-                cos(radians(longitud) - radians(%s)) +
-                sin(radians(%s)) * sin(radians(latitud))
-            )) AS distancia
-        FROM medicos
-        WHERE disponible = TRUE
-        ORDER BY distancia ASC
-        LIMIT 1
-    """, (paciente_lat, paciente_lng, paciente_lat))
-
-    nuevo = cur.fetchone()
-    if not nuevo:
-        # 4️⃣ Si no hay médicos disponibles, dejar pendiente
-        cur.execute(
-            "UPDATE consultas SET estado = 'pendiente', medico_id = NULL WHERE id = %s",
-            (consulta_id,),
-        )
-        db.commit()
-        return {"ok": True, "mensaje": "Consulta pendiente, sin médicos disponibles"}
-
-    nuevo_medico_id, nuevo_lat, nuevo_lng, distancia = nuevo
-
-    # 5️⃣ Reasignar la consulta al nuevo médico
-    cur.execute("""
-        UPDATE consultas
-        SET medico_id = %s, estado = 'pendiente'
-        WHERE id = %s
-    """, (nuevo_medico_id, consulta_id))
-
     db.commit()
 
-    print(f"🔄 Consulta {consulta_id} reasignada al médico {nuevo_medico_id} ({distancia:.2f} km)")
+    # 3️⃣ Reasignar automáticamente al siguiente médico
+    reasignado = await intentar_reasignar(consulta_id, db)
+
+    if reasignado:
+        print(f"🔄 Consulta {consulta_id} enviada a un nuevo médico")
+        return {"ok": True, "reasignado": True}
+
+    # 4️⃣ Si no quedan médicos → marcar como sin_medicos
+    print(f"⚠️ No hay más médicos para consulta {consulta_id}")
+
+    cur.execute("""
+        UPDATE consultas SET estado='sin_medicos', medico_id=NULL
+        WHERE id=%s
+    """, (consulta_id,))
+    db.commit()
 
     return {
         "ok": True,
-        "mensaje": f"Consulta {consulta_id} reasignada al médico {nuevo_medico_id}",
-        "nuevo_medico_id": nuevo_medico_id,
-        "distancia_km": round(distancia, 2),
+        "reasignado": False,
+        "mensaje": "No quedan médicos disponibles para esta consulta"
     }
+
+
+
+#cuando el timer se agota -----------
+@app.post("/consultas/{consulta_id}/timeout")
+async def timeout_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
+    """
+    El médico no respondió dentro del tiempo → reasignar al siguiente.
+    """
+    cur = db.cursor()
+    medico_id = int(data.get("medico_id"))
+
+    print(f"⏳ Timeout del médico {medico_id} en consulta {consulta_id}")
+
+    # Registrar intento (igual que rechazar)
+    cur.execute("""
+        INSERT INTO intentos_asignacion (consulta_id, medico_id)
+        VALUES (%s, %s)
+    """, (consulta_id, medico_id))
+
+    # Marcar médico disponible
+    cur.execute("UPDATE medicos SET disponible = TRUE WHERE id=%s", (medico_id,))
+    db.commit()
+
+    # Intentar reasignar
+    reasignado = await intentar_reasignar(consulta_id, db)
+
+    return {
+        "ok": True,
+        "reasignado": reasignado
+    }
+
 
 
 @app.post("/consultas/{consulta_id}/encamino")
