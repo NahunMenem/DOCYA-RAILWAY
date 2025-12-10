@@ -1237,7 +1237,7 @@ async def intentar_reasignar(consulta_id, db):
     # No quedan médicos disponibles
     print("❌ No quedan médicos para reasignar → sin_medicos")
     cur.execute("""
-        UPDATE consultas SET estado='sin_medicos'
+        
         WHERE id=%s
     """, (consulta_id,))
     db.commit()
@@ -1969,7 +1969,7 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     print(f"⚠️ No hay más médicos para consulta {consulta_id}")
 
     cur.execute("""
-        UPDATE consultas SET estado='sin_medicos', medico_id=NULL
+        UPDATE consultas SET estado='pendiente', medico_id=NULL
         WHERE id=%s
     """, (consulta_id,))
     db.commit()
