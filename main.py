@@ -1107,6 +1107,64 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
 # ====================================================
 # 📋 CONSULTAS (todas las rutas originales)
 # ====================================================
+
+@app.post("/consultas/{consulta_id}/cancelar_busqueda")
+def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
+    """
+    Cancelación voluntaria del paciente mientras espera asignación.
+    
+    - Corta toda reasignación.
+    - Libera al médico asignado (si lo hubiera).
+    - No dispara refund (lo hace el webhook si corresponde).
+    - Marca la consulta como cancelada por el paciente.
+    """
+    cur = db.cursor()
+
+    # 1️⃣ Traer estado actual
+    cur.execute("""
+        SELECT estado, metodo_pago, medico_id
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(404, "Consulta no encontrada")
+
+    estado, metodo_pago, medico_id = row
+
+    # 2️⃣ Si ya está aceptada, NO permitir que se cancele aquí
+    # (solo médico puede cancelar en ese punto)
+    if estado == "aceptada":
+        raise HTTPException(400, "La consulta ya fue aceptada por un profesional")
+
+    # 3️⃣ Si tenía un médico asignado → liberarlo
+    if medico_id:
+        cur.execute(
+            "UPDATE medicos SET disponible = TRUE WHERE id = %s",
+            (medico_id,)
+        )
+
+    # 4️⃣ Cancelar la consulta
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'cancelada'
+        WHERE id = %s
+    """, (consulta_id,))
+
+    db.commit()
+
+    print(f"🛑 Consulta {consulta_id} cancelada por el paciente.")
+
+    return {
+        "ok": True,
+        "consulta_id": consulta_id,
+        "estado": "cancelada",
+        "mensaje": "Búsqueda cancelada por el paciente."
+    }
+
+
+
 # Motor inteligente de asignación CEREBRO--------------------------------
 async def intentar_reasignar(consulta_id, db):
     cur = db.cursor()
