@@ -140,6 +140,7 @@ class RegisterIn(BaseModel):
     provincia: Optional[str] = None
     localidad: Optional[str] = None
     fecha_nacimiento: Optional[date] = None
+    sexo: Optional[str] = None
     acepto_condiciones: bool = False
 
 class LoginIn(BaseModel):
@@ -191,31 +192,45 @@ def register(data: RegisterIn, db=Depends(get_db)):
 
     password_hash = pwd_context.hash(data.password)
 
-    # 👉 Convertir nombre a formato capitalizado (primera letra de cada palabra en mayúscula)
+    # Normalización del nombre
     full_name = data.full_name.strip().title()
 
     try:
         cur.execute("""
             INSERT INTO users (
                 email, full_name, password_hash,
-                dni, telefono, pais, provincia, localidad, fecha_nacimiento,
-                acepto_condiciones, fecha_aceptacion, version_texto, validado, role
+                dni, telefono, pais, provincia, localidad,
+                fecha_nacimiento, sexo,
+                acepto_condiciones, fecha_aceptacion,
+                version_texto, validado, role
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)
             RETURNING id, full_name
         """, (
-            data.email.lower(), full_name, password_hash,
-            data.dni, data.telefono, data.pais, data.provincia, data.localidad,
-            data.fecha_nacimiento, data.acepto_condiciones,
+            data.email.lower(),
+            full_name,
+            password_hash,
+            data.dni,
+            data.telefono,
+            data.pais,
+            data.provincia,
+            data.localidad,
+            data.fecha_nacimiento,
+            data.sexo,
+            data.acepto_condiciones,
             now_argentina() if data.acepto_condiciones else None,
-            "v1.0", "patient"
+            "v1.0",
+            "patient"
         ))
+
         user_id, full_name = cur.fetchone()
         db.commit()
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Error interno en registro: {e}")
 
+    # Email de validación
     try:
         enviar_email_validacion_paciente(data.email.lower(), user_id, full_name)
     except Exception as e:
@@ -223,13 +238,11 @@ def register(data: RegisterIn, db=Depends(get_db)):
 
     return {
         "ok": True,
-        "mensaje": "✅ Registro exitoso. Revisa tu correo para activar la cuenta.",
+        "mensaje": "Registro exitoso. Revisa tu correo para activar tu cuenta.",
         "user_id": str(user_id),
         "full_name": full_name,
         "role": "patient"
     }
-
-
 
 
 
