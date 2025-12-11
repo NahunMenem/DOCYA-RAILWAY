@@ -4215,9 +4215,11 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
         disponible_actual = row[0]
         print(f"📍 Médico {medico_id} → lat/lng actualizado (disponible={disponible_actual})")
 
-        # 2️⃣ BUSCAR CONSULTA ACTIVA
+        # -------------------------------------------------------
+        # 2️⃣ BUSCAR CONSULTA ACTIVA SOLO EN ESTADOS VÁLIDOS
+        # -------------------------------------------------------
         cur.execute("""
-            SELECT id, lat, lng
+            SELECT id, lat, lng, estado
             FROM consultas
             WHERE medico_id = %s
               AND estado IN ('pendiente','aceptada','en_camino')
@@ -4227,24 +4229,49 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 
         consulta = cur.fetchone()
 
-        consulta_id = consulta[0] if consulta else None
+        consulta_id = None
         tiempo_min = None
 
         if consulta:
-            _, lat_pac, lng_pac = consulta
+            consulta_id, lat_pac, lng_pac, estado = consulta
 
-            print(f"📦 Consulta activa del médico {medico_id}: {consulta_id}")
+            # ---------------------------------------------------
+            # ❌ SI LA CONSULTA YA NO ES VÁLIDA → LIMPIAR Y SALIR
+            # ---------------------------------------------------
+            if estado not in ("pendiente", "aceptada", "en_camino"):
+                print(f"🗑️ Consulta {consulta_id} ignorada (estado {estado}) → limpiando médico_id")
+
+                cur.execute("""
+                    UPDATE consultas
+                    SET medico_id = NULL
+                    WHERE id = %s
+                """, (consulta_id,))
+                db.commit()
+                cur.close()
+
+                return {
+                    "ok": True,
+                    "medico_id": medico_id,
+                    "lat": lat_med,
+                    "lng": lng_med,
+                    "disponible": disponible_actual,
+                    "ultimo_ping": ahora_arg.isoformat(),
+                    "consulta_id": None,
+                    "eta": None
+                }
+
+            # ---------------------------------------------------
+            # SI LA CONSULTA ES VÁLIDA → CALCULAR ETA
+            # ---------------------------------------------------
+            print(f"📦 Consulta ACTIVA del médico {medico_id}: {consulta_id}")
 
             if lat_pac is not None and lng_pac is not None:
-                # 3️⃣ DISTANCIA LOCAL (sin ORS)
                 distancia_km = calcular_distancia_km(lat_med, lng_med, float(lat_pac), float(lng_pac))
-
-                # 4️⃣ ETA LOCAL
                 tiempo_min = calcular_eta_local(distancia_km)
 
                 print(f"🧮 Distancia: {distancia_km:.2f} km → ETA: {tiempo_min} min")
 
-            # 5️⃣ GUARDAR ETA + UBICACION EN CONSULTAS
+            # Guardar cambios
             cur.execute("""
                 UPDATE consultas
                 SET tiempo_estimado_min = %s,
@@ -4255,7 +4282,7 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             """, (tiempo_min, lat_med, lng_med, consulta_id))
 
         else:
-            # ⭐ SIN CONSULTA ACTIVA → ACTUALIZA SOLO UBICACIÓN
+            # ⭐ NO HAY CONSULTA ACTIVA
             cur.execute("""
                 UPDATE consultas
                 SET medico_lat = %s,
