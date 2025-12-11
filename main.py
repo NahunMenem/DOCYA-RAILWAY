@@ -1265,6 +1265,45 @@ class SolicitarConsultaIn(BaseModel):
     consulta_id: int | None = None
 
 
+
+import requests
+import os
+
+FCM_KEY = os.getenv("FCM_SERVER_KEY")
+
+def enviar_fcm(token: str, titulo: str, cuerpo: str, data_extra: dict):
+    """
+    Envía una notificación FCM a un dispositivo Android/iOS.
+    """
+    headers = {
+        "Authorization": f"key={FCM_KEY}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "to": token,
+        "priority": "high",
+        "notification": {
+            "title": titulo,
+            "body": cuerpo,
+            "sound": "default"
+        },
+        "data": data_extra
+    }
+
+    try:
+        r = requests.post(
+            "https://fcm.googleapis.com/fcm/send",
+            headers=headers,
+            json=payload,
+            timeout=5
+        )
+        print(f"🔔 FCM status: {r.status_code} → {r.text[:80]}")
+    except Exception as e:
+        print(f"❌ Error enviando FCM: {e}")
+
+
+
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
@@ -1361,7 +1400,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             except:
                 raise HTTPException(500, "Error refund")
 
-        # SÍ HAY PROFESIONAL
+        # =============================
+        # ✔ Hay profesional disponible
+        # =============================
         profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
         cur.execute("""
@@ -1387,7 +1428,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
         print(f"🟢 Consulta {consulta_id_previa} asignada al médico {profesional_id}")
 
-        # REGISTRAR INTENTO
+        # Registrar intento
         cur.execute("""
             INSERT INTO intentos_asignacion (consulta_id, medico_id)
             VALUES (%s, %s)
@@ -1395,7 +1436,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         db.commit()
 
         # ---------------------------------------------------------
-        # 1) WS REAL TIME (si existe)
+        # 1) WS REAL TIME
         # ---------------------------------------------------------
         if profesional_id in active_medicos:
             try:
@@ -1427,7 +1468,30 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 print("⚠️ Error WS:", e)
 
         # ---------------------------------------------------------
-        # 2) WATCHDOG UBER (push fallback + ghost mode)
+        # === DOCYA PUSH INMEDIATO (siempre) ===
+        # ---------------------------------------------------------
+        cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
+        row = cur.fetchone()
+
+        if row and row[0]:
+            try:
+                enviar_push(
+                    row[0],
+                    "📢 Nueva consulta disponible",
+                    data.motivo,
+                    {
+                        "tipo": "consulta_nueva",
+                        "consulta_id": str(consulta_id_previa),
+                        "medico_id": str(profesional_id),
+                        "origen": "asignacion"
+                    }
+                )
+                print("📤 PUSH enviado (asignación directa)")
+            except:
+                print("❌ Error enviando push inmediato")
+
+        # ---------------------------------------------------------
+        # 2) WATCHDOG TARJETA
         # ---------------------------------------------------------
         async def watchdog_tarjeta():
             await asyncio.sleep(3)
@@ -1436,7 +1500,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 print("🟢 Watchdog OK → WS activo")
                 return
 
-            print("🟡 Watchdog: No WS en 3s → enviar PUSH")
+            print("🟡 Watchdog: No WS en 3s → enviar PUSH fallback")
 
             cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
             row = cur.fetchone()
@@ -1458,7 +1522,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 except:
                     print("❌ Error push fallback")
 
-            # Último chequeo
             await asyncio.sleep(10)
 
             if profesional_id not in active_medicos:
@@ -1484,8 +1547,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         }
 
     # ============================================================
-    # 🟩 EFECTIVO (mismo flujo + watchdog)
+    # 🟩 EFECTIVO (idéntico flujo + push inmediato)
     # ============================================================
+
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -1501,14 +1565,11 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
           AND longitud IS NOT NULL
         ORDER BY distancia ASC
         LIMIT 1;
-    """, (
-        data.lat, data.lng, data.lat,
-        data.tipo
-    ))
+    """, (data.lat, data.lng, data.lat, data.tipo))
 
     row = cur.fetchone()
 
-    # NO profesional
+    # No hay profesional
     if not row:
         cur.execute("""
             INSERT INTO consultas (
@@ -1526,7 +1587,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             data.metodo_pago,
             data.tipo
         ))
-    
+
         consulta_id, creado_en = cur.fetchone()
         db.commit()
 
@@ -1538,7 +1599,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             "profesional": None
         }
 
-    # SÍ profesional
+    # ✔ Hay profesional
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
 
     cur.execute("""
@@ -1563,27 +1624,22 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     print(f"🟢 Consulta {consulta_id} asignada a {profesional_id}")
 
-    # REGISTRAR INTENTO
+    # Registrar intento
     cur.execute("""
         INSERT INTO intentos_asignacion (consulta_id, medico_id)
         VALUES (%s, %s)
     """, (consulta_id, profesional_id))
     db.commit()
 
-    # WS
+    # WS REAL TIME
     if profesional_id in active_medicos:
         try:
             pro = active_medicos[profesional_id]
-
-            cur.execute("SELECT full_name, telefono FROM users WHERE id=%s",
-                        (str(data.paciente_uuid),))
-            u = cur.fetchone()
-
             await pro["ws"].send_json({
                 "tipo": "consulta_nueva",
                 "consulta_id": consulta_id,
                 "paciente_uuid": str(data.paciente_uuid),
-                "paciente_nombre": u[0] if u else "Paciente",
+                "paciente_nombre": data.motivo,
                 "motivo": data.motivo,
                 "direccion": data.direccion,
                 "lat": data.lat,
@@ -1594,10 +1650,33 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 "creado_en": str(creado_en)
             })
             print("📤 WS enviado")
-        except Exception as e:
-            print("⚠️ Error WS:", e)
+        except:
+            print("⚠️ Error WS")
 
-    # WATCHDOG para efectivo
+    # ---------------------------------------------------------
+    # === DOCYA PUSH INMEDIATO (siempre) ===
+    # ---------------------------------------------------------
+    cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
+    row = cur.fetchone()
+
+    if row and row[0]:
+        try:
+            enviar_push(
+                row[0],
+                "📢 Nueva consulta disponible",
+                data.motivo,
+                {
+                    "tipo": "consulta_nueva",
+                    "consulta_id": str(consulta_id),
+                    "medico_id": str(profesional_id),
+                    "origen": "asignacion"
+                }
+            )
+            print("📤 PUSH enviado (asignación directa)")
+        except:
+            print("❌ Error enviando push")
+
+    # WATCHDOG EFECTIVO (fallback)
     async def watchdog_efectivo():
         await asyncio.sleep(3)
 
@@ -1624,7 +1703,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             )
             print("📤 PUSH fallback enviado")
 
-        # Ultimo chequeo
         await asyncio.sleep(10)
 
         if profesional_id not in active_medicos:
@@ -1647,7 +1725,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         },
         "estado": "pendiente"
     }
-
 
 
 
@@ -2241,6 +2318,67 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
         })
 
     return lista
+
+
+# --- Función para enviar notificaciones push ---
+def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
+    project_id = service_account_info["project_id"]
+    url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
+
+    headers = {
+        "Authorization": f"Bearer {get_access_token()}",
+        "Content-Type": "application/json; charset=UTF-8",
+    }
+
+    payload = {
+        "message": {
+            "token": fcm_token,
+
+            # ================================
+            # 🔔 NOTIFICACIÓN VISIBLE
+            # ================================
+            "notification": {
+                "title": titulo,
+                "body": cuerpo,
+            },
+
+            # ================================
+            # 🤖 ANDROID
+            # ================================
+            "android": {
+                "priority": "high",
+                "notification": {
+                    # Sonido personalizado (alerta.mp3 en /res/raw/)
+                    "sound": "alerta",
+                    "channel_id": "default_channel_id",
+                }
+            },
+
+            # ================================
+            # 🍏 iOS / APNS
+            # ================================
+            "apns": {
+                "headers": {
+                    "apns-priority": "10"  # entrega inmediata
+                },
+                "payload": {
+                    "aps": {
+                        "alert": {"title": titulo, "body": cuerpo},
+                        "sound": "alert.caf",   # tu sonido convertido
+                        "badge": 1
+                    }
+                }
+            },
+
+            # ================================
+            # 📦 DATA personalizada (obligatoria como string)
+            # ================================
+            "data": {k: str(v) for k, v in data.items()},
+        }
+    }
+
+    r = requests.post(url, headers=headers, json=payload)
+    print("📤 Push enviado:", r.status_code, r.text)
 
 
 
@@ -2914,225 +3052,156 @@ last_message_times = {}  # NEW: último mensaje recibido (anti-falso-timeout)
 async def medico_ws(websocket: WebSocket, medico_id: int):
 
     await websocket.accept()
-    print(f"🟢 Nuevo WebSocket aceptado para profesional {medico_id}")
+    print(f"🟢 Nuevo WebSocket aceptado para médico {medico_id}")
 
-    # ---------------------------------------------------------
-    # 🔥 MARCAR MÉDICO COMO ACTIVO = TRUE AL ENTRAR AL WS
-    # ---------------------------------------------------------
-    try:
-        conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-        cur = conn.cursor()
-        cur.execute("""
-            UPDATE medicos 
-            SET activo = TRUE, ultimo_ping = NOW()
-            WHERE id=%s;
-        """, (medico_id,))
-        conn.commit()
-        cur.close()
-        conn.close()
-        print(f"✅ Médico {medico_id} marcado como activo=TRUE")
-    except Exception as e:
-        print("⚠️ Error marcando activo=TRUE:", e)
-    
-
-    # ---------------------------------------------------------
-    # 🔥 SI YA HABÍA UN WS PREVIO → CERRAR Y LIMPIAR
-    # ---------------------------------------------------------
+    # ============================================================
+    # 1) CERRAR WS PREVIO SI EXISTE
+    # ============================================================
     if medico_id in active_medicos:
-        old_ws = active_medicos[medico_id]["ws"]
         try:
-            asyncio.create_task(old_ws.close(code=1000))
+            old_ws = active_medicos[medico_id]["ws"]
+            await old_ws.close(code=1000)
             print(f"♻️ Cerrando WebSocket previo del médico {medico_id}")
         except:
             pass
 
         if medico_id in monitor_tasks:
             monitor_tasks[medico_id].cancel()
-            print(f"♻️ Cancelando monitor previo del médico {medico_id}")
             del monitor_tasks[medico_id]
 
         del active_medicos[medico_id]
 
 
-    # ---------------------------------------------------------
-    # ⭐ REGISTRAR NUEVO WS
-    # ---------------------------------------------------------
-    active_medicos[medico_id] = {"ws": websocket, "tipo": "medico"}
+    # ============================================================
+    # 2) REGISTRAR NUEVO WS + ACTUALIZAR ESTADO EN BD
+    # ============================================================
+    active_medicos[medico_id] = {"ws": websocket}
 
     now = datetime.now()
-    last_ping_times[medico_id] = now
     last_message_times[medico_id] = now
+    last_ping_times[medico_id] = now
+
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE medicos 
+            SET activo = TRUE,
+                disponible = TRUE,
+                ultimo_ping = NOW()
+            WHERE id=%s
+        """, (medico_id,))
+        conn.commit()
+        print(f"✅ Médico {medico_id} marcado activo=TRUE, disponible=TRUE")
+    except Exception as e:
+        print(f"⚠️ Error actualizando BD para médico {medico_id}: {e}")
+    finally:
+        put_conn(conn)
 
 
-    # ---------------------------------------------------------
-    # 🔥 MONITOR INTELIGENTE ANTI-FALSO TIMEOUT
-    # ---------------------------------------------------------
-    async def monitor_ping():
+    # ============================================================
+    # 3) MONITOR ANTI-FAKE TIMEOUT (cada 5s)
+    # ============================================================
+    async def monitor_ws():
         while True:
             await asyncio.sleep(5)
-
             now = datetime.now()
-            last_ping = last_ping_times.get(medico_id, now)
-            last_msg  = last_message_times.get(medico_id, now)
 
-            diff_ping = (now - last_ping).total_seconds()
-            diff_msg  = (now - last_msg).total_seconds()
+            diff_msg = (now - last_message_times.get(medico_id, now)).total_seconds()
+            diff_ping = (now - last_ping_times.get(medico_id, now)).total_seconds()
 
-            # -----------------------------
-            # 💚 ACTIVO → recibió algo hace < 30s
-            # -----------------------------
+            # Mensajes recientes → OK
             if diff_msg < 30:
                 continue
 
-            # -----------------------------
-            # 🔥 TIMEOUT REAL (>120s sin NADA)
-            # -----------------------------
+            # 120s sin ping → Timeout real
             if diff_ping > 120:
-                print(f"⏳ Profesional {medico_id} sin ping ni mensajes por {diff_ping:.1f}s → timeout real")
-                raise Exception("Ping timeout")
+                print(f"⏳ TIMEOUT REAL médico {medico_id}: {diff_ping:.1f}s sin ping")
+                raise Exception("timeout")
 
-    monitor_tasks[medico_id] = asyncio.create_task(monitor_ping())
+    monitor_tasks[medico_id] = asyncio.create_task(monitor_ws())
 
 
-    # ---------------------------------------------------------
-    # 🔥 LOOP PRINCIPAL WS
-    # ---------------------------------------------------------
+    # ============================================================
+    # 4) LOOP PRINCIPAL DEL WEBSOCKET
+    # ============================================================
     try:
         while True:
-            data = await websocket.receive_text()
-
+            raw = await websocket.receive_text()
             last_message_times[medico_id] = datetime.now()
 
-            print(f"📩 Mensaje recibido de profesional {medico_id}: {data}")
+            print(f"📩 WS médico {medico_id}: {raw}")
 
             try:
-                msg = json.loads(data)
-                tipo = msg.get("tipo", "").lower()
+                data = json.loads(raw)
+                tipo = data.get("tipo", "").lower()
             except:
-                tipo = data.strip().lower()
+                tipo = raw.strip().lower()
 
             # -------------------------
-            # 🟢 PING
+            # 🟢 PING → actualizar estado
             # -------------------------
             if tipo == "ping":
                 last_ping_times[medico_id] = datetime.now()
 
                 try:
-                    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+                    conn = get_conn()
                     cur = conn.cursor()
-                    cur.execute("UPDATE medicos SET ultimo_ping = NOW() WHERE id=%s;", (medico_id,))
+                    cur.execute(
+                        "UPDATE medicos SET ultimo_ping = NOW() WHERE id=%s",
+                        (medico_id,)
+                    )
                     conn.commit()
-                    cur.close()
-                    conn.close()
-                except Exception as e2:
-                    print(f"⚠️ Error guardando ping medico {medico_id}: {e2}")
+                except Exception as e:
+                    print(f"⚠️ Error guardando ping médico {medico_id}: {e}")
+                finally:
+                    put_conn(conn)
 
                 await websocket.send_text("pong")
                 continue
 
-
-    # ---------------------------------------------------------
-    # 🔥 DESCONEXIÓN DEL WS
-    # ---------------------------------------------------------
+    # ============================================================
+    # 5) MANEJO DE DESCONEXIÓN WS
+    # ============================================================
     except Exception as e:
-        print(f"❌ Profesional desconectado {medico_id}: {e}")
+        print(f"❌ WS médico {medico_id} desconectado: {e}")
 
-        # ✔ CIERRE NORMAL: NO marcar ghost, NO marcar offline
+        # Cierre normal (code 1000) → no marcar offline
         if hasattr(e, "code") and e.code == 1000:
-            print(f"✔ Cierre normal WS médico {medico_id}, no marcar offline")
+            print(f"✔ Cierre normal médico {medico_id}")
             return
 
-        # Eliminar socket activo
+        # LIMPIAR estructuras
         if medico_id in active_medicos:
             del active_medicos[medico_id]
 
-        # Cancelar monitor
         if medico_id in monitor_tasks:
             monitor_tasks[medico_id].cancel()
             del monitor_tasks[medico_id]
 
-
-        # ---------------------------------------------------------
-        # 🔥 GHOST MODE — SOLO marcar activo=FALSE
-        # ---------------------------------------------------------
+        # MARCAR MÉDICO COMO INACTIVO Y NO DISPONIBLE
         try:
-            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            conn = get_conn()
             cur = conn.cursor()
             cur.execute("""
                 UPDATE medicos
-                SET activo = FALSE
-                WHERE id=%s;
+                SET activo = FALSE,
+                    disponible = FALSE
+                WHERE id=%s
             """, (medico_id,))
             conn.commit()
-            cur.close()
-            conn.close()
-            print(f"🟡 Médico {medico_id} marcado como activo=FALSE (ghost mode)")
         except Exception as e2:
-            print(f"⚠️ Error marcando ghost mode:", e2)
+            print(f"⚠️ Error marcando offline médico {medico_id}: {e2}")
+        finally:
+            put_conn(conn)
 
-        print(f"🔻 Total conectados ahora: {len(active_medicos)}")
+        print(f"🟡 Médico {medico_id} marcado como OFFLINE (ghost cleaned)")
+
+    finally:
+        print(f"🔻 Total médicos conectados ahora: {len(active_medicos)}")
 
 
 
-# --- Función para enviar notificaciones push ---
-def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
-    project_id = service_account_info["project_id"]
-    url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
-
-    headers = {
-        "Authorization": f"Bearer {get_access_token()}",
-        "Content-Type": "application/json; charset=UTF-8",
-    }
-
-    payload = {
-        "message": {
-            "token": fcm_token,
-
-            # ================================
-            # 🔔 NOTIFICACIÓN VISIBLE
-            # ================================
-            "notification": {
-                "title": titulo,
-                "body": cuerpo,
-            },
-
-            # ================================
-            # 🤖 ANDROID
-            # ================================
-            "android": {
-                "priority": "high",
-                "notification": {
-                    # Sonido personalizado (alerta.mp3 en /res/raw/)
-                    "sound": "alerta",
-                    "channel_id": "default_channel_id",
-                }
-            },
-
-            # ================================
-            # 🍏 iOS / APNS
-            # ================================
-            "apns": {
-                "headers": {
-                    "apns-priority": "10"  # entrega inmediata
-                },
-                "payload": {
-                    "aps": {
-                        "alert": {"title": titulo, "body": cuerpo},
-                        "sound": "alert.caf",   # tu sonido convertido
-                        "badge": 1
-                    }
-                }
-            },
-
-            # ================================
-            # 📦 DATA personalizada (obligatoria como string)
-            # ================================
-            "data": {k: str(v) for k, v in data.items()},
-        }
-    }
-
-    r = requests.post(url, headers=headers, json=payload)
-    print("📤 Push enviado:", r.status_code, r.text)
 
 
 
@@ -3992,20 +4061,44 @@ class UbicacionIn(BaseModel):
     lat: float
     lng: float
 
+
+# ==========================================
+# 🔥 POSTGRESQL CONNECTION POOL (100% necesario)
+# ==========================================
+import psycopg2
+from psycopg2.pool import SimpleConnectionPool
+
+POOL = SimpleConnectionPool(
+    1, 20,  # min/max conexiones
+    dsn=DATABASE_URL,
+    sslmode="require"
+)
+
+def get_conn():
+    return POOL.getconn()
+
+def put_conn(conn):
+    try:
+        POOL.putconn(conn)
+    except:
+        pass
+
+
+
 @app.post("/medico/{medico_id}/status")
 async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db)):
     """
-    Actualiza si el médico está disponible o no.
-    PERO con Ghost Mode:
-    - Solo puede estar disponible si tiene WebSocket activo.
-    - Si no tiene WS, se ignora el intento de ponerse disponible.
+    Gestiona disponibilidad del médico SÓLO si tiene WebSocket activo.
+    Si pierde WS → disponible=False automáticamente.
     """
     nuevo_estado = data.get("disponible")
     cur = db.cursor()
 
     print(f"🔄 Médico {medico_id} solicita cambiar disponible → {nuevo_estado}")
 
-    # MEDICO QUIERE DESACTIVARSE -> SIEMPRE SE PERMITE
+    # ============================================================
+    # 🔴 DESACTIVAR → siempre permitido
+    # ============================================================
     if nuevo_estado is False:
         cur.execute("""
             UPDATE medicos
@@ -4015,23 +4108,25 @@ async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db
         """, (medico_id,))
         db.commit()
 
-        print(f"🔴 Médico {medico_id} se puso NO disponible")
+        print(f"🔴 Médico {medico_id} quedó NO disponible")
         return {"ok": True, "disponible": False}
 
-    # MEDICO QUIERE ACTIVARSE -> SOLO SI SU WS EXISTE
+    # ============================================================
+    # 🟢 ACTIVAR → solo si TIENE WS activo en server
+    # ============================================================
     if nuevo_estado is True:
 
         if medico_id not in active_medicos:
-            print(f"⚠️ Médico {medico_id} quiso ponerse disponible PERO NO tiene WS activo → Rechazado")
-            
-            # Devuelve error suave → la app debe reconectar WS primero
+            print(f"⚠️ Médico {medico_id} NO tiene WS activo → no permitir disponible")
+
             return {
                 "ok": False,
                 "disponible": False,
+                "requires_ws": True,
                 "error": "No hay conexión activa. Reintentá."
             }
 
-        # SI TIENE WS → ACTIVAR
+        # WS existe → activar
         cur.execute("""
             UPDATE medicos
             SET disponible = TRUE,
@@ -4041,10 +4136,11 @@ async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db
         """, (medico_id,))
         db.commit()
 
-        print(f"🟢 Médico {medico_id} marcado como disponible (WS OK)")
+        print(f"🟢 Médico {medico_id} ACTIVADO correctamente")
         return {"ok": True, "disponible": True}
 
     return {"ok": False, "error": "Estado inválido"}
+
 
 
 from fastapi import HTTPException
@@ -5963,3 +6059,6 @@ def delete_medico(medico_id: int, db=Depends(get_db)):
         "status": "ok",
         "message": "Cuenta de médico eliminada permanentemente"
     }
+
+
+
