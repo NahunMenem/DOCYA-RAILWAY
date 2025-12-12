@@ -1302,7 +1302,7 @@ def enviar_fcm(token: str, titulo: str, cuerpo: str, data_extra: dict):
     except Exception as e:
         print(f"❌ Error enviando FCM: {e}")
 
-
+import time
 
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
@@ -1463,7 +1463,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     "metodo_pago": "tarjeta",
                     "profesional_tipo": tipo,
                     "creado_en": str(creado_en),
-                    "inicio_timestamp": creado_ts
+                    "inicio_timestamp": int(time.time() * 1000)  # <-- AQUÍ
                 })
                 print("📤 WS enviado")
             except Exception as e:
@@ -1651,7 +1651,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 "metodo_pago": data.metodo_pago,
                 "profesional_tipo": tipo,
                 "creado_en": str(creado_en),
-                "inicio_timestamp": creado_ts
+                "inicio_timestamp": int(time.time() * 1000)  # <-- AQUÍ
             })
             print("📤 WS enviado")
         except:
