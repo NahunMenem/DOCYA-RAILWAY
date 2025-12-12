@@ -1447,7 +1447,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 u = cur.fetchone()
                 paciente_nombre = u[0] if u else "Paciente"
                 paciente_telefono = u[1] if u else "Sin número"
-
+                # 🔥 NUEVO: timestamp real en milisegundos
+                creado_ts = int(creado_en.timestamp() * 1000)
                 await pro["ws"].send_json({
                     "tipo": "consulta_nueva",
                     "consulta_id": consulta_id_previa,
@@ -1461,7 +1462,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     "distancia_km": round(float(distancia), 2),
                     "metodo_pago": "tarjeta",
                     "profesional_tipo": tipo,
-                    "creado_en": str(creado_en)
+                    "creado_en": str(creado_en),
+                    "inicio_timestamp": creado_ts
                 })
                 print("📤 WS enviado")
             except Exception as e:
@@ -1635,6 +1637,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     if profesional_id in active_medicos:
         try:
             pro = active_medicos[profesional_id]
+            creado_ts = int(creado_en.timestamp() * 1000)
             await pro["ws"].send_json({
                 "tipo": "consulta_nueva",
                 "consulta_id": consulta_id,
@@ -1647,7 +1650,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 "distancia_km": round(float(distancia), 2),
                 "metodo_pago": data.metodo_pago,
                 "profesional_tipo": tipo,
-                "creado_en": str(creado_en)
+                "creado_en": str(creado_en),
+                "inicio_timestamp": creado_ts
             })
             print("📤 WS enviado")
         except:
