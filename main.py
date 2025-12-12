@@ -1800,7 +1800,8 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
                COALESCE(u.telefono, 'Sin número') AS paciente_telefono,
                c.motivo, c.direccion, c.lat, c.lng, c.estado,
                m.latitud, m.longitud,
-               m.tipo
+               m.tipo,
+               c.creado_en     -- 🔥 AGREGADO AQUÍ
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
         LEFT JOIN users u ON c.paciente_uuid = u.id
@@ -1817,15 +1818,13 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
     (
         consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
         motivo, direccion, lat, lng, estado,
-        med_lat, med_lng, tipo_profesional
+        med_lat, med_lng, tipo_profesional,
+        creado_en                      # 🔥 RECIBIDO AQUÍ
     ) = row
 
     distancia_km = None
     tiempo_min = None
 
-    # ------------------------------------------------------
-    # 🔥 Cálculo local de distancia y ETA
-    # ------------------------------------------------------
     try:
         if all(v is not None for v in [lat, lng, med_lat, med_lng]):
             lat = float(lat)
@@ -1833,10 +1832,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
             med_lat = float(med_lat)
             med_lng = float(med_lng)
 
-            # 1️⃣ Distancia Haversine
             distancia_km = calcular_distancia_km(med_lat, med_lng, lat, lng)
-
-            # 2️⃣ ETA local
             tiempo_min = calcular_eta_local(distancia_km)
 
             print(f"🧮 ETA local: {tiempo_min} min | 📏 Distancia: {distancia_km:.2f} km")
@@ -1855,10 +1851,10 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "lng": lng,
         "estado": estado,
         "tipo": tipo_profesional,
+        "creado_en": str(creado_en),     # 🔥 ENVIADO AL FRONT AQUÍ
         "distancia_km": round(distancia_km, 2) if distancia_km else None,
         "tiempo_estimado_min": tiempo_min if tiempo_min is not None else 0
     }
-
 
 
 
