@@ -1128,19 +1128,11 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
 
 @app.post("/consultas/{consulta_id}/cancelar_busqueda")
 def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
-    """
-    Cancelación voluntaria del paciente mientras espera asignación.
-    
-    - Corta toda reasignación.
-    - Libera al médico asignado (si lo hubiera).
-    - No dispara refund (lo hace el webhook si corresponde).
-    - Marca la consulta como cancelada por el paciente.
-    """
     cur = db.cursor()
 
     # 1️⃣ Traer estado actual
     cur.execute("""
-        SELECT estado, metodo_pago, medico_id
+        SELECT estado, medico_id
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
@@ -1149,30 +1141,38 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
     if not row:
         raise HTTPException(404, "Consulta no encontrada")
 
-    estado, metodo_pago, medico_id = row
+    estado, medico_id = row
 
-    # 2️⃣ Si ya está aceptada, NO permitir que se cancele aquí
-    # (solo médico puede cancelar en ese punto)
-    if estado == "aceptada":
-        raise HTTPException(400, "La consulta ya fue aceptada por un profesional")
+    # 2️⃣ Solo se puede cancelar si está pendiente
+    if estado != "pendiente":
+        return {
+            "ok": True,
+            "consulta_id": consulta_id,
+            "estado": estado,
+            "mensaje": "La consulta ya no está en búsqueda"
+        }
 
-    # 3️⃣ Si tenía un médico asignado → liberarlo
+    # 3️⃣ Liberar médico si estaba asignado
     if medico_id:
-        cur.execute(
-            "UPDATE medicos SET disponible = TRUE WHERE id = %s",
-            (medico_id,)
-        )
+        cur.execute("""
+            UPDATE medicos
+            SET disponible = TRUE
+            WHERE id = %s
+        """, (medico_id,))
 
-    # 4️⃣ Cancelar la consulta
+    # 4️⃣ Cancelar consulta + limpiar reloj
     cur.execute("""
         UPDATE consultas
-        SET estado = 'cancelada'
+        SET estado = 'cancelada',
+            medico_id = NULL,
+            asignada_en = NULL,
+            expira_en = NULL
         WHERE id = %s
     """, (consulta_id,))
 
     db.commit()
 
-    print(f"🛑 Consulta {consulta_id} cancelada por el paciente.")
+    print(f"🛑 Consulta {consulta_id} cancelada por el paciente")
 
     return {
         "ok": True,
@@ -2072,68 +2072,73 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
 @app.post("/consultas/{consulta_id}/rechazar")
 async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
-    """
-    Un médico rechazó la consulta:
-    - Registrar el intento
-    - NO marcarlo offline si sigue online (Ghost Mode)
-    - Intentar reasignar al siguiente médico
-    """
     cur = db.cursor()
     medico_id = int(data.get("medico_id"))
 
-    print(f"❌ Médico {medico_id} rechazó consulta {consulta_id}")
+    print(f"❌ Rechazo médico {medico_id} consulta {consulta_id}")
 
-    # ---------------------------------------------------
-    # 1️⃣ Registrar intento de asignación
-    # ---------------------------------------------------
+    # 1️⃣ Validar estado actual de la consulta
+    cur.execute("""
+        SELECT medico_id, expira_en
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        return {"ok": False, "error": "Consulta inexistente"}
+
+    medico_asignado, expira_en = row
+
+    # ❌ No es su consulta (llegó tarde)
+    if medico_asignado != medico_id:
+        print("ℹ️ Rechazo tardío → consulta ya reasignada")
+        return {"ok": True, "reasignado": False}
+
+    # ❌ Ya expiró → backend se encarga
+    if expira_en and expira_en < datetime.utcnow():
+        print("ℹ️ Rechazo tardío → timeout ya procesado")
+        return {"ok": True, "reasignado": False}
+
+    # 2️⃣ Registrar intento
     cur.execute("""
         INSERT INTO intentos_asignacion (consulta_id, medico_id)
         VALUES (%s, %s)
     """, (consulta_id, medico_id))
-    db.commit()
 
-    # ---------------------------------------------------
-    # 2️⃣ Ghost Mode: ver si el médico sigue online por WS
-    # ---------------------------------------------------
-    if medico_id in active_medicos:
-        # Sigue conectado → NO marcar offline, NO modificar disponibilidad
-        print(f"🟡 Médico {medico_id} rechazó pero sigue ONLINE (WS activo). No marcar offline.")
-    else:
-        # No está conectado → marcar como no disponible
-        print(f"🔴 Médico {medico_id} NO tiene WS activo → marcado como no disponible")
+    # 3️⃣ Limpiar asignación + reloj
+    cur.execute("""
+        UPDATE consultas
+        SET medico_id = NULL,
+            asignada_en = NULL,
+            expira_en = NULL
+        WHERE id = %s
+    """, (consulta_id,))
+
+    # 4️⃣ Ghost Mode: solo si era su consulta
+    if medico_id not in active_medicos:
         cur.execute("""
             UPDATE medicos
             SET disponible = FALSE,
                 activo = FALSE
-            WHERE id=%s
+            WHERE id = %s
         """, (medico_id,))
-        db.commit()
+    else:
+        # sigue online → queda disponible
+        cur.execute("""
+            UPDATE medicos
+            SET disponible = TRUE
+            WHERE id = %s
+        """, (medico_id,))
 
-    # ---------------------------------------------------
-    # 3️⃣ Intentar reasignar automáticamente
-    # ---------------------------------------------------
-    reasignado = await intentar_reasignar(consulta_id, db)
-
-    if reasignado:
-        print(f"🔄 Consulta {consulta_id} enviada a un nuevo médico")
-        return {"ok": True, "reasignado": True}
-
-    # ---------------------------------------------------
-    # 4️⃣ No quedan médicos → dejar consulta pendiente
-    # ---------------------------------------------------
-    print(f"⚠️ No hay más médicos para consulta {consulta_id}")
-
-    cur.execute("""
-        UPDATE consultas 
-        SET estado='pendiente', medico_id=NULL
-        WHERE id=%s
-    """, (consulta_id,))
     db.commit()
+
+    # 5️⃣ Reasignar
+    reasignado = await intentar_reasignar(consulta_id, db)
 
     return {
         "ok": True,
-        "reasignado": False,
-        "mensaje": "No quedan médicos disponibles para esta consulta"
+        "reasignado": reasignado
     }
 
 
