@@ -2005,34 +2005,36 @@ class MedicoAccion(BaseModel):
     medico_id: int
 
 @app.post("/consultas/{consulta_id}/aceptar")
-def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
-    import httpx
-
+def aceptar_consulta(
+    consulta_id: int,
+    data: MedicoAccion,
+    db=Depends(get_db)
+):
     medico_id = data.medico_id
     cur = db.cursor()
 
-    # 1️⃣ Traer mp_payment_id + validar asignación
+    # 1️⃣ Obtener estado actual y pago
     cur.execute("""
-        SELECT mp_payment_id, medico_id, expira_en
+        SELECT estado, medico_id, mp_payment_id
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
     row = cur.fetchone()
 
     if not row:
-        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+        raise HTTPException(status_code=404, detail="Consulta inexistente")
 
-    payment_id, medico_asignado, expira_en = row
+    estado_actual, medico_actual, payment_id = row
 
-    # ❌ No es su consulta
-    if medico_asignado != medico_id:
-        raise HTTPException(status_code=400, detail="Consulta ya no asignada a este médico")
+    # ❌ Consulta ya no disponible para este médico
+    if estado_actual != "pendiente" or medico_actual != medico_id:
+        # ⚠️ ESTE MENSAJE ES CLAVE PARA EL FRONT
+        raise HTTPException(
+            status_code=400,
+            detail="CONSULTA_EXPIRADA"
+        )
 
-    # ❌ Ya expiró
-    if expira_en and expira_en < datetime.utcnow():
-        raise HTTPException(status_code=400, detail="Tiempo agotado. Consulta reasignada.")
-
-    # 2️⃣ Aceptar consulta (solo si sigue pendiente)
+    # 2️⃣ Aceptar consulta (limpia reloj)
     cur.execute("""
         UPDATE consultas
         SET estado = 'aceptada',
@@ -2047,7 +2049,11 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 
     updated = cur.fetchone()
     if not updated:
-        raise HTTPException(status_code=400, detail="Consulta no disponible")
+        # doble seguridad
+        raise HTTPException(
+            status_code=400,
+            detail="CONSULTA_EXPIRADA"
+        )
 
     # 3️⃣ Marcar médico como NO disponible
     cur.execute("""
@@ -2055,6 +2061,7 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
         SET disponible = FALSE
         WHERE id = %s
     """, (medico_id,))
+
     db.commit()
 
     # 4️⃣ Capturar pago si corresponde
@@ -2065,7 +2072,8 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
                 "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
                 "Content-Type": "application/json"
             }
-            with httpx.Client() as client:
+
+            with httpx.Client(timeout=5) as client:
                 r = client.post(url, headers=headers, json={})
 
             if r.status_code not in (200, 201):
@@ -2074,7 +2082,10 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
         except Exception as e:
             print("⚠ Excepción capturando pago:", e)
 
-    return {"ok": True, "consulta_id": consulta_id}
+    return {
+        "ok": True,
+        "consulta_id": consulta_id
+    }
 
 
 
@@ -2085,28 +2096,35 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
 
     print(f"❌ Rechazo médico {medico_id} consulta {consulta_id}")
 
-    # 1️⃣ Validar estado actual de la consulta
+    # 1️⃣ Traer estado actual de la consulta
     cur.execute("""
-        SELECT medico_id, expira_en
+        SELECT estado, medico_id, expira_en
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
     row = cur.fetchone()
 
     if not row:
-        return {"ok": False, "error": "Consulta inexistente"}
+        raise HTTPException(
+            status_code=404,
+            detail="CONSULTA_INEXISTENTE"
+        )
 
-    medico_asignado, expira_en = row
+    estado_actual, medico_asignado, expira_en = row
 
-    # ❌ No es su consulta (llegó tarde)
-    if medico_asignado != medico_id:
-        print("ℹ️ Rechazo tardío → consulta ya reasignada")
-        return {"ok": True, "reasignado": False}
+    # ❌ Consulta ya no disponible para este médico
+    if estado_actual != "pendiente" or medico_asignado != medico_id:
+        raise HTTPException(
+            status_code=400,
+            detail="CONSULTA_EXPIRADA"
+        )
 
-    # ❌ Ya expiró → backend se encarga
+    # ❌ Ya expiró → backend ya actuó
     if expira_en and expira_en < datetime.utcnow():
-        print("ℹ️ Rechazo tardío → timeout ya procesado")
-        return {"ok": True, "reasignado": False}
+        raise HTTPException(
+            status_code=400,
+            detail="CONSULTA_EXPIRADA"
+        )
 
     # 2️⃣ Registrar intento
     cur.execute("""
@@ -2123,8 +2141,9 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
         WHERE id = %s
     """, (consulta_id,))
 
-    # 4️⃣ Ghost Mode: solo si era su consulta
+    # 4️⃣ Ghost Mode
     if medico_id not in active_medicos:
+        # perdió WS → penalizar
         cur.execute("""
             UPDATE medicos
             SET disponible = FALSE,
@@ -2148,6 +2167,7 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
         "ok": True,
         "reasignado": reasignado
     }
+
 
 
 
