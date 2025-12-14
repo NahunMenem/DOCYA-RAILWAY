@@ -121,6 +121,9 @@ def get_db():
     finally:
         conn.close()
 
+    
+def get_db_worker():
+    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 # ====================================================
 # 🩺 INCLUIR RUTA DE MONITOREO
@@ -185,12 +188,17 @@ async def iniciar_timeout_worker():
 
 async def timeout_worker():
     while True:
+        db = None
         try:
-            db = next(get_db())
+            db = get_db_worker()           # 👈 conexión NUEVA
             await procesar_timeouts(db)
         except Exception as e:
             print("❌ Error timeout_worker:", e)
-        await asyncio.sleep(3)  # cada 3 segundos
+        finally:
+            if db:
+                db.close()                 # 👈 cerrar SIEMPRE
+        await asyncio.sleep(3)
+
 
 
 # ====================================================
