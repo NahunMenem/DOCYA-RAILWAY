@@ -6,6 +6,8 @@ import json
 import math
 import jwt
 from datetime import datetime, timedelta, date, time
+import asyncio
+from datetime import datetime
 import psycopg2
 import requests
 import uuid
@@ -174,6 +176,22 @@ class PagoIn(BaseModel):
     lat: float
     lng: float
     descripcion: str = "Consulta a domicilio"
+
+
+
+@app.on_event("startup")
+async def iniciar_timeout_worker():
+    asyncio.create_task(timeout_worker())
+
+async def timeout_worker():
+    while True:
+        try:
+            db = next(get_db())
+            await procesar_timeouts(db)
+        except Exception as e:
+            print("❌ Error timeout_worker:", e)
+        await asyncio.sleep(3)  # cada 3 segundos
+
 
 # ====================================================
 # 🩻 ENDPOINTS BASE / AUTH / USERS
@@ -1165,7 +1183,7 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
 
 
 
-# Motor inteligente de asignación CEREBRO--------------------------------
+# Motor inteligente de asignación CEREBRO
 async def intentar_reasignar(consulta_id, db):
     cur = db.cursor()
 
@@ -1184,7 +1202,8 @@ async def intentar_reasignar(consulta_id, db):
 
     # Médicos ya intentados para evitar repetir
     cur.execute("""
-        SELECT medico_id FROM intentos_asignacion
+        SELECT medico_id
+        FROM intentos_asignacion
         WHERE consulta_id = %s
     """, (consulta_id,))
     intentados = [r[0] for r in cur.fetchall()]
@@ -1199,7 +1218,7 @@ async def intentar_reasignar(consulta_id, db):
         )) AS distancia
         FROM medicos
         WHERE disponible = TRUE
-          AND activo = TRUE               -- 🔥 NUEVO FILTRO
+          AND activo = TRUE
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
@@ -1212,6 +1231,22 @@ async def intentar_reasignar(consulta_id, db):
 
         if medico_id in intentados:
             continue
+
+        # 🔥 ASIGNAR MÉDICO + SETEAR RELOJ BACKEND
+        cur.execute("""
+            UPDATE consultas
+            SET medico_id = %s,
+                asignada_en = NOW(),
+                expira_en = NOW() + INTERVAL '20 seconds'
+            WHERE id = %s
+              AND estado = 'pendiente'
+        """, (medico_id, consulta_id))
+
+        if cur.rowcount == 0:
+            # la consulta fue tocada por otro proceso
+            continue
+
+        db.commit()
 
         # Registrar intento
         cur.execute("""
@@ -1233,22 +1268,70 @@ async def intentar_reasignar(consulta_id, db):
             except Exception as e:
                 print("⚠️ Error WS reasignación:", e)
 
-        return True  # Se envió a un nuevo médico
+        return True  # ✅ reasignada correctamente
 
     # No quedan médicos disponibles
-    print("❌ No quedan médicos para reasignar → marcando consulta como pendiente sin médico")
-    
+    print("❌ No quedan médicos para reasignar → consulta queda pendiente sin médico")
+
     cur.execute("""
         UPDATE consultas
-        SET estado='pendiente',
-            medico_id=NULL
-        WHERE id=%s
+        SET medico_id = NULL,
+            asignada_en = NULL,
+            expira_en = NULL
+        WHERE id = %s
     """, (consulta_id,))
-    
+
     db.commit()
     return False
 
 
+
+async def procesar_timeouts(db):
+    cur = db.cursor()
+
+    # Buscar consultas vencidas (SIN cambiar estados)
+    cur.execute("""
+        SELECT id, medico_id
+        FROM consultas
+        WHERE estado = 'pendiente'
+          AND medico_id IS NOT NULL
+          AND expira_en IS NOT NULL
+          AND expira_en < NOW()
+    """)
+    vencidas = cur.fetchall()
+
+    if not vencidas:
+        return
+
+    for consulta_id, medico_id in vencidas:
+        print(f"⏳ Timeout BACKEND consulta {consulta_id} médico {medico_id}")
+
+        # 1️⃣ Registrar intento
+        cur.execute("""
+            INSERT INTO intentos_asignacion (consulta_id, medico_id)
+            VALUES (%s, %s)
+        """, (consulta_id, medico_id))
+
+        # 2️⃣ Liberar médico (NO tocar activo)
+        cur.execute("""
+            UPDATE medicos
+            SET disponible = TRUE
+            WHERE id = %s
+        """, (medico_id,))
+
+        # 3️⃣ Limpiar asignación (SIN tocar estado)
+        cur.execute("""
+            UPDATE consultas
+            SET medico_id = NULL,
+                asignada_en = NULL,
+                expira_en = NULL
+            WHERE id = %s
+        """, (consulta_id,))
+
+        db.commit()
+
+        # 4️⃣ Reasignar usando tu motor existente
+        await intentar_reasignar(consulta_id, db)
 
 
 
@@ -1414,6 +1497,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 lng=%s,
                 metodo_pago='tarjeta',
                 tipo=%s
+                asignada_en = NOW(),
+                expira_en = NOW() + INTERVAL '20 seconds'
             WHERE id=%s
             RETURNING creado_en;
         """, (
@@ -1605,9 +1690,12 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur.execute("""
         INSERT INTO consultas (
             paciente_uuid, medico_id, estado, motivo,
-            direccion, lat, lng, metodo_pago
+            direccion, lat, lng, metodo_pago,
+            asignada_en, expira_en
         )
-        VALUES (%s,%s,'pendiente',%s,%s,%s,%s,%s)
+        VALUES (%s,%s,'pendiente',%s,%s,%s,%s,%s,
+                NOW(), NOW() + INTERVAL '20 seconds')
+
         RETURNING id, creado_en
     """, (
         str(data.paciente_uuid),
@@ -1910,48 +1998,65 @@ class MedicoAccion(BaseModel):
 
 @app.post("/consultas/{consulta_id}/aceptar")
 def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
-    import httpx  # aseguremos import local si no está arriba
+    import httpx
 
     medico_id = data.medico_id
     cur = db.cursor()
 
-    # 1) Traer el mp_payment_id (NO payment_id)
-    cur.execute("SELECT mp_payment_id FROM consultas WHERE id = %s", (consulta_id,))
+    # 1️⃣ Traer mp_payment_id + validar asignación
+    cur.execute("""
+        SELECT mp_payment_id, medico_id, expira_en
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
     row = cur.fetchone()
 
     if not row:
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
-    payment_id = row[0]   # puede ser None si es efectivo
+    payment_id, medico_asignado, expira_en = row
 
-    # 2) Marcar consulta como aceptada (solo si estaba pendiente)
+    # ❌ No es su consulta
+    if medico_asignado != medico_id:
+        raise HTTPException(status_code=400, detail="Consulta ya no asignada a este médico")
+
+    # ❌ Ya expiró
+    if expira_en and expira_en < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="Tiempo agotado. Consulta reasignada.")
+
+    # 2️⃣ Aceptar consulta (solo si sigue pendiente)
     cur.execute("""
         UPDATE consultas
         SET estado = 'aceptada',
-            medico_id = %s,
-            aceptada_en = (NOW() AT TIME ZONE 'UTC-3')
-        WHERE id = %s AND estado = 'pendiente'
+            aceptada_en = (NOW() AT TIME ZONE 'UTC-3'),
+            asignada_en = NULL,
+            expira_en = NULL
+        WHERE id = %s
+          AND estado = 'pendiente'
+          AND medico_id = %s
         RETURNING id
-    """, (medico_id, consulta_id))
-    updated = cur.fetchone()
+    """, (consulta_id, medico_id))
 
+    updated = cur.fetchone()
     if not updated:
         raise HTTPException(status_code=400, detail="Consulta no disponible")
 
-    # 3) Marcar médico como NO disponible
-    cur.execute("UPDATE medicos SET disponible = false WHERE id = %s", (medico_id,))
+    # 3️⃣ Marcar médico como NO disponible
+    cur.execute("""
+        UPDATE medicos
+        SET disponible = FALSE
+        WHERE id = %s
+    """, (medico_id,))
     db.commit()
 
-    # 4) Si la consulta tiene pago con tarjeta → capturar
+    # 4️⃣ Capturar pago si corresponde
     if payment_id:
         try:
             url = f"https://api.mercadopago.com/v1/payments/{payment_id}/capture"
-
             headers = {
                 "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
                 "Content-Type": "application/json"
             }
-
             with httpx.Client() as client:
                 r = client.post(url, headers=headers, json={})
 
@@ -1962,6 +2067,7 @@ def aceptar_consulta(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
             print("⚠ Excepción capturando pago:", e)
 
     return {"ok": True, "consulta_id": consulta_id}
+
 
 
 @app.post("/consultas/{consulta_id}/rechazar")
@@ -2033,34 +2139,68 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
 
 
 
-#cuando el timer se agota -----------
 @app.post("/consultas/{consulta_id}/timeout")
 async def timeout_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
-    """
-    El médico no respondió dentro del tiempo → reasignar al siguiente.
-    """
     cur = db.cursor()
     medico_id = int(data.get("medico_id"))
 
-    print(f"⏳ Timeout del médico {medico_id} en consulta {consulta_id}")
+    print(f"⏳ Timeout FRONT médico {medico_id} consulta {consulta_id}")
 
-    # Registrar intento (igual que rechazar)
+    # Ver estado actual de la consulta
+    cur.execute("""
+        SELECT medico_id, expira_en
+        FROM consultas
+        WHERE id = %s
+    """, (consulta_id,))
+    row = cur.fetchone()
+
+    if not row:
+        return {"ok": False, "error": "Consulta inexistente"}
+
+    medico_actual, expira_en = row
+
+    # Si ya no está asignada a este médico → ignorar
+    if medico_actual != medico_id:
+        print("ℹ️ Timeout tardío → consulta ya reasignada")
+        return {"ok": True, "reasignado": False}
+
+    # Si ya expiró, el worker backend ya se encargó
+    if expira_en and expira_en < datetime.utcnow():
+        print("ℹ️ Timeout ya procesado por backend")
+        return {"ok": True, "reasignado": False}
+
+    # Registrar intento
     cur.execute("""
         INSERT INTO intentos_asignacion (consulta_id, medico_id)
         VALUES (%s, %s)
     """, (consulta_id, medico_id))
 
-    # Marcar médico disponible
-    cur.execute("UPDATE medicos SET disponible = TRUE WHERE id=%s", (medico_id,))
+    # Liberar médico
+    cur.execute("""
+        UPDATE medicos
+        SET disponible = TRUE
+        WHERE id = %s
+    """, (medico_id,))
+
+    # Limpiar asignación (SIN tocar estado)
+    cur.execute("""
+        UPDATE consultas
+        SET medico_id = NULL,
+            asignada_en = NULL,
+            expira_en = NULL
+        WHERE id = %s
+    """, (consulta_id,))
+
     db.commit()
 
-    # Intentar reasignar
+    # Reasignar
     reasignado = await intentar_reasignar(consulta_id, db)
 
     return {
         "ok": True,
         "reasignado": reasignado
     }
+
 
 
 
