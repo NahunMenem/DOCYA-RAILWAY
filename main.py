@@ -1396,6 +1396,21 @@ def enviar_fcm(token: str, titulo: str, cuerpo: str, data_extra: dict):
         print(f"❌ Error enviando FCM: {e}")
 
 
+import psycopg2
+import os
+
+def get_db_direct():
+    conn = psycopg2.connect(
+        host=os.getenv("DB_HOST"),
+        database=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        port=os.getenv("DB_PORT", 5432),
+        connect_timeout=5
+    )
+    conn.autocommit = False
+    return conn
+
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
@@ -1507,7 +1522,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 lat=%s,
                 lng=%s,
                 metodo_pago='tarjeta',
-                tipo=%s
+                tipo=%s,
                 asignada_en = NOW(),
                 expira_en = NOW() + INTERVAL '20 seconds'
             WHERE id=%s
@@ -1793,8 +1808,9 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         print("🟡 Watchdog: No WS → push fallback")
     
         # 🔐 NUEVA CONEXIÓN (aislada del request)
-        db_wd = next(get_db())
+        db_wd = get_db_direct()
         cur_wd = db_wd.cursor()
+
     
         try:
             cur_wd.execute(
