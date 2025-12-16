@@ -4288,8 +4288,9 @@ def put_conn(conn):
 @app.post("/medico/{medico_id}/status")
 async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db)):
     """
-    Gestiona disponibilidad del médico SÓLO si tiene WebSocket activo.
-    Si pierde WS → disponible=False automáticamente.
+    Gestiona disponibilidad del médico.
+    El WS NO es requisito para activar.
+    Si el WS no aparece luego, el watchdog lo apaga.
     """
     nuevo_estado = data.get("disponible")
     cur = db.cursor()
@@ -4304,7 +4305,7 @@ async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db
             UPDATE medicos
             SET disponible = FALSE,
                 activo = FALSE
-            WHERE id=%s
+            WHERE id = %s
         """, (medico_id,))
         db.commit()
 
@@ -4312,32 +4313,29 @@ async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db
         return {"ok": True, "disponible": False}
 
     # ============================================================
-    # 🟢 ACTIVAR → solo si TIENE WS activo en server
+    # 🟢 ACTIVAR → PERMITIDO SIEMPRE
     # ============================================================
     if nuevo_estado is True:
 
-        if medico_id not in active_medicos:
-            print(f"⚠️ Médico {medico_id} NO tiene WS activo → no permitir disponible")
-
-            return {
-                "ok": False,
-                "disponible": False,
-                "requires_ws": True,
-                "error": "No hay conexión activa. Reintentá."
-            }
-
-        # WS existe → activar
         cur.execute("""
             UPDATE medicos
             SET disponible = TRUE,
                 activo = TRUE,
                 ultimo_ping = NOW()
-            WHERE id=%s
+            WHERE id = %s
         """, (medico_id,))
         db.commit()
 
-        print(f"🟢 Médico {medico_id} ACTIVADO correctamente")
-        return {"ok": True, "disponible": True}
+        if medico_id not in active_medicos:
+            print(f"🟡 Médico {medico_id} activado SIN WS aún (esperando conexión)")
+        else:
+            print(f"🟢 Médico {medico_id} activado con WS")
+
+        return {
+            "ok": True,
+            "disponible": True,
+            "ws_activo": medico_id in active_medicos
+        }
 
     return {"ok": False, "error": "Estado inválido"}
 
