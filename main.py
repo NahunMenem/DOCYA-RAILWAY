@@ -3226,25 +3226,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     print(f"🟢 Nuevo WebSocket aceptado para médico {medico_id}")
 
     # ============================================================
-    # 1) CERRAR WS PREVIO SI EXISTE
-    # ============================================================
-    if medico_id in active_medicos:
-        try:
-            old_ws = active_medicos[medico_id]["ws"]
-            await old_ws.close(code=1000)
-            print(f"♻️ Cerrando WebSocket previo del médico {medico_id}")
-        except:
-            pass
-
-        if medico_id in monitor_tasks:
-            monitor_tasks[medico_id].cancel()
-            del monitor_tasks[medico_id]
-
-        del active_medicos[medico_id]
-
-
-    # ============================================================
-    # 2) REGISTRAR NUEVO WS + ACTUALIZAR ESTADO EN BD
+    # 1) REGISTRAR WS (❌ NO cerrar WS previo acá)
     # ============================================================
     active_medicos[medico_id] = {"ws": websocket}
 
@@ -3269,32 +3251,33 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     finally:
         put_conn(conn)
 
-
     # ============================================================
-    # 3) MONITOR ANTI-FAKE TIMEOUT (cada 5s)
+    # 2) MONITOR ANTI-TIMEOUT REAL (cada 5s)
     # ============================================================
-    async def monitor_ws():
+    async def monitor_ws(local_ws):
         while True:
             await asyncio.sleep(5)
             now = datetime.now()
 
+            # Si este WS ya no es el activo → salir sin tocar nada
+            if active_medicos.get(medico_id, {}).get("ws") != local_ws:
+                return
+
             diff_msg = (now - last_message_times.get(medico_id, now)).total_seconds()
             diff_ping = (now - last_ping_times.get(medico_id, now)).total_seconds()
 
-            # Mensajes recientes → OK
             if diff_msg < 30:
                 continue
 
-            # 120s sin ping → Timeout real
             if diff_ping > 120:
                 print(f"⏳ TIMEOUT REAL médico {medico_id}: {diff_ping:.1f}s sin ping")
-                raise Exception("timeout")
+                await local_ws.close(code=1000)
+                return
 
-    monitor_tasks[medico_id] = asyncio.create_task(monitor_ws())
-
+    monitor_tasks[medico_id] = asyncio.create_task(monitor_ws(websocket))
 
     # ============================================================
-    # 4) LOOP PRINCIPAL DEL WEBSOCKET
+    # 3) LOOP PRINCIPAL DEL WEBSOCKET
     # ============================================================
     try:
         while True:
@@ -3332,44 +3315,40 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                 continue
 
     # ============================================================
-    # 5) MANEJO DE DESCONEXIÓN WS
+    # 4) MANEJO DE DESCONEXIÓN
     # ============================================================
     except Exception as e:
         print(f"❌ WS médico {medico_id} desconectado: {e}")
 
-        # Cierre normal (code 1000) → no marcar offline
-        if hasattr(e, "code") and e.code == 1000:
-            print(f"✔ Cierre normal médico {medico_id}")
-            return
-
-        # LIMPIAR estructuras
-        if medico_id in active_medicos:
-            del active_medicos[medico_id]
-
-        if medico_id in monitor_tasks:
-            monitor_tasks[medico_id].cancel()
-            del monitor_tasks[medico_id]
-
-        # MARCAR MÉDICO COMO INACTIVO Y NO DISPONIBLE
-        try:
-            conn = get_conn()
-            cur = conn.cursor()
-            cur.execute("""
-                UPDATE medicos
-                SET activo = FALSE,
-                    disponible = FALSE
-                WHERE id=%s
-            """, (medico_id,))
-            conn.commit()
-        except Exception as e2:
-            print(f"⚠️ Error marcando offline médico {medico_id}: {e2}")
-        finally:
-            put_conn(conn)
-
-        print(f"🟡 Médico {medico_id} marcado como OFFLINE (ghost cleaned)")
-
     finally:
+        # 🔒 SOLO limpiar si este WS sigue siendo el activo
+        if active_medicos.get(medico_id, {}).get("ws") == websocket:
+
+            active_medicos.pop(medico_id, None)
+
+            if medico_id in monitor_tasks:
+                monitor_tasks[medico_id].cancel()
+                monitor_tasks.pop(medico_id, None)
+
+            try:
+                conn = get_conn()
+                cur = conn.cursor()
+                cur.execute("""
+                    UPDATE medicos
+                    SET activo = FALSE,
+                        disponible = FALSE
+                    WHERE id=%s
+                """, (medico_id,))
+                conn.commit()
+            except Exception as e2:
+                print(f"⚠️ Error marcando offline médico {medico_id}: {e2}")
+            finally:
+                put_conn(conn)
+
+            print(f"🟡 Médico {medico_id} marcado como OFFLINE (WS finalizado)")
+
         print(f"🔻 Total médicos conectados ahora: {len(active_medicos)}")
+
 
 
 
