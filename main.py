@@ -1779,41 +1779,77 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             print("❌ Error enviando push")
 
     # WATCHDOG EFECTIVO (fallback)
-    async def watchdog_efectivo():
+    # ---------------------------------------------------------
+    # WATCHDOG EFECTIVO (fallback) — FIX DEFINITIVO
+    # ---------------------------------------------------------
+    async def watchdog_efectivo(profesional_id: int, consulta_id: int, motivo: str):
         await asyncio.sleep(3)
-
+    
+        # Si el médico ya está conectado por WS → OK
         if profesional_id in active_medicos:
             print("🟢 Watchdog OK → WS activo")
             return
-
+    
         print("🟡 Watchdog: No WS → push fallback")
-
-        cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
-        row = cur.fetchone()
-
-        if row and row[0]:
-            enviar_push(
-                row[0],
-                "📢 Nueva consulta",
-                data.motivo,
-                {
-                    "tipo": "consulta_nueva",
-                    "consulta_id": str(consulta_id),
-                    "medico_id": str(profesional_id),
-                    "fallback": True
-                }
+    
+        # 🔐 NUEVA CONEXIÓN (aislada del request)
+        db_wd = next(get_db())
+        cur_wd = db_wd.cursor()
+    
+        try:
+            cur_wd.execute(
+                "SELECT fcm_token FROM medicos WHERE id=%s",
+                (profesional_id,)
             )
-            print("📤 PUSH fallback enviado")
-
-        await asyncio.sleep(10)
-
-        if profesional_id not in active_medicos:
-            print("🔴 Watchdog: Médico ghost")
-            cur.execute("UPDATE medicos SET activo = FALSE WHERE id=%s", (profesional_id,))
-            db.commit()
-
-    asyncio.create_task(watchdog_efectivo())
-
+            row = cur_wd.fetchone()
+    
+            if row and row[0]:
+                enviar_push(
+                    row[0],
+                    "📢 Nueva consulta",
+                    motivo,
+                    {
+                        "tipo": "consulta_nueva",
+                        "consulta_id": str(consulta_id),
+                        "medico_id": str(profesional_id),
+                        "fallback": True
+                    }
+                )
+                print("📤 PUSH fallback enviado")
+    
+            # ⏱ Segunda ventana
+            await asyncio.sleep(10)
+    
+            if profesional_id not in active_medicos:
+                print("🔴 Watchdog: Médico ghost → desactivar")
+                cur_wd.execute(
+                    "UPDATE medicos SET activo = FALSE WHERE id=%s",
+                    (profesional_id,)
+                )
+                db_wd.commit()
+    
+        except Exception as e:
+            print("❌ Error watchdog_efectivo:", e)
+    
+        finally:
+            cur_wd.close()
+            db_wd.close()
+    
+    
+    # ---------------------------------------------------------
+    # LANZAR WATCHDOG (NO BLOQUEANTE)
+    # ---------------------------------------------------------
+    asyncio.create_task(
+        watchdog_efectivo(
+            profesional_id=profesional_id,
+            consulta_id=consulta_id,
+            motivo=data.motivo
+        )
+    )
+    
+    # ---------------------------------------------------------
+    # RETURN FINAL DEL ENDPOINT (OBLIGATORIO)
+    # ---------------------------------------------------------
     return {
         "consulta_id": consulta_id,
         "paciente_uuid": str(data.paciente_uuid),
