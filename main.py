@@ -4284,60 +4284,78 @@ def put_conn(conn):
         pass
 
 
+from fastapi import Depends
+from psycopg2 import sql
 
 @app.post("/medico/{medico_id}/status")
-async def actualizar_estado_medico(medico_id: int, data: dict, db=Depends(get_db)):
+async def actualizar_estado_medico(
+    medico_id: int,
+    data: dict,
+    db=Depends(get_db)
+):
     """
     Gestiona disponibilidad del médico.
-    El WS NO es requisito para activar.
-    Si el WS no aparece luego, el watchdog lo apaga.
+    - NO requiere WebSocket para activar (clave para iOS)
+    - El watchdog se encarga de apagar si no hay WS / ping
     """
-    nuevo_estado = data.get("disponible")
-    cur = db.cursor()
 
-    print(f"🔄 Médico {medico_id} solicita cambiar disponible → {nuevo_estado}")
+    nuevo_estado = data.get("disponible")
+    platform = data.get("platform", "unknown")
+
+    print(f"🔄 Médico {medico_id} solicita cambiar disponible → {nuevo_estado} ({platform})")
 
     # ============================================================
     # 🔴 DESACTIVAR → siempre permitido
     # ============================================================
     if nuevo_estado is False:
-        cur.execute("""
-            UPDATE medicos
-            SET disponible = FALSE,
-                activo = FALSE
-            WHERE id = %s
-        """, (medico_id,))
-        db.commit()
+        with db.cursor() as cur:
+            cur.execute("""
+                UPDATE medicos
+                SET disponible = FALSE,
+                    activo = FALSE
+                WHERE id = %s
+            """, (medico_id,))
+            db.commit()
 
         print(f"🔴 Médico {medico_id} quedó NO disponible")
-        return {"ok": True, "disponible": False}
+        return {
+            "ok": True,
+            "disponible": False
+        }
 
     # ============================================================
-    # 🟢 ACTIVAR → PERMITIDO SIEMPRE
+    # 🟢 ACTIVAR → permitido SIEMPRE
     # ============================================================
     if nuevo_estado is True:
+        with db.cursor() as cur:
+            cur.execute("""
+                UPDATE medicos
+                SET disponible = TRUE,
+                    activo = TRUE,
+                    ultimo_ping = NOW()
+                WHERE id = %s
+            """, (medico_id,))
+            db.commit()
 
-        cur.execute("""
-            UPDATE medicos
-            SET disponible = TRUE,
-                activo = TRUE,
-                ultimo_ping = NOW()
-            WHERE id = %s
-        """, (medico_id,))
-        db.commit()
+        ws_activo = medico_id in active_medicos
 
-        if medico_id not in active_medicos:
-            print(f"🟡 Médico {medico_id} activado SIN WS aún (esperando conexión)")
-        else:
+        if ws_activo:
             print(f"🟢 Médico {medico_id} activado con WS")
+        else:
+            print(f"🟡 Médico {medico_id} activado SIN WS (esperando conexión)")
 
         return {
             "ok": True,
             "disponible": True,
-            "ws_activo": medico_id in active_medicos
+            "ws_activo": ws_activo,
+            "platform": platform
         }
 
-    return {"ok": False, "error": "Estado inválido"}
+    return {
+        "ok": False,
+        "error": "Estado inválido"
+    }
+
 
 
 
