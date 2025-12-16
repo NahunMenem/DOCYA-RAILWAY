@@ -3112,20 +3112,43 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         lat_med = float(lat_med)
         lng_med = float(lng_med)
 
+        # --------------------------------------------------
+        # 0) VALIDAR CONSULTA Y MÉDICO ASIGNADO
+        # --------------------------------------------------
+        cur.execute("""
+            SELECT c.medico_id
+            FROM consultas c
+            WHERE c.id = %s
+        """, (consulta_id,))
+        
+        row_med = cur.fetchone()
+
+        if not row_med:
+            return {"error": "Consulta no válida"}
+
+        medico_id = row_med[0]
+
+        # --------------------------------------------------
+        # 🔒 SI NO HAY WS ACTIVO → IGNORAR UBICACIÓN
+        # --------------------------------------------------
+        if medico_id not in active_medicos:
+            print(f"🚫 Ubicación ignorada consulta {consulta_id} (médico {medico_id} sin WS)")
+            return {
+                "status": "ignorado",
+                "reason": "medico_sin_ws"
+            }
+
         # -----------------------------------------
         # 1) ACTUALIZAR UBICACIÓN EN TABLA MEDICOS
+        #    ❌ NO tocar ultimo_ping acá
         # -----------------------------------------
         cur.execute("""
             UPDATE medicos
             SET latitud = %s,
                 longitud = %s,
-                updated_at = NOW(),
-                ultimo_ping = NOW()
-            WHERE id = (
-                SELECT medico_id FROM consultas WHERE id = %s
-            )
-        """, (lat_med, lng_med, consulta_id))
-
+                updated_at = NOW()
+            WHERE id = %s
+        """, (lat_med, lng_med, medico_id))
 
         # -----------------------------------------
         # 2) ACTUALIZAR UBICACIÓN EN CONSULTAS
@@ -3137,7 +3160,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
                 actualizado_en = NOW()
             WHERE id = %s
         """, (lat_med, lng_med, consulta_id))
-
 
         # -----------------------------------------
         # 3) TRAER UBICACIÓN DEL PACIENTE
@@ -3160,19 +3182,22 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         lat_pac = float(row[0])
         lng_pac = float(row[1])
 
-
         # -----------------------------------------
         # 4) CALCULAR DISTANCIA HAVERSINE (km)
         # -----------------------------------------
-        distancia_km = calcular_distancia_km(lat_med, lng_med, lat_pac, lng_pac)
+        distancia_km = calcular_distancia_km(
+            lat_med, lng_med, lat_pac, lng_pac
+        )
 
         # -----------------------------------------
         # 5) CALCULAR ETA LOCAL
         # -----------------------------------------
         tiempo_min = calcular_eta_local(distancia_km)
 
-        print(f"🧮 ETA local consulta {consulta_id}: {tiempo_min} min (dist {distancia_km:.2f} km)")
-
+        print(
+            f"🧮 ETA local consulta {consulta_id}: "
+            f"{tiempo_min} min (dist {distancia_km:.2f} km)"
+        )
 
         # -----------------------------------------
         # 6) GUARDAR ETA EN CONSULTAS
@@ -3182,7 +3207,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
             SET tiempo_estimado_min = %s
             WHERE id = %s
         """, (tiempo_min, consulta_id))
-
 
         db.commit()
 
@@ -3198,12 +3222,32 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         return {"error": str(e)}
 
 
+
 @app.post("/medico/{id}/cerrar_app")
 def cerrar_app(id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE medicos SET disponible = FALSE WHERE id=%s;", (id,))
+
+    # Marcar no disponible en BD
+    cur.execute("""
+        UPDATE medicos 
+        SET disponible = FALSE,
+            activo = FALSE
+        WHERE id=%s;
+    """, (id,))
     db.commit()
-    return {"status": "ok", "mensaje": "médico marcado como no disponible"}
+
+    # Cerrar WS si existe
+    if id in active_medicos:
+        try:
+            ws = active_medicos[id]["ws"]
+            asyncio.create_task(ws.close(code=1000))
+        except:
+            pass
+
+    return {
+        "status": "ok",
+        "mensaje": "médico cerrado correctamente"
+    }
 
 
 # --- WebSocket de médicos ---
