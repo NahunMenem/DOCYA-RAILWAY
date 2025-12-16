@@ -1819,14 +1819,24 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     
             # ⏱ Segunda ventana
             await asyncio.sleep(10)
-    
-            if profesional_id not in active_medicos:
-                print("🔴 Watchdog: Médico ghost → desactivar")
+            # Verificar estado real de la consulta
+            cur_wd.execute(
+                "SELECT estado FROM consultas WHERE id=%s",
+                (consulta_id,)
+            )
+            estado_row = cur_wd.fetchone()
+            
+            # SOLO apagar si la consulta sigue pendiente
+            if estado_row and estado_row[0] == "pendiente":
+                print("🔴 Watchdog: Consulta sin respuesta → desactivar médico")
                 cur_wd.execute(
                     "UPDATE medicos SET activo = FALSE WHERE id=%s",
                     (profesional_id,)
                 )
                 db_wd.commit()
+            else:
+                print("🟢 Watchdog: Médico respondió → NO desactivar")
+
     
         except Exception as e:
             print("❌ Error watchdog_efectivo:", e)
