@@ -19,45 +19,7 @@ active_admins: list[WebSocket] = []
 # ====================================================
 # 🧹 LIMPIADOR AUTOMÁTICO DE MÉDICOS INACTIVOS
 # ====================================================
-async def limpiar_medicos_inactivos():
-    """Marca como NO disponibles los médicos realmente inactivos (sin consultas vivas)."""
-    DATABASE_URL = getenv("DATABASE_URL")
 
-    while True:
-        try:
-            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-            cur = conn.cursor()
-
-            cur.execute("""
-                UPDATE medicos
-                SET disponible = FALSE
-                WHERE disponible = TRUE
-                  AND ultimo_ping IS NOT NULL
-                  AND ultimo_ping < NOW() - INTERVAL '60 seconds'
-                  AND id NOT IN (
-                      SELECT medico_id
-                      FROM consultas
-                      WHERE estado IN (
-                          'pendiente',
-                          'aceptada',
-                          'en_camino',
-                          'en_domicilio'
-                      )
-                  );
-            """)
-
-            afectados = cur.rowcount
-            conn.commit()
-            cur.close()
-            conn.close()
-
-            if afectados > 0:
-                print(f"🧹 {afectados} médicos marcados como NO disponibles por inactividad REAL.")
-
-        except Exception as e:
-            print(f"⚠️ Error en limpieza automática: {e}")
-
-        await asyncio.sleep(60)
 
 
 # ====================================================
