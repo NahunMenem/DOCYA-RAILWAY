@@ -2096,17 +2096,6 @@ def iniciar_consulta(consulta_id: int, db=Depends(get_db)):
         )
         new_estado, inicio = cur.fetchone()
 
-        # 🔥 marcar al médico como ocupado
-        if medico_id:
-            cur.execute(
-                """
-                UPDATE medicos
-                SET disponible = FALSE
-                WHERE id = %s
-                """,
-                (medico_id,)
-            )
-
         db.commit()
     else:
         new_estado, inicio = estado, None
