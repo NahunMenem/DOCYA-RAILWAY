@@ -1193,7 +1193,7 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
 
 
 # Motor inteligente de asignación CEREBRO
-async def intentar_reasignar(consulta_id, db):
+async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
     cur = db.cursor()
 
     # Obtener datos de la consulta
@@ -1208,14 +1208,6 @@ async def intentar_reasignar(consulta_id, db):
         return False
 
     lat, lng, tipo = row
-
-    # Médicos ya intentados para evitar repetir
-    cur.execute("""
-        SELECT medico_id
-        FROM intentos_asignacion
-        WHERE consulta_id = %s
-    """, (consulta_id,))
-    intentados = [r[0] for r in cur.fetchall()]
 
     # Buscar siguiente médico
     cur.execute("""
@@ -1237,9 +1229,11 @@ async def intentar_reasignar(consulta_id, db):
     medicos = cur.fetchall()
 
     for medico_id, mlat, mlng, dist in medicos:
-
-        if medico_id in intentados:
+    
+        # 🔴 excluir SOLO el que rechazó
+        if excluir_medico_id and medico_id == excluir_medico_id:
             continue
+
 
         # 🔥 ASIGNAR MÉDICO + SETEAR RELOJ BACKEND
         cur.execute("""
@@ -2251,7 +2245,12 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     db.commit()
 
     # 5️⃣ Reasignar
-    reasignado = await intentar_reasignar(consulta_id, db)
+    reasignado = await intentar_reasignar(
+        consulta_id,
+        db,
+        excluir_medico_id=medico_id
+    )
+    
 
     return {
         "ok": True,
@@ -2317,7 +2316,11 @@ async def timeout_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     db.commit()
 
     # Reasignar
-    reasignado = await intentar_reasignar(consulta_id, db)
+    reasignado = await intentar_reasignar(
+        consulta_id,
+        db,
+        excluir_medico_id=medico_id
+    )
 
     return {
         "ok": True,
