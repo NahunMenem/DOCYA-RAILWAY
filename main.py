@@ -1229,7 +1229,6 @@ async def intentar_reasignar(consulta_id, db):
         WHERE disponible = TRUE
           AND activo = TRUE
           AND tipo = %s
-          AND NOW() - ultimo_ping < INTERVAL '90 seconds'
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
         ORDER BY distancia ASC
@@ -1439,7 +1438,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
               AND tipo = %s
               AND latitud IS NOT NULL
               AND longitud IS NOT NULL
-              AND NOW() - ultimo_ping < INTERVAL '90 seconds'
               AND (
                 (6371 * acos(
                     cos(radians(%s)) * cos(radians(latitud)) *
@@ -1705,7 +1703,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
-          AND NOW() - ultimo_ping < INTERVAL '90 seconds'
         ORDER BY distancia ASC
         LIMIT 1;
     """, (data.lat, data.lng, data.lat, data.tipo))
@@ -4020,7 +4017,6 @@ async def hay_profesional(
           AND activo = TRUE
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
-          AND NOW() - ultimo_ping < INTERVAL '90 seconds'
     """, (tipo,))
 
     count = cur.fetchone()[0]
@@ -4102,7 +4098,6 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
         FROM medicos
         WHERE disponible = TRUE
         AND tipo = %s
-        AND NOW() - ultimo_ping < INTERVAL '90 seconds'
         ORDER BY distancia ASC
         LIMIT 1
     """, (lat, lng, lat, tipo))
