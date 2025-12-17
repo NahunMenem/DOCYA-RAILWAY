@@ -2233,6 +2233,10 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     """, (consulta_id,))
 
     db.commit()
+    
+    # esperar 1 segundo antes de reasignar
+    await asyncio.sleep(1)
+
 
     reasignado = await intentar_reasignar(
         consulta_id,
