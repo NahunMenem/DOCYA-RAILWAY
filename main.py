@@ -2201,7 +2201,6 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
 
     print(f"❌ Rechazo médico {medico_id} consulta {consulta_id}")
 
-    # 1️⃣ Traer estado actual de la consulta
     cur.execute("""
         SELECT estado, medico_id, expira_en
         FROM consultas
@@ -2210,58 +2209,42 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     row = cur.fetchone()
 
     if not row:
-        raise HTTPException(
-            status_code=404,
-            detail="CONSULTA_INEXISTENTE"
-        )
+        raise HTTPException(404, "CONSULTA_INEXISTENTE")
 
     estado_actual, medico_asignado, expira_en = row
 
-    # ❌ Consulta ya no disponible para este médico
     if estado_actual != "pendiente" or medico_asignado != medico_id:
-        raise HTTPException(
-            status_code=400,
-            detail="CONSULTA_EXPIRADA"
-        )
+        raise HTTPException(400, "CONSULTA_EXPIRADA")
 
-    # ❌ Ya expiró → backend ya actuó
     if expira_en and expira_en < datetime.utcnow():
-        raise HTTPException(
-            status_code=400,
-            detail="CONSULTA_EXPIRADA"
-        )
+        raise HTTPException(400, "CONSULTA_EXPIRADA")
 
-    # 2️⃣ Registrar intento
     cur.execute("""
         INSERT INTO intentos_asignacion (consulta_id, medico_id)
         VALUES (%s, %s)
     """, (consulta_id, medico_id))
 
-    # 3️⃣ Limpiar asignación + reloj
     cur.execute("""
         UPDATE consultas
         SET medico_id = NULL,
+            estado = 'pendiente',
             asignada_en = NULL,
             expira_en = NULL
         WHERE id = %s
     """, (consulta_id,))
 
-
     db.commit()
 
-    # 5️⃣ Reasignar
     reasignado = await intentar_reasignar(
         consulta_id,
         db,
         excluir_medico_id=medico_id
     )
-    
 
     return {
         "ok": True,
         "reasignado": reasignado
     }
-
 
 
 
