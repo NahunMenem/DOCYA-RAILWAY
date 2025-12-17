@@ -202,10 +202,7 @@ async def obtener_estado_general():
 # ====================================================
 # 🚀 LANZAR LIMPIADOR AUTOMÁTICO AL INICIAR
 # ====================================================
-@router.on_event("startup")
-async def iniciar_limpieza_automatica():
-    asyncio.create_task(limpiar_medicos_inactivos())
-    print("🧭 Limpieza automática de médicos inactivos iniciada cada 60 s.")
+
 
 
 
