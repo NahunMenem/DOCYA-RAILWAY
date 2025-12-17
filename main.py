@@ -1400,16 +1400,14 @@ import psycopg2
 import os
 
 def get_db_direct():
-    conn = psycopg2.connect(
-        host=os.getenv("DB_HOST"),
-        database=os.getenv("DB_NAME"),
-        user=os.getenv("DB_USER"),
-        password=os.getenv("DB_PASSWORD"),
-        port=os.getenv("DB_PORT", 5432),
-        connect_timeout=5
-    )
+    dsn = os.getenv("DATABASE_URL")
+    if not dsn:
+        raise RuntimeError("❌ DATABASE_URL no está definida")
+
+    conn = psycopg2.connect(dsn, connect_timeout=5)
     conn.autocommit = False
     return conn
+
 
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
