@@ -1209,7 +1209,7 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
 
     lat, lng, tipo = row
 
-    # Buscar siguiente médico
+    # Buscar siguiente médico REALMENTE activo
     cur.execute("""
         SELECT id, latitud, longitud,
         (6371 * acos(
@@ -1219,6 +1219,7 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
         )) AS distancia
         FROM medicos
         WHERE disponible = TRUE
+          AND ultimo_ping > NOW() - INTERVAL '120 seconds'
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
@@ -1228,13 +1229,12 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
     medicos = cur.fetchall()
 
     for medico_id, mlat, mlng, dist in medicos:
-    
-        # 🔴 excluir SOLO el que rechazó
+
+        # Excluir solo el que rechazó
         if excluir_medico_id and medico_id == excluir_medico_id:
             continue
 
-
-        # 🔥 ASIGNAR MÉDICO + SETEAR RELOJ BACKEND
+        # Asignar médico + reloj backend
         cur.execute("""
             UPDATE consultas
             SET medico_id = %s,
@@ -1245,7 +1245,6 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
         """, (medico_id, consulta_id))
 
         if cur.rowcount == 0:
-            # la consulta fue tocada por otro proceso
             continue
 
         db.commit()
@@ -1259,13 +1258,10 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
 
         print(f"🔁 Reintentando con médico {medico_id}")
 
-        # -------------------------------------------------
-        # WS → notificación en tiempo real (si existe)
-        # -------------------------------------------------
+        # WS (si existe)
         if medico_id in active_medicos:
             try:
-                pro = active_medicos[medico_id]
-                await pro["ws"].send_json({
+                await active_medicos[medico_id]["ws"].send_json({
                     "tipo": "consulta_nueva",
                     "consulta_id": consulta_id
                 })
@@ -1273,16 +1269,10 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
             except Exception as e:
                 print("⚠️ Error WS reasignación:", e)
 
-        # -------------------------------------------------
-        # 🔔 PUSH FALLBACK (CRÍTICO PARA iOS BACKGROUND)
-        # -------------------------------------------------
+        # PUSH fallback (CRÍTICO iOS)
         try:
-            cur.execute(
-                "SELECT fcm_token FROM medicos WHERE id=%s",
-                (medico_id,)
-            )
+            cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
             row = cur.fetchone()
-
             if row and row[0]:
                 enviar_push(
                     row[0],
@@ -1299,11 +1289,10 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
         except Exception as e:
             print("❌ Error push reasignación:", e)
 
-        return True  # ✅ reasignada correctamente
+        return True
 
-    # No quedan médicos disponibles
+    # Nadie disponible
     print("❌ No quedan médicos para reasignar → consulta queda pendiente sin médico")
-
     cur.execute("""
         UPDATE consultas
         SET medico_id = NULL,
@@ -1311,7 +1300,6 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
             expira_en = NULL
         WHERE id = %s
     """, (consulta_id,))
-
     db.commit()
     return False
 
