@@ -1363,7 +1363,12 @@ async def procesar_timeouts(db):
         db.commit()
 
         # 4️⃣ Reasignar usando tu motor existente
-        await intentar_reasignar(consulta_id, db)
+        await intentar_reasignar(
+            consulta_id,
+            db,
+            excluir_medico_id=medico_id
+        )
+                
 
 
 
