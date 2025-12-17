@@ -1606,42 +1606,85 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         # ---------------------------------------------------------
         async def watchdog_tarjeta():
             await asyncio.sleep(3)
-
+        
+            # Si el médico ya está conectado por WS → OK
             if profesional_id in active_medicos:
                 print("🟢 Watchdog OK → WS activo")
                 return
-
+        
             print("🟡 Watchdog: No WS en 3s → enviar PUSH fallback")
-
-            cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (profesional_id,))
-            row = cur.fetchone()
-
-            if row and row[0]:
-                try:
-                    enviar_push(
-                        row[0],
-                        "📢 Nueva consulta",
-                        data.motivo,
-                        {
-                            "tipo": "consulta_nueva",
-                            "consulta_id": str(consulta_id_previa),
-                            "medico_id": str(profesional_id),
-                            "fallback": True
-                        }
+        
+            # 🔐 CONEXIÓN AISLADA DEL REQUEST
+            db_wd = get_db_direct()
+            cur_wd = None
+        
+            try:
+                cur_wd = db_wd.cursor()
+        
+                # PUSH fallback
+                cur_wd.execute(
+                    "SELECT fcm_token FROM medicos WHERE id=%s",
+                    (profesional_id,)
+                )
+                row = cur_wd.fetchone()
+        
+                if row and row[0]:
+                    try:
+                        enviar_push(
+                            row[0],
+                            "📢 Nueva consulta",
+                            data.motivo,
+                            {
+                                "tipo": "consulta_nueva",
+                                "consulta_id": str(consulta_id_previa),
+                                "medico_id": str(profesional_id),
+                                "fallback": True
+                            }
+                        )
+                        print("📤 PUSH fallback enviado")
+                    except:
+                        print("❌ Error push fallback")
+        
+                # ⏱ Segunda ventana
+                await asyncio.sleep(10)
+        
+                # Verificar estado real de la consulta
+                cur_wd.execute(
+                    "SELECT estado FROM consultas WHERE id=%s",
+                    (consulta_id_previa,)
+                )
+                estado_row = cur_wd.fetchone()
+        
+                # SOLO desactivar si sigue pendiente
+                if estado_row and estado_row[0] == "pendiente":
+                    print("🔴 Watchdog: Médico sigue sin WS → ghost")
+                    cur_wd.execute(
+                        "UPDATE medicos SET activo = FALSE WHERE id=%s",
+                        (profesional_id,)
                     )
-                    print("📤 PUSH fallback enviado")
-                except:
-                    print("❌ Error push fallback")
+                    db_wd.commit()
+                else:
+                    print("🟢 Watchdog: Médico respondió → NO desactivar")
+        
+            except Exception as e:
+                print("❌ Error watchdog_tarjeta:", e)
+        
+            finally:
+                if cur_wd:
+                    cur_wd.close()
+                db_wd.close()
 
-            await asyncio.sleep(10)
-
-            if profesional_id not in active_medicos:
-                print("🔴 Watchdog: Médico sigue sin WS → ghost")
-                cur.execute("UPDATE medicos SET activo = FALSE WHERE id=%s", (profesional_id,))
-                db.commit()
-
+        
+        
+        # ---------------------------------------------------------
+        # LANZAR WATCHDOG TARJETA (NO BLOQUEANTE)
+        # ---------------------------------------------------------
         asyncio.create_task(watchdog_tarjeta())
-
+        
+        
+        # ---------------------------------------------------------
+        # RETURN FINAL DEL ENDPOINT (NO TOCAR)
+        # ---------------------------------------------------------
         return {
             "consulta_id": consulta_id_previa,
             "profesional": {
@@ -1793,7 +1836,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         except:
             print("❌ Error enviando push")
 
-    # WATCHDOG EFECTIVO (fallback)
     # ---------------------------------------------------------
     # WATCHDOG EFECTIVO (fallback) — FIX DEFINITIVO
     # ---------------------------------------------------------
@@ -1809,10 +1851,12 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     
         # 🔐 NUEVA CONEXIÓN (aislada del request)
         db_wd = get_db_direct()
-        cur_wd = db_wd.cursor()
-
+        cur_wd = None
     
         try:
+            cur_wd = db_wd.cursor()
+    
+            # PUSH fallback
             cur_wd.execute(
                 "SELECT fcm_token FROM medicos WHERE id=%s",
                 (profesional_id,)
@@ -1835,13 +1879,14 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     
             # ⏱ Segunda ventana
             await asyncio.sleep(10)
+    
             # Verificar estado real de la consulta
             cur_wd.execute(
                 "SELECT estado FROM consultas WHERE id=%s",
                 (consulta_id,)
             )
             estado_row = cur_wd.fetchone()
-            
+    
             # SOLO apagar si la consulta sigue pendiente
             if estado_row and estado_row[0] == "pendiente":
                 print("🔴 Watchdog: Consulta sin respuesta → desactivar médico")
@@ -1852,15 +1897,16 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 db_wd.commit()
             else:
                 print("🟢 Watchdog: Médico respondió → NO desactivar")
-
     
         except Exception as e:
             print("❌ Error watchdog_efectivo:", e)
     
         finally:
-            cur_wd.close()
+            if cur_wd:
+                cur_wd.close()
             db_wd.close()
     
+        
     
     # ---------------------------------------------------------
     # LANZAR WATCHDOG (NO BLOQUEANTE)
