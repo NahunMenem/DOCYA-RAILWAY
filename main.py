@@ -1266,7 +1266,9 @@ async def intentar_reasignar(consulta_id, db):
 
         print(f"🔁 Reintentando con médico {medico_id}")
 
-        # WS → notificación al médico
+        # -------------------------------------------------
+        # WS → notificación en tiempo real (si existe)
+        # -------------------------------------------------
         if medico_id in active_medicos:
             try:
                 pro = active_medicos[medico_id]
@@ -1274,8 +1276,35 @@ async def intentar_reasignar(consulta_id, db):
                     "tipo": "consulta_nueva",
                     "consulta_id": consulta_id
                 })
+                print("📤 WS reasignación enviado")
             except Exception as e:
                 print("⚠️ Error WS reasignación:", e)
+
+        # -------------------------------------------------
+        # 🔔 PUSH FALLBACK (CRÍTICO PARA iOS BACKGROUND)
+        # -------------------------------------------------
+        try:
+            cur.execute(
+                "SELECT fcm_token FROM medicos WHERE id=%s",
+                (medico_id,)
+            )
+            row = cur.fetchone()
+
+            if row and row[0]:
+                enviar_push(
+                    row[0],
+                    "📢 Nueva consulta disponible",
+                    "Tenés una consulta reasignada",
+                    {
+                        "tipo": "consulta_nueva",
+                        "consulta_id": str(consulta_id),
+                        "medico_id": str(medico_id),
+                        "origen": "reasignacion"
+                    }
+                )
+                print("📤 PUSH reasignación enviado")
+        except Exception as e:
+            print("❌ Error push reasignación:", e)
 
         return True  # ✅ reasignada correctamente
 
