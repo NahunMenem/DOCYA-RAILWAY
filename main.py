@@ -2229,22 +2229,6 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
         WHERE id = %s
     """, (consulta_id,))
 
-    # 4️⃣ Ghost Mode
-    if medico_id not in active_medicos:
-        # perdió WS → penalizar
-        cur.execute("""
-            UPDATE medicos
-            SET disponible = FALSE,
-                activo = FALSE
-            WHERE id = %s
-        """, (medico_id,))
-    else:
-        # sigue online → queda disponible
-        cur.execute("""
-            UPDATE medicos
-            SET disponible = TRUE
-            WHERE id = %s
-        """, (medico_id,))
 
     db.commit()
 
@@ -3216,15 +3200,6 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
 
         medico_id = row_med[0]
 
-        # --------------------------------------------------
-        # 🔒 SI NO HAY WS ACTIVO → IGNORAR UBICACIÓN
-        # --------------------------------------------------
-        if medico_id not in active_medicos:
-            print(f"🚫 Ubicación ignorada consulta {consulta_id} (médico {medico_id} sin WS)")
-            return {
-                "status": "ignorado",
-                "reason": "medico_sin_ws"
-            }
 
         # -----------------------------------------
         # 1) ACTUALIZAR UBICACIÓN EN TABLA MEDICOS
