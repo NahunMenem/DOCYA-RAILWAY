@@ -1219,7 +1219,6 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
         )) AS distancia
         FROM medicos
         WHERE disponible = TRUE
-          AND ultimo_ping > NOW() - INTERVAL '120 seconds'
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
