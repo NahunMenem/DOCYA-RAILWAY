@@ -3460,10 +3460,15 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                 cur = conn.cursor()
                 cur.execute("""
                     UPDATE medicos
-                    SET activo = FALSE,
-                        disponible = FALSE
-                    WHERE id=%s
+                    SET activo = FALSE
+                    WHERE id = %s
+                      AND id NOT IN (
+                          SELECT medico_id
+                          FROM consultas
+                          WHERE estado IN ('aceptada', 'en_domicilio')
+                      )
                 """, (medico_id,))
+
                 conn.commit()
             except Exception as e2:
                 print(f"⚠️ Error marcando offline médico {medico_id}: {e2}")
