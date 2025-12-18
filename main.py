@@ -1246,6 +1246,7 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
                 asignada_en = NOW(),
                 expira_en = NOW() + INTERVAL '20 seconds'
             WHERE id = %s
+
               AND medico_id IS NULL
         """, (medico_id, consulta_id))
 
