@@ -1243,10 +1243,10 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
             WHERE id = %s
               AND medico_id IS NULL
         """, (medico_id, consulta_id))
-
-
         if cur.rowcount == 0:
+            print(f"⚠️ No se pudo asignar médico {medico_id} (consulta no elegible)")
             continue
+
 
         db.commit()
 
