@@ -5917,13 +5917,33 @@ def subir_firma_digital(medico_id: int, file: UploadFile = File(...), db=Depends
         print(f"⚠️ Error al subir firma del médico {medico_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Error al subir la firma: {str(e)}")
 
+from uuid import UUID
+from fastapi import HTTPException
+
 @app.get("/pacientes/{paciente_uuid}/archivos")
 def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     """
     Devuelve todas las recetas y certificados del paciente
     en formato compatible con el frontend Flutter.
     """
+
+    # 🛑 VALIDACIÓN DEFENSIVA (OBLIGATORIA)
+    if not paciente_uuid or paciente_uuid in ("null", "undefined"):
+        raise HTTPException(
+            status_code=400,
+            detail="paciente_uuid inválido"
+        )
+
+    try:
+        UUID(paciente_uuid)  # valida formato UUID real
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="paciente_uuid inválido"
+        )
+
     cur = db.cursor()
+
 
     # 🧾 Recetas
     cur.execute("""
