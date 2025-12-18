@@ -108,7 +108,7 @@ def medicos_conectados(db=Depends(get_db)):
             SELECT id, full_name, especialidad, latitud, longitud, ultimo_ping
             FROM medicos
             WHERE disponible = TRUE
-            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '30 seconds');
+            AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '2 minutes');
         """)
         data = cur.fetchall()
         cur.close()
@@ -175,7 +175,7 @@ async def obtener_estado_general():
         SELECT COUNT(*)
         FROM medicos
         WHERE disponible = TRUE
-        AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '30 seconds');
+        AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '2 minutes');
     """)
     medicos_conectados = cur.fetchone()[0]
 
