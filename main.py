@@ -1813,16 +1813,27 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
     # ✔ Hay profesional
     profesional_id, profesional_nombre, profesional_lat, profesional_lng, tipo, distancia = row
-
+    
     cur.execute("""
         INSERT INTO consultas (
-            paciente_uuid, medico_id, estado, motivo,
-            direccion, lat, lng, metodo_pago,
-            asignada_en, expira_en
+            paciente_uuid,
+            medico_id,
+            estado,
+            motivo,
+            direccion,
+            lat,
+            lng,
+            metodo_pago,
+            tipo,
+            asignada_en,
+            expira_en
         )
-        VALUES (%s,%s,'pendiente',%s,%s,%s,%s,%s,
-                NOW(), NOW() + INTERVAL '20 seconds')
-
+        VALUES (
+            %s, %s, 'pendiente',
+            %s, %s, %s, %s, %s,
+            %s,
+            NOW(), NOW() + INTERVAL '20 seconds'
+        )
         RETURNING id, creado_en
     """, (
         str(data.paciente_uuid),
@@ -1831,11 +1842,13 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         data.direccion,
         data.lat,
         data.lng,
-        data.metodo_pago
+        data.metodo_pago,
+        data.tipo        # 🔑 ACÁ ESTÁ EL FIX
     ))
-
+    
     consulta_id, creado_en = cur.fetchone()
     db.commit()
+
 
     print(f"🟢 Consulta {consulta_id} asignada a {profesional_id}")
 
