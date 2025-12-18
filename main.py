@@ -2203,6 +2203,9 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
 
     print(f"❌ Rechazo médico {medico_id} consulta {consulta_id}")
 
+    # ----------------------------------------
+    # Validar estado actual
+    # ----------------------------------------
     cur.execute("""
         SELECT estado, medico_id, expira_en
         FROM consultas
@@ -2221,20 +2224,26 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     if expira_en and expira_en < datetime.utcnow():
         raise HTTPException(400, "CONSULTA_EXPIRADA")
 
+    # ----------------------------------------
     # 1️⃣ Registrar rechazo
+    # ----------------------------------------
     cur.execute("""
         INSERT INTO intentos_asignacion (consulta_id, medico_id)
         VALUES (%s, %s)
     """, (consulta_id, medico_id))
 
-    # 2️⃣ LIBERAR MÉDICO QUE RECHAZA (🔥 CLAVE)
+    # ----------------------------------------
+    # 2️⃣ Liberar médico que rechaza
+    # ----------------------------------------
     cur.execute("""
         UPDATE medicos
         SET disponible = TRUE
         WHERE id = %s
     """, (medico_id,))
 
-    # 3️⃣ Resetear consulta (rebobinar)
+    # ----------------------------------------
+    # 3️⃣ Resetear consulta (queda reasignable)
+    # ----------------------------------------
     cur.execute("""
         UPDATE consultas
         SET medico_id = NULL,
@@ -2246,28 +2255,43 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
 
     db.commit()
 
-    # 4️⃣ Espera mínima (evita race con watchdog / WS)
+    # ----------------------------------------
+    # 4️⃣ Espera mínima anti-race
+    # ----------------------------------------
     await asyncio.sleep(1)
 
-    # 5️⃣ Primer intento de reasignación
-    reasignado = await intentar_reasignar(
-        consulta_id,
-        db,
-        excluir_medico_id=medico_id
-    )
+    # ====================================================
+    # 5️⃣ REASIGNACIÓN — DB AISLADA (FIX CLAVE)
+    # ====================================================
+    db_reasig = get_db_direct()
+    try:
+        reasignado = await intentar_reasignar(
+            consulta_id,
+            db_reasig,
+            excluir_medico_id=medico_id
+        )
+    finally:
+        db_reasig.close()
 
-    # 6️⃣ Retry diferido (muy importante)
+    # ----------------------------------------
+    # 6️⃣ Retry diferido (segundo intento)
+    # ----------------------------------------
     if not reasignado:
         print("⏳ Reintento diferido en 3s")
         await asyncio.sleep(3)
 
-        await intentar_reasignar(
-            consulta_id,
-            db,
-            excluir_medico_id=medico_id
-        )
+        db_retry = get_db_direct()
+        try:
+            await intentar_reasignar(
+                consulta_id,
+                db_retry,
+                excluir_medico_id=medico_id
+            )
+        finally:
+            db_retry.close()
 
     return {"ok": True}
+
 
 
 
