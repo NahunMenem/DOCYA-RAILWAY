@@ -1192,127 +1192,169 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
 
 
 
-# Motor inteligente de asignación CEREBRO
 # ====================================================
 # 🧠 MOTOR INTELIGENTE DE REASIGNACIÓN – CEREBRO
 # ====================================================
-async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
+
+async def intentar_reasignar(
+    consulta_id,
+    db,
+    excluir_medico_id=None,
+    max_ciclos=20,
+    espera_segundos=3
+):
     cur = db.cursor()
+    ciclo = 0
 
-    # 1️⃣ Obtener datos base de la consulta
-    cur.execute("""
-        SELECT lat, lng, tipo
-        FROM consultas
-        WHERE id = %s
-    """, (consulta_id,))
-    row = cur.fetchone()
+    while ciclo < max_ciclos:
+        ciclo += 1
+        print(f"🧠 Ciclo de reasignación #{ciclo} | Consulta {consulta_id}")
 
-    if not row:
-        print("❌ Consulta no encontrada para reasignar")
-        return False
-
-    lat, lng, tipo = row
-
-    # 2️⃣ Buscar médicos candidatos (por cercanía)
-    cur.execute("""
-        SELECT id, latitud, longitud,
-        (6371 * acos(
-            cos(radians(%s)) * cos(radians(latitud)) *
-            cos(radians(longitud) - radians(%s)) +
-            sin(radians(%s)) * sin(radians(latitud))
-        )) AS distancia
-        FROM medicos
-        WHERE disponible = TRUE
-          AND tipo = %s
-          AND latitud IS NOT NULL
-          AND longitud IS NOT NULL
-        ORDER BY distancia ASC
-    """, (lat, lng, lat, tipo))
-
-    medicos = cur.fetchall()
-
-    # 3️⃣ Intentar reasignar uno por uno
-    for medico_id, mlat, mlng, dist in medicos:
-
-        if excluir_medico_id and medico_id == excluir_medico_id:
-            continue
-
-        # 🔑 ASIGNACIÓN ATÓMICA (clave)
+        # ------------------------------------------------
+        # 1️⃣ Verificar estado actual de la consulta
+        # ------------------------------------------------
         cur.execute("""
-            UPDATE consultas
-            SET medico_id = %s,
-                estado = 'pendiente',
-                asignada_en = NOW(),
-                expira_en = NOW() + INTERVAL '20 seconds'
+            SELECT lat, lng, tipo, medico_id
+            FROM consultas
             WHERE id = %s
+        """, (consulta_id,))
+        row = cur.fetchone()
 
-              AND medico_id IS NULL
-        """, (medico_id, consulta_id))
+        if not row:
+            print("❌ Consulta no existe")
+            return False
 
-        if cur.rowcount == 0:
-            print(f"⚠️ No se pudo asignar médico {medico_id} (consulta no elegible)")
+        lat, lng, tipo, medico_actual = row
+
+        if medico_actual is not None:
+            print(f"✅ Consulta {consulta_id} ya asignada al médico {medico_actual}")
+            return True
+
+        # ------------------------------------------------
+        # 2️⃣ Buscar médicos disponibles (SIN excluir históricos)
+        # ------------------------------------------------
+        cur.execute("""
+            SELECT
+                id,
+                latitud,
+                longitud,
+                (6371 * acos(
+                    cos(radians(%s)) *
+                    cos(radians(latitud)) *
+                    cos(radians(longitud) - radians(%s)) +
+                    sin(radians(%s)) *
+                    sin(radians(latitud))
+                )) AS distancia
+            FROM medicos
+            WHERE
+                disponible = TRUE
+                AND tipo = %s
+                AND latitud IS NOT NULL
+                AND longitud IS NOT NULL
+        """, (lat, lng, lat, tipo))
+
+        medicos = cur.fetchall()
+
+        if not medicos:
+            print("❌ No hay médicos disponibles en este ciclo")
+            await asyncio.sleep(espera_segundos)
             continue
 
-        db.commit()
-
-        # 4️⃣ Registrar intento
-        cur.execute("""
-            INSERT INTO intentos_asignacion (consulta_id, medico_id)
-            VALUES (%s, %s)
-        """, (consulta_id, medico_id))
-        db.commit()
-
-        print(f"🔁 Consulta {consulta_id} reasignada a médico {medico_id}")
+        # ------------------------------------------------
+        # 3️⃣ Ordenar por cercanía
+        # ------------------------------------------------
+        medicos = sorted(medicos, key=lambda x: x[3])
 
         # ------------------------------------------------
-        # 5️⃣ WS REAL TIME (si existe)
+        # 4️⃣ Intentar asignar uno por uno
         # ------------------------------------------------
-        if medico_id in active_medicos:
+        for medico_id, mlat, mlng, dist in medicos:
+
+            if excluir_medico_id and medico_id == excluir_medico_id:
+                continue
+
+            print(f"🔑 Intentando médico {medico_id} ({dist:.2f} km)")
+
+            cur.execute("""
+                UPDATE consultas
+                SET
+                    medico_id = %s,
+                    estado = 'pendiente',
+                    asignada_en = NOW(),
+                    expira_en = NOW() + INTERVAL '20 seconds'
+                WHERE
+                    id = %s
+                    AND medico_id IS NULL
+            """, (medico_id, consulta_id))
+
+            if cur.rowcount == 0:
+                db.rollback()
+                continue
+
+            db.commit()
+
+            # ------------------------------------------------
+            # 5️⃣ Registrar intento
+            # ------------------------------------------------
+            cur.execute("""
+                INSERT INTO intentos_asignacion (consulta_id, medico_id)
+                VALUES (%s, %s)
+            """, (consulta_id, medico_id))
+            db.commit()
+
+            print(f"🔁 Consulta {consulta_id} asignada a médico {medico_id}")
+
+            # ------------------------------------------------
+            # 6️⃣ WebSocket
+            # ------------------------------------------------
+            if medico_id in active_medicos:
+                try:
+                    await active_medicos[medico_id]["ws"].send_json({
+                        "tipo": "consulta_nueva",
+                        "consulta_id": consulta_id
+                    })
+                    print("📤 WS enviado")
+                except Exception as e:
+                    print("⚠️ WS error:", e)
+
+            # ------------------------------------------------
+            # 7️⃣ Push fallback
+            # ------------------------------------------------
             try:
-                await active_medicos[medico_id]["ws"].send_json({
-                    "tipo": "consulta_nueva",
-                    "consulta_id": consulta_id
-                })
-                print("📤 WS reasignación enviado")
-            except Exception as e:
-                print("⚠️ Error WS reasignación:", e)
-
-        # ------------------------------------------------
-        # 6️⃣ PUSH FALLBACK (iOS / background)
-        # ------------------------------------------------
-        try:
-            cur.execute("SELECT fcm_token FROM medicos WHERE id=%s", (medico_id,))
-            token_row = cur.fetchone()
-
-            if token_row and token_row[0]:
-                enviar_push(
-                    token_row[0],
-                    "📢 Nueva consulta disponible",
-                    "Tenés una consulta reasignada",
-                    {
-                        "tipo": "consulta_nueva",  # 👈 NO se toca (frontend intacto)
-                        "consulta_id": str(consulta_id),
-                        "medico_id": str(medico_id),
-                        "origen": "reasignacion"
-                    }
+                cur.execute(
+                    "SELECT fcm_token FROM medicos WHERE id=%s",
+                    (medico_id,)
                 )
-                print("📤 PUSH reasignación enviado")
-        except Exception as e:
-            print("❌ Error push reasignación:", e)
+                token_row = cur.fetchone()
 
-        return True
+                if token_row and token_row[0]:
+                    enviar_push(
+                        token_row[0],
+                        "📢 Nueva consulta disponible",
+                        "Tenés una consulta asignada",
+                        {
+                            "tipo": "consulta_nueva",
+                            "consulta_id": str(consulta_id),
+                            "medico_id": str(medico_id),
+                            "origen": "reasignacion"
+                        }
+                    )
+                    print("📤 PUSH enviado")
+            except Exception as e:
+                print("❌ Error push:", e)
 
-    # 7️⃣ Nadie disponible
-    print("❌ No quedan médicos para reasignar → consulta queda pendiente sin médico")
-    cur.execute("""
-        UPDATE consultas
-        SET medico_id = NULL,
-            asignada_en = NULL,
-            expira_en = NULL
-        WHERE id = %s
-    """, (consulta_id,))
-    db.commit()
+            return True
 
+        # ------------------------------------------------
+        # 8️⃣ Esperar y volver a intentar
+        # ------------------------------------------------
+        print(f"⏳ Esperando {espera_segundos}s antes del próximo ciclo")
+        await asyncio.sleep(espera_segundos)
+
+    # ------------------------------------------------
+    # 9️⃣ Agotado
+    # ------------------------------------------------
+    print("🔴 No se logró asignar médico tras múltiples ciclos")
     return False
 
 
