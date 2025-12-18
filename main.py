@@ -2226,17 +2226,23 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     # esperar 1 segundo antes de reasignar
     await asyncio.sleep(1)
 
-
+    
     reasignado = await intentar_reasignar(
         consulta_id,
         db,
         excluir_medico_id=medico_id
     )
+    
+    if not reasignado:
+        print("⏳ Reintento diferido en 3s")
+        await asyncio.sleep(3)
+    
+        await intentar_reasignar(
+            consulta_id,
+            db,
+            excluir_medico_id=medico_id
+        )
 
-    return {
-        "ok": True,
-        "reasignado": reasignado
-    }
 
 
 
