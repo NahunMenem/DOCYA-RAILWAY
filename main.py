@@ -2220,11 +2220,20 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     if expira_en and expira_en < datetime.utcnow():
         raise HTTPException(400, "CONSULTA_EXPIRADA")
 
+    # 1️⃣ Registrar rechazo
     cur.execute("""
         INSERT INTO intentos_asignacion (consulta_id, medico_id)
         VALUES (%s, %s)
     """, (consulta_id, medico_id))
 
+    # 2️⃣ LIBERAR MÉDICO QUE RECHAZA (🔥 CLAVE)
+    cur.execute("""
+        UPDATE medicos
+        SET disponible = TRUE
+        WHERE id = %s
+    """, (medico_id,))
+
+    # 3️⃣ Resetear consulta (rebobinar)
     cur.execute("""
         UPDATE consultas
         SET medico_id = NULL,
@@ -2235,26 +2244,29 @@ async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     """, (consulta_id,))
 
     db.commit()
-    
-    # esperar 1 segundo antes de reasignar
+
+    # 4️⃣ Espera mínima (evita race con watchdog / WS)
     await asyncio.sleep(1)
 
-    
+    # 5️⃣ Primer intento de reasignación
     reasignado = await intentar_reasignar(
         consulta_id,
         db,
         excluir_medico_id=medico_id
     )
-    
+
+    # 6️⃣ Retry diferido (muy importante)
     if not reasignado:
         print("⏳ Reintento diferido en 3s")
         await asyncio.sleep(3)
-    
+
         await intentar_reasignar(
             consulta_id,
             db,
             excluir_medico_id=medico_id
         )
+
+    return {"ok": True}
 
 
 
