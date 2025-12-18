@@ -1464,7 +1464,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             )) AS distancia
             FROM medicos
             WHERE disponible = TRUE
-              #AND activo = TRUE
+              AND activo = TRUE
               AND tipo = %s
               AND latitud IS NOT NULL
               AND longitud IS NOT NULL
@@ -1729,7 +1729,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         )) AS distancia
         FROM medicos
         WHERE disponible = TRUE
-          #AND activo = TRUE
+          AND activo = TRUE
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
