@@ -1278,15 +1278,15 @@ async def intentar_reasignar(consulta_id, db, excluir_medico_id=None):
                 enviar_push(
                     row[0],
                     "📢 Nueva consulta disponible",
-                    data.motivo,
+                    "Tenés una consulta reasignada",
                     {
                         "tipo": "consulta_nueva",
-                        "consulta_id": str(consulta_id_previa),
-                        "medico_id": str(profesional_id),
-                        "origen": "asignacion"
+                        "consulta_id": str(consulta_id),
+                        "medico_id": str(medico_id),
+                        "origen": "reasignacion"
                     }
                 )
-                print("📤 PUSH enviado (asignación directa)")
+                print("📤 PUSH reasignación enviado")
         except Exception as e:
             print("❌ Error push reasignación:", e)
 
