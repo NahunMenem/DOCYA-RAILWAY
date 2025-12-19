@@ -4266,6 +4266,7 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
 
     
 # ---------- CONSULTAS DETALLE ----------
+# ---------- CONSULTAS DETALLE ----------
 @app.get("/consultas/{consulta_id}")
 def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
@@ -4315,6 +4316,23 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         except:
             tiempo_estimado_min = 0
 
+    # -------------------------
+    # 📏 CALCULAR DISTANCIA (KM)
+    # -------------------------
+    distancia_km = 0
+
+    try:
+        if all(v is not None for v in [lat, lng, medico_lat, medico_lng]):
+            distancia_km = calcular_distancia_km(
+                float(medico_lat),
+                float(medico_lng),
+                float(lat),
+                float(lng),
+            )
+    except Exception as e:
+        print("❌ Error cálculo distancia:", e)
+        distancia_km = 0
+
     return {
         "id": cid,
         "paciente_uuid": paciente_uuid,
@@ -4328,10 +4346,12 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "medico_nombre": medico_nombre,
         "medico_matricula": medico_matricula,
         "tipo": tipo,
-        "tiempo_estimado_min": tiempo_estimado_min,  # ✔ SIEMPRE DEVUELVE ENTERO
-        "medico_lat": medico_lat,   # ✔ NUEVO
-        "medico_lng": medico_lng,   # ✔ NUEVO
+        "tiempo_estimado_min": tiempo_estimado_min,  # ✔ ENTERO
+        "distancia_km": round(distancia_km, 2),      # ✅ NUEVO (CLAVE)
+        "medico_lat": medico_lat,
+        "medico_lng": medico_lng,
     }
+
 
 
 
