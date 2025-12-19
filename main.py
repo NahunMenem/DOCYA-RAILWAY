@@ -2410,8 +2410,9 @@ async def timeout_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     reasignado = await intentar_reasignar(
         consulta_id,
         db,
-        excluir_medico_id=medico_id
+        excluir_medico_id=None  # ⬅️ CLAVE
     )
+
 
     return {
         "ok": True,
