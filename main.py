@@ -1382,20 +1382,17 @@ async def procesar_timeouts(db):
     for consulta_id, medico_id in vencidas:
         print(f"⏳ Timeout BACKEND consulta {consulta_id} médico {medico_id}")
 
-        # Registrar intento
         cur.execute("""
             INSERT INTO intentos_asignacion (consulta_id, medico_id)
             VALUES (%s, %s)
         """, (consulta_id, medico_id))
 
-        # Liberar médico
         cur.execute("""
             UPDATE medicos
             SET disponible = TRUE
             WHERE id = %s
         """, (medico_id,))
 
-        # Limpiar asignación
         cur.execute("""
             UPDATE consultas
             SET medico_id = NULL,
@@ -1406,12 +1403,12 @@ async def procesar_timeouts(db):
 
         db.commit()
 
-        # Reintentar reasignación
+        # 🔴 FIX REAL
         await intentar_reasignar(
             consulta_id,
-            db,
-            excluir_medico_id=medico_id
+            db
         )
+
 
 
 
