@@ -2291,101 +2291,98 @@ def aceptar_consulta(
 
 
 
+from fastapi import BackgroundTasks, HTTPException, Depends
+from datetime import datetime
+import asyncio
+
 @app.post("/consultas/{consulta_id}/rechazar")
-async def rechazar_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
+async def rechazar_consulta(
+    consulta_id: int, 
+    data: dict, 
+    background_tasks: BackgroundTasks, 
+    db=Depends(get_db)
+):
     cur = db.cursor()
     medico_id = int(data.get("medico_id"))
 
     print(f"❌ Rechazo médico {medico_id} consulta {consulta_id}")
 
-    # ----------------------------------------
-    # Validar estado actual
-    # ----------------------------------------
-    cur.execute("""
-        SELECT estado, medico_id, expira_en
-        FROM consultas
-        WHERE id = %s
-    """, (consulta_id,))
-    row = cur.fetchone()
-
-    if not row:
-        raise HTTPException(404, "CONSULTA_INEXISTENTE")
-
-    estado_actual, medico_asignado, expira_en = row
-
-    if estado_actual != "pendiente" or medico_asignado != medico_id:
-        raise HTTPException(400, "CONSULTA_EXPIRADA")
-
-    if expira_en and expira_en < datetime.utcnow():
-        raise HTTPException(400, "CONSULTA_EXPIRADA")
-
-    # ----------------------------------------
-    # 1️⃣ Registrar rechazo
-    # ----------------------------------------
-    cur.execute("""
-        INSERT INTO intentos_asignacion (consulta_id, medico_id)
-        VALUES (%s, %s)
-    """, (consulta_id, medico_id))
-
-    # ----------------------------------------
-    # 2️⃣ Liberar médico que rechaza
-    # ----------------------------------------
-    cur.execute("""
-        UPDATE medicos
-        SET disponible = TRUE
-        WHERE id = %s
-    """, (medico_id,))
-
-    # ----------------------------------------
-    # 3️⃣ Resetear consulta (queda reasignable)
-    # ----------------------------------------
-    cur.execute("""
-        UPDATE consultas
-        SET medico_id = NULL,
-            estado = 'pendiente',
-            asignada_en = NULL,
-            expira_en = NULL
-        WHERE id = %s
-    """, (consulta_id,))
-
-    db.commit()
-
-    # ----------------------------------------
-    # 4️⃣ Espera mínima anti-race
-    # ----------------------------------------
-    await asyncio.sleep(1)
-
-    # ====================================================
-    # 5️⃣ REASIGNACIÓN — DB AISLADA (FIX CLAVE)
-    # ====================================================
-    db_reasig = get_db_direct()
     try:
-        reasignado = await intentar_reasignar(
-            consulta_id,
-            db_reasig,
-            excluir_medico_id=medico_id
-        )
+        # 1️⃣ Validar estado actual (con bloqueo de fila para evitar race conditions)
+        cur.execute("""
+            SELECT estado, medico_id, expira_en
+            FROM consultas
+            WHERE id = %s FOR UPDATE
+        """, (consulta_id,))
+        row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(404, "CONSULTA_INEXISTENTE")
+
+        estado_actual, medico_asignado, expira_en = row
+
+        # Si ya no es el médico asignado o ya no está pendiente, salimos rápido
+        if estado_actual != "pendiente" or medico_asignado != medico_id:
+            return {"ok": True, "detalle": "CONSULTA_YA_PROCESADA"}
+
+        # 2️⃣ Registrar rechazo en historial e intentos
+        cur.execute("""
+            INSERT INTO intentos_asignacion (consulta_id, medico_id)
+            VALUES (%s, %s)
+        """, (consulta_id, medico_id))
+
+        # 3️⃣ Liberar médico y limpiar consulta para que sea reasignable
+        cur.execute("UPDATE medicos SET disponible = TRUE WHERE id = %s", (medico_id,))
+        cur.execute("""
+            UPDATE consultas
+            SET medico_id = NULL,
+                estado = 'pendiente',
+                asignada_en = NULL,
+                expira_en = NULL
+            WHERE id = %s
+        """, (consulta_id,))
+
+        # 4️⃣ Commit de la limpieza
+        db.commit()
+        print(f"✅ Consulta {consulta_id} liberada por rechazo de médico {medico_id}")
+
+    except Exception as e:
+        db.rollback()
+        print(f"❌ Error al procesar rechazo: {e}")
+        raise HTTPException(500, "ERROR_INTERNO")
     finally:
-        db_reasig.close()
+        cur.close()
 
-    # ----------------------------------------
-    # 6️⃣ Retry diferido (segundo intento)
-    # ----------------------------------------
-    if not reasignado:
-        print("⏳ Reintento diferido en 3s")
-        await asyncio.sleep(3)
-
-        db_retry = get_db_direct()
-        try:
-            await intentar_reasignar(
-                consulta_id,
-                db_retry,
-                excluir_medico_id=medico_id
-            )
-        finally:
-            db_retry.close()
+    # 5️⃣ REASIGNACIÓN EN SEGUNDO PLANO
+    # Esto corre por fuera del request, evitando que el médico espere el loop de búsqueda
+    background_tasks.add_task(worker_reasignacion_tras_rechazo, consulta_id, medico_id)
 
     return {"ok": True}
+
+async def worker_reasignacion_tras_rechazo(consulta_id, medico_rechazante):
+    """
+    Worker que intenta reasignar la consulta sin bloquear el request del médico.
+    """
+    print(f"🔄 Iniciando reasignación automática para consulta {consulta_id}...")
+    
+    # Pequeña espera para asegurar que la DB impactó los cambios
+    await asyncio.sleep(1) 
+    
+    # Usamos get_db_worker para no tocar el pool principal de la API
+    db_reasig = get_db_worker() 
+    try:
+        # Intentamos reasignar excluyendo al que acaba de rechazar
+        await intentar_reasignar(
+            consulta_id,
+            db_reasig,
+            excluir_medico_id=medico_rechazante,
+            max_ciclos=10, # Intentamos 10 veces
+            espera_segundos=4
+        )
+    except Exception as e:
+        print(f"❌ Error en reasignación post-rechazo: {e}")
+    finally:
+        db_reasig.close()
 
 
 
