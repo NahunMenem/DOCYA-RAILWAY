@@ -4265,6 +4265,7 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
     
 # ---------- CONSULTAS DETALLE ----------
 # ---------- CONSULTAS DETALLE ----------
+# ---------- CONSULTAS DETALLE ----------
 @app.get("/consultas/{consulta_id}")
 def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
@@ -4284,9 +4285,12 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
             m.tipo,
             c.tiempo_estimado_min,
             c.medico_lat,
-            c.medico_lng
+            c.medico_lng,
+            COALESCE(u.full_name, 'Paciente') AS paciente_nombre,      -- 🔥 NUEVO
+            COALESCE(u.telefono, '') AS paciente_telefono              -- 🔥 NUEVO
         FROM consultas c
         LEFT JOIN medicos m ON c.medico_id = m.id
+        LEFT JOIN users u ON c.paciente_uuid = u.id                  -- 🔥 NUEVO
         WHERE c.id = %s
     """, (consulta_id,))
     
@@ -4300,7 +4304,8 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         motivo, direccion, lat, lng, creado_en,
         medico_nombre, medico_matricula, tipo,
         tiempo_estimado_raw,
-        medico_lat, medico_lng
+        medico_lat, medico_lng,
+        paciente_nombre, paciente_telefono      # 🔥 NUEVO
     ) = row
 
     # -------------------------
@@ -4334,6 +4339,8 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     return {
         "id": cid,
         "paciente_uuid": paciente_uuid,
+        "paciente_nombre": paciente_nombre,       # ✅ RESTAURA SPLASH
+        "paciente_telefono": paciente_telefono,   # ✅ RESTAURA SPLASH
         "medico_id": medico_id,
         "estado": estado,
         "motivo": motivo,
@@ -4344,8 +4351,8 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "medico_nombre": medico_nombre,
         "medico_matricula": medico_matricula,
         "tipo": tipo,
-        "tiempo_estimado_min": tiempo_estimado_min,  # ✔ ENTERO
-        "distancia_km": round(distancia_km, 2),      # ✅ NUEVO (CLAVE)
+        "tiempo_estimado_min": tiempo_estimado_min,
+        "distancia_km": round(distancia_km, 2),   # ✔ YA USADO POR PACIENTE
         "medico_lat": medico_lat,
         "medico_lng": medico_lng,
     }
