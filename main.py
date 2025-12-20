@@ -182,22 +182,22 @@ class PagoIn(BaseModel):
 
 
 
-@app.on_event("startup")
-async def iniciar_timeout_worker():
-    asyncio.create_task(timeout_worker())
+#@app.on_event("startup")
+#async def iniciar_timeout_worker():
+#    asyncio.create_task(timeout_worker())
 
-async def timeout_worker():
-    while True:
-        db = None
-        try:
-            db = get_db_worker()           # 👈 conexión NUEVA
-            await procesar_timeouts(db)
-        except Exception as e:
-            print("❌ Error timeout_worker:", e)
-        finally:
-            if db:
-                db.close()                 # 👈 cerrar SIEMPRE
-        await asyncio.sleep(3)
+#async def timeout_worker():
+#    while True:
+#        db = None
+#        try:
+#            db = get_db_worker()           # 👈 conexión NUEVA
+#            await procesar_timeouts(db)
+#        except Exception as e:
+#            print("❌ Error timeout_worker:", e)
+#        finally:
+#            if db:
+#                db.close()                 # 👈 cerrar SIEMPRE
+#        await asyncio.sleep(3)
 
 
 
