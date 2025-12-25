@@ -6584,53 +6584,89 @@ def ping_medico(medico_id: int, db=Depends(get_db)):
         print(f"⚠️ Error en ping médico {medico_id}: {e}")
         raise HTTPException(status_code=500, detail="Ping error")
 
+from datetime import date, timedelta
+from fastapi import Depends
+from app.database import get_db
+
 @app.get("/admin/liquidaciones/semana_actual")
 def liquidaciones_semana(db=Depends(get_db)):
     cur = db.cursor()
 
-    # Semana anterior (lunes a domingo)
+    # ==========================
+    # 📆 SEMANA CERRADA ANTERIOR
+    # ==========================
     hoy = date.today()
-    inicio = hoy - timedelta(days=hoy.weekday() + 7)
-    fin = inicio + timedelta(days=6)
 
+    # Domingo de la semana anterior
+    fin = hoy - timedelta(days=hoy.weekday() + 1)
+
+    # Lunes de esa semana
+    inicio = fin - timedelta(days=6)
+
+    # ==========================
+    # 📊 CONSULTA LIQUIDACIONES
+    # ==========================
     cur.execute("""
         SELECT 
             m.id,
             m.nombre,
             m.tipo,
             COUNT(c.id) AS consultas,
-            SUM(pc.monto_total) AS total_bruto,
-            SUM(pc.medico_neto) AS total_medico,
-            SUM(pc.docya_comision) AS total_comision,
-            SUM(CASE WHEN pc.metodo_pago='efectivo' THEN pc.docya_comision ELSE 0 END) AS comision_efectivo,
-            COALESCE(s.saldo,0) AS saldo
+            COALESCE(SUM(pc.monto_total), 0) AS total_bruto,
+            COALESCE(SUM(pc.medico_neto), 0) AS total_medico,
+            COALESCE(SUM(pc.docya_comision), 0) AS total_comision,
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago = 'efectivo' 
+                        THEN pc.docya_comision 
+                        ELSE 0 
+                    END
+                ), 
+                0
+            ) AS comision_efectivo,
+            COALESCE(s.saldo, 0) AS saldo
         FROM medicos m
-        JOIN pagos_consulta pc ON pc.medico_id = m.id
-        JOIN consultas c ON c.id = pc.consulta_id
-        LEFT JOIN saldo_medico s ON s.medico_id = m.id
-        WHERE pc.fecha BETWEEN %s AND %s
-        GROUP BY m.id, m.nombre, m.tipo, s.saldo
+        JOIN pagos_consulta pc 
+            ON pc.medico_id = m.id
+        JOIN consultas c 
+            ON c.id = pc.consulta_id
+        LEFT JOIN saldo_medico s 
+            ON s.medico_id = m.id
+        WHERE pc.fecha::date BETWEEN %s AND %s
+        GROUP BY 
+            m.id, 
+            m.nombre, 
+            m.tipo, 
+            s.saldo
         ORDER BY m.nombre
     """, (inicio, fin))
 
     rows = cur.fetchall()
     db.close()
 
+    # ==========================
+    # 📦 RESPUESTA
+    # ==========================
     return {
-        "periodo": f"{inicio} → {fin}",
+        "periodo": f"{inicio.strftime('%d/%m/%Y')} → {fin.strftime('%d/%m/%Y')}",
+        "periodo_inicio": inicio,
+        "periodo_fin": fin,
         "liquidaciones": [
             {
                 "medico_id": r[0],
                 "nombre": r[1],
                 "tipo": r[2],
-                "consultas": r[3],
-                "total_bruto": float(r[4] or 0),
-                "total_medico": float(r[5] or 0),
-                "total_comision": float(r[6] or 0),
-                "comision_efectivo": float(r[7] or 0),
-                "saldo": float(r[8])
-            } for r in rows
+                "consultas": int(r[3]),
+                "total_bruto": float(r[4]),
+                "total_medico": float(r[5]),
+                "total_comision": float(r[6]),
+                "comision_efectivo": float(r[7]),
+                "saldo": float(r[8]),
+            }
+            for r in rows
         ]
     }
+
 
 
