@@ -6584,4 +6584,53 @@ def ping_medico(medico_id: int, db=Depends(get_db)):
         print(f"⚠️ Error en ping médico {medico_id}: {e}")
         raise HTTPException(status_code=500, detail="Ping error")
 
+@app.get("/admin/liquidaciones/semana_actual")
+def liquidaciones_semana(db=Depends(get_db)):
+    cur = db.cursor()
+
+    # Semana anterior (lunes a domingo)
+    hoy = date.today()
+    inicio = hoy - timedelta(days=hoy.weekday() + 7)
+    fin = inicio + timedelta(days=6)
+
+    cur.execute("""
+        SELECT 
+            m.id,
+            m.nombre,
+            m.tipo,
+            COUNT(c.id) AS consultas,
+            SUM(pc.monto_total) AS total_bruto,
+            SUM(pc.medico_neto) AS total_medico,
+            SUM(pc.docya_comision) AS total_comision,
+            SUM(CASE WHEN pc.metodo_pago='efectivo' THEN pc.docya_comision ELSE 0 END) AS comision_efectivo,
+            COALESCE(s.saldo,0) AS saldo
+        FROM medicos m
+        JOIN pagos_consulta pc ON pc.medico_id = m.id
+        JOIN consultas c ON c.id = pc.consulta_id
+        LEFT JOIN saldo_medico s ON s.medico_id = m.id
+        WHERE pc.fecha BETWEEN %s AND %s
+        GROUP BY m.id, m.nombre, m.tipo, s.saldo
+        ORDER BY m.nombre
+    """, (inicio, fin))
+
+    rows = cur.fetchall()
+    db.close()
+
+    return {
+        "periodo": f"{inicio} → {fin}",
+        "liquidaciones": [
+            {
+                "medico_id": r[0],
+                "nombre": r[1],
+                "tipo": r[2],
+                "consultas": r[3],
+                "total_bruto": float(r[4] or 0),
+                "total_medico": float(r[5] or 0),
+                "total_comision": float(r[6] or 0),
+                "comision_efectivo": float(r[7] or 0),
+                "saldo": float(r[8])
+            } for r in rows
+        ]
+    }
+
 
