@@ -6584,9 +6584,6 @@ def ping_medico(medico_id: int, db=Depends(get_db)):
         print(f"⚠️ Error en ping médico {medico_id}: {e}")
         raise HTTPException(status_code=500, detail="Ping error")
 
-from datetime import date, timedelta
-from fastapi import Depends
-from app.database import get_db
 
 @app.get("/admin/liquidaciones/semana_actual")
 def liquidaciones_semana(db=Depends(get_db)):
