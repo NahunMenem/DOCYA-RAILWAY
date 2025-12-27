@@ -6585,24 +6585,19 @@ def ping_medico(medico_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail="Ping error")
 
 
+from datetime import date, timedelta
+
 @app.get("/admin/liquidaciones/semana_actual")
 def liquidaciones_semana(db=Depends(get_db)):
     cur = db.cursor()
 
     # ==========================
-    # 📆 SEMANA CERRADA ANTERIOR
+    # 📆 SEMANA ACTUAL (lunes → hoy)
     # ==========================
     hoy = date.today()
+    inicio = hoy - timedelta(days=hoy.weekday())  # lunes actual
+    fin = hoy                                     # hoy
 
-    # Domingo de la semana anterior
-    fin = hoy - timedelta(days=hoy.weekday() + 1)
-
-    # Lunes de esa semana
-    inicio = fin - timedelta(days=6)
-
-    # ==========================
-    # 📊 CONSULTA LIQUIDACIONES
-    # ==========================
     cur.execute("""
         SELECT 
             m.id,
@@ -6615,36 +6610,26 @@ def liquidaciones_semana(db=Depends(get_db)):
             COALESCE(
                 SUM(
                     CASE 
-                        WHEN pc.metodo_pago = 'efectivo' 
-                        THEN pc.docya_comision 
-                        ELSE 0 
+                        WHEN pc.metodo_pago = 'efectivo'
+                        THEN pc.docya_comision
+                        ELSE 0
                     END
-                ), 
-                0
+                ), 0
             ) AS comision_efectivo,
             COALESCE(s.saldo, 0) AS saldo
         FROM medicos m
-        JOIN pagos_consulta pc 
-            ON pc.medico_id = m.id
-        JOIN consultas c 
-            ON c.id = pc.consulta_id
-        LEFT JOIN saldo_medico s 
-            ON s.medico_id = m.id
+        JOIN pagos_consulta pc ON pc.medico_id = m.id
+        JOIN consultas c ON c.id = pc.consulta_id
+        LEFT JOIN saldo_medico s ON s.medico_id = m.id
         WHERE pc.fecha::date BETWEEN %s AND %s
-        GROUP BY 
-            m.id, 
-            m.nombre, 
-            m.tipo, 
-            s.saldo
+        GROUP BY m.id, m.nombre, m.tipo, s.saldo
         ORDER BY m.nombre
     """, (inicio, fin))
 
     rows = cur.fetchall()
+    cur.close()
     db.close()
 
-    # ==========================
-    # 📦 RESPUESTA
-    # ==========================
     return {
         "periodo": f"{inicio.strftime('%d/%m/%Y')} → {fin.strftime('%d/%m/%Y')}",
         "periodo_inicio": inicio,
@@ -6664,6 +6649,4 @@ def liquidaciones_semana(db=Depends(get_db)):
             for r in rows
         ]
     }
-
-
 
