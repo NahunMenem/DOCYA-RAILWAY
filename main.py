@@ -6627,8 +6627,7 @@ def liquidaciones_semana(db=Depends(get_db)):
     """, (inicio, fin))
 
     rows = cur.fetchall()
-    cur.close()
-    db.close()
+    cur.close()  # ✅ solo cerramos el cursor
 
     return {
         "periodo": f"{inicio.strftime('%d/%m/%Y')} → {fin.strftime('%d/%m/%Y')}",
@@ -6649,4 +6648,3 @@ def liquidaciones_semana(db=Depends(get_db)):
             for r in rows
         ]
     }
-
