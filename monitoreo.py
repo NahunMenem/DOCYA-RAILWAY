@@ -24,6 +24,87 @@ active_admins: list[WebSocket] = []
 # ====================================================
 # 📊LQUIDACIONES
 # ====================================================
+from datetime import date, timedelta
+from psycopg2.extras import RealDictCursor
+
+@router.get("/liquidaciones/preview_semana_actual")
+def preview_liquidaciones_semana_actual(db=Depends(get_db)):
+    """
+    Vista de control: muestra cuánto lleva acumulado cada médico
+    en la semana actual. NO genera liquidaciones ni afecta saldos.
+    """
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    # 📅 Semana actual (lunes → hoy)
+    hoy = date.today()
+    inicio_semana = hoy - timedelta(days=hoy.weekday())
+    fin_semana = hoy
+
+    cur.execute("""
+        SELECT
+            m.id AS medico_id,
+            m.full_name AS medico,
+            m.tipo,
+
+            -- Neto por MercadoPago (DocYa debe pagar)
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago != 'efectivo'
+                        THEN pc.medico_neto
+                        ELSE 0
+                    END
+                ), 0
+            ) AS neto_mp,
+
+            -- Comisión de efectivo (médico debe a DocYa)
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago = 'efectivo'
+                        THEN pc.docya_comision
+                        ELSE 0
+                    END
+                ), 0
+            ) AS comision_efectivo,
+
+            -- Resultado provisorio
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago != 'efectivo'
+                        THEN pc.medico_neto
+                        ELSE 0
+                    END
+                ), 0
+            ) -
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago = 'efectivo'
+                        THEN pc.docya_comision
+                        ELSE 0
+                    END
+                ), 0
+            ) AS monto_provisorio,
+
+            COUNT(DISTINCT pc.consulta_id) AS consultas
+
+        FROM pagos_consulta pc
+        JOIN medicos m ON m.id = pc.medico_id
+        WHERE pc.fecha::date BETWEEN %s AND %s
+        GROUP BY m.id, m.full_name, m.tipo
+        ORDER BY m.full_name;
+    """, (inicio_semana, fin_semana))
+
+    rows = cur.fetchall()
+    cur.close()
+
+    return {
+        "periodo": f"{inicio_semana} → {fin_semana}",
+        "preview": rows
+    }
+
 # ====================================================
 # 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
 # ====================================================
