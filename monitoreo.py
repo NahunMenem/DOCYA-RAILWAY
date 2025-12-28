@@ -30,13 +30,15 @@ active_admins: list[WebSocket] = []
 # ====================================================
 # 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
 # ====================================================
+from datetime import datetime, date, timedelta
+
 @router.get("/liquidaciones/semana_actual")
 def liquidaciones_semana_actual(db=Depends(get_db)):
     try:
         cur = db.cursor()
 
         hoy = date.today()
-        inicio = hoy - timedelta(days=hoy.weekday())  # lunes actual
+        inicio = hoy - timedelta(days=hoy.weekday())
         fin = hoy
 
         cur.execute("""
@@ -44,7 +46,7 @@ def liquidaciones_semana_actual(db=Depends(get_db)):
                 m.id,
                 m.full_name,
                 m.tipo,
-                COUNT(c.id) AS consultas,
+                COUNT(DISTINCT c.id) AS consultas,
                 COALESCE(SUM(pc.monto_total), 0) AS total_bruto,
                 COALESCE(SUM(pc.medico_neto), 0) AS total_medico,
                 COALESCE(SUM(pc.docya_comision), 0) AS total_comision,
@@ -91,6 +93,7 @@ def liquidaciones_semana_actual(db=Depends(get_db)):
     except Exception as e:
         print("❌ Error en liquidaciones_semana_actual:", e)
         return {"ok": False, "error": str(e)}
+
 
 # ====================================================
 # 📊 RESUMEN GENERAL (Dashboard)
