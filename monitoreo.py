@@ -27,6 +27,70 @@ active_admins: list[WebSocket] = []
 # ====================================================
 # 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
 # ====================================================
+# ====================================================
+# 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
+# ====================================================
+@router.get("/liquidaciones/semana_actual")
+def liquidaciones_semana_actual(db=Depends(get_db)):
+    try:
+        cur = db.cursor()
+
+        hoy = date.today()
+        inicio = hoy - timedelta(days=hoy.weekday())  # lunes actual
+        fin = hoy
+
+        cur.execute("""
+            SELECT 
+                m.id,
+                m.full_name,
+                m.tipo,
+                COUNT(c.id) AS consultas,
+                COALESCE(SUM(pc.monto_total), 0) AS total_bruto,
+                COALESCE(SUM(pc.medico_neto), 0) AS total_medico,
+                COALESCE(SUM(pc.docya_comision), 0) AS total_comision,
+                COALESCE(
+                    SUM(
+                        CASE 
+                            WHEN pc.metodo_pago = 'efectivo'
+                            THEN pc.docya_comision
+                            ELSE 0
+                        END
+                    ), 0
+                ) AS comision_efectivo,
+                COALESCE(s.saldo, 0) AS saldo
+            FROM medicos m
+            JOIN pagos_consulta pc ON pc.medico_id = m.id
+            JOIN consultas c ON c.id = pc.consulta_id
+            LEFT JOIN saldo_medico s ON s.medico_id = m.id
+            WHERE pc.fecha::date BETWEEN %s AND %s
+            GROUP BY m.id, m.full_name, m.tipo, s.saldo
+            ORDER BY m.full_name
+        """, (inicio, fin))
+
+        rows = cur.fetchall()
+        cur.close()
+
+        return {
+            "periodo": f"{inicio.strftime('%d/%m/%Y')} → {fin.strftime('%d/%m/%Y')}",
+            "liquidaciones": [
+                {
+                    "medico_id": r[0],
+                    "nombre": r[1],
+                    "tipo": r[2],
+                    "consultas": int(r[3]),
+                    "total_bruto": float(r[4]),
+                    "total_medico": float(r[5]),
+                    "total_comision": float(r[6]),
+                    "comision_efectivo": float(r[7]),
+                    "saldo": float(r[8]),
+                }
+                for r in rows
+            ]
+        }
+
+    except Exception as e:
+        print("❌ Error en liquidaciones_semana_actual:", e)
+        return {"ok": False, "error": str(e)}
 
 # ====================================================
 # 📊 RESUMEN GENERAL (Dashboard)
