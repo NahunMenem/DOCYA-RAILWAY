@@ -30,69 +30,178 @@ active_admins: list[WebSocket] = []
 # ====================================================
 # 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
 # ====================================================
-from datetime import datetime, date, timedelta
+from datetime import date, timedelta
+from fastapi import Depends, HTTPException
+from psycopg2.extras import RealDictCursor
 
-@router.get("/liquidaciones/semana_actual")
-def liquidaciones_semana_actual(db=Depends(get_db)):
-    try:
-        cur = db.cursor()
+@router.post("/liquidaciones/generar_semana_anterior")
+def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
+    """
+    Genera las liquidaciones de la semana anterior (lunes a domingo).
+    Debe ejecutarse una sola vez por semana (lunes).
+    """
+    cur = db.cursor()
 
-        hoy = date.today()
-        inicio = hoy - timedelta(days=hoy.weekday())
-        fin = hoy
+    # 📅 Semana anterior (lunes → domingo)
+    hoy = date.today()
+    fin_semana = hoy - timedelta(days=hoy.weekday() + 1)
+    inicio_semana = fin_semana - timedelta(days=6)
 
-        cur.execute("""
-            SELECT 
-                m.id,
-                m.full_name,
-                m.tipo,
-                COUNT(DISTINCT c.id) AS consultas,
-                COALESCE(SUM(pc.monto_total), 0) AS total_bruto,
-                COALESCE(SUM(pc.medico_neto), 0) AS total_medico,
-                COALESCE(SUM(pc.docya_comision), 0) AS total_comision,
-                COALESCE(
-                    SUM(
-                        CASE 
-                            WHEN pc.metodo_pago = 'efectivo'
-                            THEN pc.docya_comision
-                            ELSE 0
-                        END
-                    ), 0
-                ) AS comision_efectivo,
-                COALESCE(s.saldo, 0) AS saldo
-            FROM medicos m
-            JOIN pagos_consulta pc ON pc.medico_id = m.id
-            JOIN consultas c ON c.id = pc.consulta_id
-            LEFT JOIN saldo_medico s ON s.medico_id = m.id
-            WHERE pc.fecha::date BETWEEN %s AND %s
-            GROUP BY m.id, m.full_name, m.tipo, s.saldo
-            ORDER BY m.full_name
-        """, (inicio, fin))
+    # 🛑 Evitar duplicados
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM liquidaciones_semanales
+        WHERE semana_inicio = %s AND semana_fin = %s
+    """, (inicio_semana, fin_semana))
 
-        rows = cur.fetchall()
+    if cur.fetchone()[0] > 0:
         cur.close()
+        raise HTTPException(
+            status_code=409,
+            detail="Las liquidaciones de esa semana ya fueron generadas"
+        )
 
-        return {
-            "periodo": f"{inicio.strftime('%d/%m/%Y')} → {fin.strftime('%d/%m/%Y')}",
-            "liquidaciones": [
-                {
-                    "medico_id": r[0],
-                    "nombre": r[1],
-                    "tipo": r[2],
-                    "consultas": int(r[3]),
-                    "total_bruto": float(r[4]),
-                    "total_medico": float(r[5]),
-                    "total_comision": float(r[6]),
-                    "comision_efectivo": float(r[7]),
-                    "saldo": float(r[8]),
-                }
-                for r in rows
-            ]
-        }
+    # 🧮 Insertar liquidaciones
+    cur.execute("""
+        INSERT INTO liquidaciones_semanales (
+            medico_id,
+            semana_inicio,
+            semana_fin,
+            neto_mp,
+            comision_efectivo,
+            monto_final
+        )
+        SELECT
+            pc.medico_id,
+            %s AS semana_inicio,
+            %s AS semana_fin,
 
-    except Exception as e:
-        print("❌ Error en liquidaciones_semana_actual:", e)
-        return {"ok": False, "error": str(e)}
+            -- 💳 Neto por MercadoPago (DocYa le debe)
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago != 'efectivo'
+                        THEN pc.medico_neto
+                        ELSE 0
+                    END
+                ), 0
+            ) AS neto_mp,
+
+            -- 💵 Comisión de efectivo (médico le debe a DocYa)
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago = 'efectivo'
+                        THEN pc.docya_comision
+                        ELSE 0
+                    END
+                ), 0
+            ) AS comision_efectivo,
+
+            -- 🔥 Monto final a pagar
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago != 'efectivo'
+                        THEN pc.medico_neto
+                        ELSE 0
+                    END
+                ), 0
+            ) -
+            COALESCE(
+                SUM(
+                    CASE 
+                        WHEN pc.metodo_pago = 'efectivo'
+                        THEN pc.docya_comision
+                        ELSE 0
+                    END
+                ), 0
+            ) AS monto_final
+
+        FROM pagos_consulta pc
+        WHERE pc.fecha::date BETWEEN %s AND %s
+        GROUP BY pc.medico_id
+    """, (inicio_semana, fin_semana, inicio_semana, fin_semana))
+
+    db.commit()
+    cur.close()
+
+    return {
+        "ok": True,
+        "semana": f"{inicio_semana} → {fin_semana}",
+        "mensaje": "Liquidaciones generadas correctamente"
+    }
+
+@router.get("/liquidaciones")
+def listar_liquidaciones(db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT
+            l.id,
+            m.full_name AS medico,
+            m.tipo,
+            l.semana_inicio,
+            l.semana_fin,
+            l.neto_mp,
+            l.comision_efectivo,
+            l.monto_final,
+            l.estado,
+            l.pagado_en
+        FROM liquidaciones_semanales l
+        JOIN medicos m ON m.id = l.medico_id
+        ORDER BY l.semana_inicio DESC, m.full_name
+    """)
+    data = cur.fetchall()
+    cur.close()
+
+    return {"liquidaciones": data}
+
+@router.post("/liquidaciones/{liquidacion_id}/pagar")
+def pagar_liquidacion(liquidacion_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+
+    # Obtener monto y médico
+    cur.execute("""
+        SELECT medico_id, monto_final, estado
+        FROM liquidaciones_semanales
+        WHERE id = %s
+    """, (liquidacion_id,))
+    row = cur.fetchone()
+
+    if not row:
+        cur.close()
+        raise HTTPException(status_code=404, detail="Liquidación no encontrada")
+
+    medico_id, monto_final, estado = row
+
+    if estado == "pagado":
+        cur.close()
+        raise HTTPException(status_code=409, detail="La liquidación ya está pagada")
+
+    # Marcar pagada
+    cur.execute("""
+        UPDATE liquidaciones_semanales
+        SET estado = 'pagado',
+            pagado_en = NOW()
+        WHERE id = %s
+    """, (liquidacion_id,))
+
+    # Actualizar saldo del médico
+    cur.execute("""
+        INSERT INTO saldo_medico (medico_id, saldo)
+        VALUES (%s, %s)
+        ON CONFLICT (medico_id)
+        DO UPDATE SET saldo = saldo_medico.saldo + EXCLUDED.saldo
+    """, (medico_id, monto_final))
+
+    db.commit()
+    cur.close()
+
+    return {
+        "ok": True,
+        "mensaje": "Liquidación pagada correctamente",
+        "monto": float(monto_final)
+    }
 
 
 # ====================================================
