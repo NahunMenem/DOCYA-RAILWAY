@@ -27,15 +27,17 @@ active_admins: list[WebSocket] = []
 from datetime import date, timedelta
 from psycopg2.extras import RealDictCursor
 
+from datetime import date, timedelta, time
+from psycopg2.extras import RealDictCursor
+
 @router.get("/liquidaciones/preview_semana_actual")
 def preview_liquidaciones_semana_actual(db=Depends(get_db)):
     """
-    Vista de control: muestra cuánto lleva acumulado cada médico
-    en la semana actual. NO genera liquidaciones ni afecta saldos.
+    Vista de control semanal (NO pagable).
+    Muestra desglose claro de consultas y resultado provisorio.
     """
     cur = db.cursor(cursor_factory=RealDictCursor)
 
-    # 📅 Semana actual (lunes → hoy)
     hoy = date.today()
     inicio_semana = hoy - timedelta(days=hoy.weekday())
     fin_semana = hoy
@@ -44,56 +46,65 @@ def preview_liquidaciones_semana_actual(db=Depends(get_db)):
         SELECT
             m.id AS medico_id,
             m.full_name AS medico,
-            m.tipo,
 
-            -- Neto por MercadoPago (DocYa debe pagar)
+            COUNT(DISTINCT c.id) AS consultas_totales,
+
+            -- 🌞🌙 Diurnas / Nocturnas
+            SUM(CASE 
+                WHEN c.fin_atencion::time >= '06:00'
+                 AND c.fin_atencion::time < '22:00'
+                THEN 1 ELSE 0 END
+            ) AS consultas_diurnas,
+
+            SUM(CASE 
+                WHEN c.fin_atencion::time >= '22:00'
+                 OR c.fin_atencion::time < '06:00'
+                THEN 1 ELSE 0 END
+            ) AS consultas_nocturnas,
+
+            -- 💳💵 Método de pago
+            SUM(CASE WHEN pc.metodo_pago != 'efectivo' THEN 1 ELSE 0 END) AS consultas_tarjeta,
+            SUM(CASE WHEN pc.metodo_pago = 'efectivo' THEN 1 ELSE 0 END) AS consultas_efectivo,
+
+            -- 💰 Neto MP
             COALESCE(
-                SUM(
-                    CASE 
-                        WHEN pc.metodo_pago != 'efectivo'
-                        THEN pc.medico_neto
-                        ELSE 0
-                    END
+                SUM(CASE 
+                    WHEN pc.metodo_pago != 'efectivo'
+                    THEN pc.medico_neto
+                    ELSE 0 END
                 ), 0
             ) AS neto_mp,
 
-            -- Comisión de efectivo (médico debe a DocYa)
+            -- 💰 Comisión efectivo
             COALESCE(
-                SUM(
-                    CASE 
-                        WHEN pc.metodo_pago = 'efectivo'
-                        THEN pc.docya_comision
-                        ELSE 0
-                    END
+                SUM(CASE 
+                    WHEN pc.metodo_pago = 'efectivo'
+                    THEN pc.docya_comision
+                    ELSE 0 END
                 ), 0
             ) AS comision_efectivo,
 
-            -- Resultado provisorio
+            -- 🔥 Resultado provisorio
             COALESCE(
-                SUM(
-                    CASE 
-                        WHEN pc.metodo_pago != 'efectivo'
-                        THEN pc.medico_neto
-                        ELSE 0
-                    END
+                SUM(CASE 
+                    WHEN pc.metodo_pago != 'efectivo'
+                    THEN pc.medico_neto
+                    ELSE 0 END
                 ), 0
             ) -
             COALESCE(
-                SUM(
-                    CASE 
-                        WHEN pc.metodo_pago = 'efectivo'
-                        THEN pc.docya_comision
-                        ELSE 0
-                    END
+                SUM(CASE 
+                    WHEN pc.metodo_pago = 'efectivo'
+                    THEN pc.docya_comision
+                    ELSE 0 END
                 ), 0
-            ) AS monto_provisorio,
-
-            COUNT(DISTINCT pc.consulta_id) AS consultas
+            ) AS monto_provisorio
 
         FROM pagos_consulta pc
+        JOIN consultas c ON c.id = pc.consulta_id
         JOIN medicos m ON m.id = pc.medico_id
         WHERE pc.fecha::date BETWEEN %s AND %s
-        GROUP BY m.id, m.full_name, m.tipo
+        GROUP BY m.id, m.full_name
         ORDER BY m.full_name;
     """, (inicio_semana, fin_semana))
 
@@ -104,6 +115,7 @@ def preview_liquidaciones_semana_actual(db=Depends(get_db)):
         "periodo": f"{inicio_semana} → {fin_semana}",
         "preview": rows
     }
+
 
 # ====================================================
 # 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
