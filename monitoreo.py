@@ -30,7 +30,6 @@ from psycopg2.extras import RealDictCursor
 def preview_semana_actual(db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
 
-    # 1️⃣ Traemos consultas finalizadas de la semana actual con médico
     cur.execute("""
         SELECT
             m.id AS medico_id,
@@ -40,9 +39,7 @@ def preview_semana_actual(db=Depends(get_db)):
             c.inicio_atencion,
             c.fin_atencion,
             c.metodo_pago,
-            c.precio_final,
-            c.precio_final * 0.20 AS docya_comision,
-            c.precio_final * 0.80 AS medico_neto
+            c.precio_final
         FROM consultas c
         JOIN medicos m ON m.id = c.medico_id
         WHERE c.estado = 'finalizada'
@@ -54,44 +51,74 @@ def preview_semana_actual(db=Depends(get_db)):
     rows = cur.fetchall()
     cur.close()
 
-    # 2️⃣ Agrupar por médico
     medicos = {}
 
     for c in rows:
         mid = c["medico_id"]
+        metodo = c["metodo_pago"]
+        monto = float(c["precio_final"])
 
         if mid not in medicos:
             medicos[mid] = {
                 "medico_id": mid,
                 "medico": c["medico"],
-                "totales": {
-                    "monto_total": 0,
-                    "comision_docya": 0,
-                    "neto_medico": 0,
+                "resumen": {
+                    "total_efectivo": 0,
+                    "total_digital": 0,
+                    "mp_comision": 0,
+                    "docya_comision": 0,
+                    "a_pagar_medico": 0,
                 },
                 "consultas": []
             }
 
-        medicos[mid]["consultas"].append({
-            "fecha": c["fecha"],
-            "inicio_atencion": c["inicio_atencion"],
-            "fin_atencion": c["fin_atencion"],
-            "metodo_pago": c["metodo_pago"],
-            "precio_final": c["precio_final"],
-            "docya_comision": c["docya_comision"],
-            "medico_neto": c["medico_neto"],
-        })
+        # ===============================
+        # EFECTIVO → informativo
+        # ===============================
+        if metodo == "efectivo":
+            medicos[mid]["resumen"]["total_efectivo"] += monto
 
-        medicos[mid]["totales"]["monto_total"] += c["precio_final"]
-        medicos[mid]["totales"]["comision_docya"] += c["docya_comision"]
-        medicos[mid]["totales"]["neto_medico"] += c["medico_neto"]
+            medicos[mid]["consultas"].append({
+                "fecha": c["fecha"],
+                "inicio_atencion": c["inicio_atencion"],
+                "fin_atencion": c["fin_atencion"],
+                "metodo_pago": metodo,
+                "precio_final": monto,
+                "neto_medico": monto,
+                "nota": "Cobrado en efectivo"
+            })
 
-    # 3️⃣ Respuesta final
+        # ===============================
+        # DIGITAL → flujo real
+        # ===============================
+        else:
+            mp_fee = monto * 0.08
+            base_neta = monto - mp_fee
+            docya_fee = base_neta * 0.20
+            neto_medico = base_neta - docya_fee
+
+            medicos[mid]["resumen"]["total_digital"] += monto
+            medicos[mid]["resumen"]["mp_comision"] += mp_fee
+            medicos[mid]["resumen"]["docya_comision"] += docya_fee
+            medicos[mid]["resumen"]["a_pagar_medico"] += neto_medico
+
+            medicos[mid]["consultas"].append({
+                "fecha": c["fecha"],
+                "inicio_atencion": c["inicio_atencion"],
+                "fin_atencion": c["fin_atencion"],
+                "metodo_pago": metodo,
+                "precio_final": monto,
+                "mp_comision": round(mp_fee, 2),
+                "docya_comision": round(docya_fee, 2),
+                "neto_medico": round(neto_medico, 2)
+            })
+
     return {
         "periodo": "Semana actual (en curso)",
-        "mensaje": "Se liquidará automáticamente el próximo lunes",
+        "mensaje": "Solo se liquidan pagos digitales. El efectivo ya fue cobrado.",
         "medicos": list(medicos.values())
     }
+
 
 
 @router.post("/liquidaciones/generar_semana_anterior")
