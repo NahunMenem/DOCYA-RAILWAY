@@ -53,6 +53,9 @@ def preview_semana_actual(db=Depends(get_db)):
 
     medicos = {}
 
+    # ===============================
+    # PRIMER PASO: ACUMULAR DATOS
+    # ===============================
     for c in rows:
         mid = c["medico_id"]
         metodo = c["metodo_pago"]
@@ -62,19 +65,20 @@ def preview_semana_actual(db=Depends(get_db)):
             medicos[mid] = {
                 "medico_id": mid,
                 "medico": c["medico"],
+                "consultas": [],
                 "resumen": {
+                    "cantidad_consultas": 0,
                     "total_efectivo": 0,
                     "total_digital": 0,
                     "mp_comision": 0,
-                    "docya_comision": 0,
+                    "docya_comision_total": 0,
                     "a_pagar_medico": 0,
                 },
-                "consultas": []
             }
 
-        # ===============================
-        # EFECTIVO → informativo
-        # ===============================
+        medicos[mid]["resumen"]["cantidad_consultas"] += 1
+
+        # EFECTIVO
         if metodo == "efectivo":
             medicos[mid]["resumen"]["total_efectivo"] += monto
 
@@ -84,23 +88,12 @@ def preview_semana_actual(db=Depends(get_db)):
                 "fin_atencion": c["fin_atencion"],
                 "metodo_pago": metodo,
                 "precio_final": monto,
-                "neto_medico": monto,
                 "nota": "Cobrado en efectivo"
             })
 
-        # ===============================
-        # DIGITAL → flujo real
-        # ===============================
+        # DIGITAL
         else:
-            mp_fee = monto * 0.08
-            base_neta = monto - mp_fee
-            docya_fee = base_neta * 0.20
-            neto_medico = base_neta - docya_fee
-
             medicos[mid]["resumen"]["total_digital"] += monto
-            medicos[mid]["resumen"]["mp_comision"] += mp_fee
-            medicos[mid]["resumen"]["docya_comision"] += docya_fee
-            medicos[mid]["resumen"]["a_pagar_medico"] += neto_medico
 
             medicos[mid]["consultas"].append({
                 "fecha": c["fecha"],
@@ -108,14 +101,35 @@ def preview_semana_actual(db=Depends(get_db)):
                 "fin_atencion": c["fin_atencion"],
                 "metodo_pago": metodo,
                 "precio_final": monto,
-                "mp_comision": round(mp_fee, 2),
-                "docya_comision": round(docya_fee, 2),
-                "neto_medico": round(neto_medico, 2)
             })
+
+    # ===============================
+    # SEGUNDO PASO: LIQUIDACIÓN REAL
+    # ===============================
+    for m in medicos.values():
+        total_consultas = m["resumen"]["cantidad_consultas"]
+        total_digital = m["resumen"]["total_digital"]
+
+        # Comisión MP (solo digital)
+        mp_fee = total_digital * 0.08
+        digital_neto = total_digital - mp_fee
+
+        # Comisión DocYa (20% de TODAS las consultas)
+        docya_total = total_consultas * 30000 * 0.20
+
+        # Lo que se transfiere al médico
+        a_pagar = digital_neto - docya_total
+
+        m["resumen"]["mp_comision"] = round(mp_fee, 2)
+        m["resumen"]["docya_comision_total"] = round(docya_total, 2)
+        m["resumen"]["a_pagar_medico"] = round(a_pagar, 2)
 
     return {
         "periodo": "Semana actual (en curso)",
-        "mensaje": "Solo se liquidan pagos digitales. El efectivo ya fue cobrado.",
+        "mensaje": (
+            "DocYa cobra el 20% de todas las consultas. "
+            "Las consultas en efectivo se compensan desde el dinero digital."
+        ),
         "medicos": list(medicos.values())
     }
 
