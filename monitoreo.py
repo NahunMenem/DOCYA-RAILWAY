@@ -416,7 +416,7 @@ def medicos_por_zona(db=Depends(get_db)):
 # 🔴 MONITOREO EN TIEMPO REAL (WebSocket)
 # ====================================================
 @router.websocket("/tiempo_real")
-async def tiempo_real(websocket: WebSocket):
+async def tiempo_real(websocket: WebSocket, db=Depends(get_db)):
     await websocket.accept()
     active_admins.append(websocket)
     print(f"🟢 Admin conectado al monitoreo ({len(active_admins)} totales)")
@@ -424,7 +424,7 @@ async def tiempo_real(websocket: WebSocket):
     try:
         while True:
             await asyncio.sleep(5)
-            data = await obtener_estado_general()
+            data = obtener_estado_general(db)
             await websocket.send_text(json.dumps(data))
     except WebSocketDisconnect:
         if websocket in active_admins:
@@ -436,13 +436,12 @@ async def tiempo_real(websocket: WebSocket):
             active_admins.remove(websocket)
 
 
+
 # ====================================================
 # 🔁 FUNCIÓN AUXILIAR PARA OBTENER ESTADO ACTUAL
 # ====================================================
-async def obtener_estado_general():
-    DATABASE_URL = getenv("DATABASE_URL")
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    cur = conn.cursor()
+def obtener_estado_general(db):
+    cur = db.cursor()
 
     cur.execute("""
         SELECT COUNT(*)
@@ -459,11 +458,15 @@ async def obtener_estado_general():
     """)
     consultas_en_curso = cur.fetchone()[0]
 
-    cur.execute("SELECT COUNT(*) FROM consultas WHERE DATE(creado_en) = CURRENT_DATE;")
+    cur.execute("""
+        SELECT COUNT(*)
+        FROM consultas
+        WHERE creado_en >= CURRENT_DATE
+          AND creado_en < CURRENT_DATE + INTERVAL '1 day';
+    """)
     consultas_hoy = cur.fetchone()[0]
 
     cur.close()
-    conn.close()
 
     return {
         "medicos_conectados": medicos_conectados,
