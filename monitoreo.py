@@ -26,6 +26,44 @@ from psycopg2.extras import RealDictCursor
 # ====================================================
 # 📊LQUIDACIONES
 # ====================================================
+@router.get("/liquidaciones/preview_semana_actual")
+def preview_semana_actual(db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT
+            id,
+            inicio_atencion::date AS fecha,
+            inicio_atencion,
+            fin_atencion,
+            metodo_pago,
+            precio_final,
+            precio_final * 0.20 AS docya_comision,
+            precio_final * 0.80 AS medico_neto
+        FROM consultas
+        WHERE estado = 'finalizada'
+          AND inicio_atencion >= date_trunc('week', CURRENT_DATE)
+          AND inicio_atencion < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'
+        ORDER BY inicio_atencion;
+    """)
+
+    consultas = cur.fetchall()
+
+    totales = {
+        "monto_total": sum(c["precio_final"] for c in consultas),
+        "comision_docya": sum(c["docya_comision"] for c in consultas),
+        "neto_medico": sum(c["medico_neto"] for c in consultas),
+    }
+
+    cur.close()
+
+    return {
+        "periodo": "Semana actual (en curso)",
+        "totales": totales,
+        "consultas": consultas
+    }
+
+
 @router.post("/liquidaciones/generar_semana_anterior")
 def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
     cur = db.cursor()
