@@ -24,11 +24,85 @@ active_admins: list[WebSocket] = []
 # ====================================================
 # 📊LQUIDACIONES
 # ====================================================
-from datetime import date, timedelta
-from psycopg2.extras import RealDictCursor
-
 from datetime import date, timedelta, time
-from psycopg2.extras import RealDictCursor
+from fastapi import HTTPException, Depends
+
+@router.get("/liquidaciones/medico/{medico_id}")
+def detalle_liquidacion_medico(
+    medico_id: int,
+    semana_inicio: date,
+    semana_fin: date,
+    db=Depends(get_db)
+):
+    """
+    Devuelve el detalle completo de consultas de un médico
+    para una semana específica (control previo a liquidación).
+    """
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    # 🔎 Validar médico
+    cur.execute(
+        "SELECT full_name, email FROM medicos WHERE id = %s",
+        (medico_id,)
+    )
+    medico = cur.fetchone()
+
+    if not medico:
+        cur.close()
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+    # 📊 Consultas de la semana
+    cur.execute("""
+        SELECT
+            c.id AS consulta_id,
+            c.creado_en::date AS fecha,
+            c.inicio_atencion,
+            c.fin_atencion,
+
+            -- 🌞🌙 Tipo de franja
+            CASE
+                WHEN c.fin_atencion::time >= '06:00'
+                 AND c.fin_atencion::time < '22:00'
+                THEN 'diurna'
+                ELSE 'nocturna'
+            END AS franja,
+
+            pc.metodo_pago,
+            pc.monto_total,
+            pc.docya_comision,
+            pc.medico_neto
+
+        FROM pagos_consulta pc
+        JOIN consultas c ON c.id = pc.consulta_id
+        WHERE pc.medico_id = %s
+          AND pc.fecha::date BETWEEN %s AND %s
+        ORDER BY c.creado_en ASC;
+    """, (medico_id, semana_inicio, semana_fin))
+
+    consultas = cur.fetchall()
+
+    # 📌 Totales
+    total_monto = sum(c["monto_total"] or 0 for c in consultas)
+    total_comision = sum(c["docya_comision"] or 0 for c in consultas)
+    total_neto = sum(c["medico_neto"] or 0 for c in consultas)
+
+    cur.close()
+
+    return {
+        "medico": {
+            "id": medico_id,
+            "nombre": medico["full_name"],
+            "email": medico["email"],
+        },
+        "periodo": f"{semana_inicio} → {semana_fin}",
+        "totales": {
+            "monto_total": float(total_monto),
+            "comision_docya": float(total_comision),
+            "neto_medico": float(total_neto),
+        },
+        "consultas": consultas,
+    }
+
 
 @router.get("/liquidaciones/preview_semana_actual")
 def preview_liquidaciones_semana_actual(db=Depends(get_db)):
@@ -123,9 +197,7 @@ def preview_liquidaciones_semana_actual(db=Depends(get_db)):
 # ====================================================
 # 💰 LIQUIDACIONES SEMANA ACTUAL (Panel Monitoreo)
 # ====================================================
-from datetime import date, timedelta
 from fastapi import Depends, HTTPException
-from psycopg2.extras import RealDictCursor
 
 @router.post("/liquidaciones/generar_semana_anterior")
 def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
