@@ -23,8 +23,6 @@ active_admins: list[WebSocket] = []
 from datetime import date, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from psycopg2.extras import RealDictCursor
-from db import get_db
-
 # ====================================================
 # 📊LQUIDACIONES
 # ====================================================
