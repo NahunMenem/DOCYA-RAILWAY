@@ -30,37 +30,67 @@ from psycopg2.extras import RealDictCursor
 def preview_semana_actual(db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
 
+    # 1️⃣ Traemos consultas finalizadas de la semana actual con médico
     cur.execute("""
         SELECT
-            id,
-            inicio_atencion::date AS fecha,
-            inicio_atencion,
-            fin_atencion,
-            metodo_pago,
-            precio_final,
-            precio_final * 0.20 AS docya_comision,
-            precio_final * 0.80 AS medico_neto
-        FROM consultas
-        WHERE estado = 'finalizada'
-          AND inicio_atencion >= date_trunc('week', CURRENT_DATE)
-          AND inicio_atencion < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'
-        ORDER BY inicio_atencion;
+            m.id AS medico_id,
+            m.full_name AS medico,
+            c.id AS consulta_id,
+            c.inicio_atencion::date AS fecha,
+            c.inicio_atencion,
+            c.fin_atencion,
+            c.metodo_pago,
+            c.precio_final,
+            c.precio_final * 0.20 AS docya_comision,
+            c.precio_final * 0.80 AS medico_neto
+        FROM consultas c
+        JOIN medicos m ON m.id = c.medico_id
+        WHERE c.estado = 'finalizada'
+          AND c.inicio_atencion >= date_trunc('week', CURRENT_DATE)
+          AND c.inicio_atencion < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'
+        ORDER BY m.full_name, c.inicio_atencion;
     """)
 
-    consultas = cur.fetchall()
-
-    totales = {
-        "monto_total": sum(c["precio_final"] for c in consultas),
-        "comision_docya": sum(c["docya_comision"] for c in consultas),
-        "neto_medico": sum(c["medico_neto"] for c in consultas),
-    }
-
+    rows = cur.fetchall()
     cur.close()
 
+    # 2️⃣ Agrupar por médico
+    medicos = {}
+
+    for c in rows:
+        mid = c["medico_id"]
+
+        if mid not in medicos:
+            medicos[mid] = {
+                "medico_id": mid,
+                "medico": c["medico"],
+                "totales": {
+                    "monto_total": 0,
+                    "comision_docya": 0,
+                    "neto_medico": 0,
+                },
+                "consultas": []
+            }
+
+        medicos[mid]["consultas"].append({
+            "fecha": c["fecha"],
+            "inicio_atencion": c["inicio_atencion"],
+            "fin_atencion": c["fin_atencion"],
+            "metodo_pago": c["metodo_pago"],
+            "precio_final": c["precio_final"],
+            "docya_comision": c["docya_comision"],
+            "medico_neto": c["medico_neto"],
+        })
+
+        medicos[mid]["totales"]["monto_total"] += c["precio_final"]
+        medicos[mid]["totales"]["comision_docya"] += c["docya_comision"]
+        medicos[mid]["totales"]["neto_medico"] += c["medico_neto"]
+
+    # 3️⃣ Respuesta final
     return {
         "periodo": "Semana actual (en curso)",
-        "totales": totales,
-        "consultas": consultas
+        "mensaje": "Se liquidará automáticamente el próximo lunes",
+        "medicos": list(medicos.values())
     }
 
 
