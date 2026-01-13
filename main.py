@@ -74,9 +74,7 @@ def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
 
-from auth import router as auth_router
 
-app.include_router(auth_router)
 
 # ====================================================
 # ☁️ CONFIGURACIÓN CLOUDINARY / FIREBASE
@@ -133,7 +131,9 @@ def get_db_worker():
 # ====================================================
 from monitoreo import router as monitoreo_router
 app.include_router(monitoreo_router)
+from auth import router as auth_router
 
+app.include_router(auth_router)
 
 # ====================================================
 # 🔑 MODELOS Pydantic (Auth y Valoraciones)
