@@ -1,10 +1,11 @@
 from fastapi import APIRouter, HTTPException, Depends
 from psycopg2.extras import RealDictCursor
-from database import get_db
 from passlib.context import CryptContext
-import jwt
 from datetime import datetime, timedelta
 from os import getenv
+import jwt
+
+from database import get_db
 
 router = APIRouter(
     prefix="/auth/admin",
@@ -24,31 +25,40 @@ def admin_login(data: dict, db=Depends(get_db)):
     password = data.get("password")
 
     if not email or not password:
-        raise HTTPException(400, "Datos incompletos")
+        raise HTTPException(status_code=400, detail="Datos incompletos")
 
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute(
         """
-        SELECT id, email, full_name, role, password_hash
+        SELECT
+            id,
+            email,
+            full_name,
+            role,
+            password_hash
         FROM admins
-        WHERE email = %s AND activo = TRUE
+        WHERE email = %s
+          AND activo = TRUE
+        LIMIT 1
         """,
         (email.lower(),)
     )
+
     admin = cur.fetchone()
     cur.close()
 
     if not admin:
-        raise HTTPException(401, "Credenciales inválidas")
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     if not pwd_context.verify(password, admin["password_hash"]):
-        raise HTTPException(401, "Credenciales inválidas")
+        raise HTTPException(status_code=401, detail="Credenciales inválidas")
 
     payload = {
         "sub": str(admin["id"]),
         "email": admin["email"],
         "role": admin["role"],
-        "exp": datetime.utcnow() + timedelta(minutes=EXP_MINUTES)
+        "type": "admin",
+        "exp": datetime.utcnow() + timedelta(minutes=EXP_MINUTES),
     }
 
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
@@ -61,5 +71,5 @@ def admin_login(data: dict, db=Depends(get_db)):
             "email": admin["email"],
             "full_name": admin["full_name"],
             "role": admin["role"],
-        }
+        },
     }
