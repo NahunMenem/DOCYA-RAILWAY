@@ -131,9 +131,10 @@ def get_db_worker():
 # ====================================================
 from monitoreo import router as monitoreo_router
 app.include_router(monitoreo_router)
-from auth import router as auth_router
+from auth_admin import router as auth_admin_router
 
-app.include_router(auth_router)
+app.include_router(auth_admin_router)
+
 
 # ====================================================
 # 🔑 MODELOS Pydantic (Auth y Valoraciones)
