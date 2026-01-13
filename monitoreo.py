@@ -667,30 +667,29 @@ async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_
 # ====================================================
 @router.get("/tiempo_promedio")
 async def tiempo_promedio_consultas(db=Depends(get_db)):
-    """
-    Devuelve el tiempo promedio de atención (en minutos)
-    calculado como la diferencia entre fin_atencion e inicio_atencion
-    para todas las consultas finalizadas.
-    """
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
             SELECT 
-                ROUND(AVG(EXTRACT(EPOCH FROM (fin_atencion - inicio_atencion)) / 60), 1) 
-                AS tiempo_promedio_min
+                ROUND(
+                    AVG(EXTRACT(EPOCH FROM (fin_atencion - inicio_atencion)) / 60),
+                1) AS tiempo_promedio_min
             FROM consultas
-            WHERE fin_atencion IS NOT NULL
-              AND inicio_atencion IS NOT NULL;
+            WHERE estado = 'finalizada'
+              AND inicio_atencion IS NOT NULL
+              AND fin_atencion IS NOT NULL;
         """)
         resultado = cur.fetchone()
         cur.close()
 
-        promedio = resultado["tiempo_promedio_min"] or 0
-        return {"tiempo_promedio_min": promedio}
+        return {
+            "tiempo_promedio_min": float(resultado["tiempo_promedio_min"] or 0)
+        }
 
     except Exception as e:
         print("❌ Error en tiempo_promedio_consultas:", e)
         return {"tiempo_promedio_min": 0}
+
 
 @router.get("/usuarios")
 async def listar_usuarios(db=Depends(get_db)):
