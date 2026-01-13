@@ -797,3 +797,42 @@ def tiempo_llegada_promedio(db=Depends(get_db)):
     """)
     result = cur.fetchone()[0] or 0
     return {"tiempo_llegada_promedio_min": result}
+
+@router.get("/profesionales_conectados")
+def profesionales_conectados(db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("""
+        SELECT
+            id,
+            full_name AS nombre,
+            tipo,               -- medico | enfermero
+            especialidad,
+            telefono,
+            matricula,
+            latitud AS lat,
+            longitud AS lng,
+            ultimo_ping,
+            CASE
+              WHEN ultimo_ping > NOW() - INTERVAL '2 minutes' THEN 'activo'
+              WHEN ultimo_ping > NOW() - INTERVAL '5 minutes' THEN 'latente'
+              ELSE 'offline'
+            END AS estado
+        FROM medicos
+        WHERE disponible = TRUE
+          AND ultimo_ping > NOW() - INTERVAL '5 minutes'
+          AND latitud IS NOT NULL
+          AND longitud IS NOT NULL
+        ORDER BY ultimo_ping DESC
+    """)
+
+    profesionales = cur.fetchall()
+    cur.close()
+
+    return {
+        "ok": True,
+        "total": len(profesionales),
+        "profesionales": profesionales
+    }
+
+
