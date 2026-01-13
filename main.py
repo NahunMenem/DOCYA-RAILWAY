@@ -2188,7 +2188,7 @@ def iniciar_consulta(consulta_id: int, db=Depends(get_db)):
             """
             UPDATE consultas
             SET estado = 'en_domicilio',
-                inicio_atencion = (NOW() AT TIME ZONE 'UTC-3')
+                inicio_atencion = NOW()
             WHERE id = %s
             RETURNING estado, inicio_atencion
             """,
