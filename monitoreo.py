@@ -522,6 +522,7 @@ def medicos_registrados(db=Depends(get_db)):
                 selfie_dni,
                 validado,
                 matricula_validada,
+                ultimo_ping,        
                 created_at
             FROM medicos
             ORDER BY created_at DESC;
