@@ -36,6 +36,7 @@ def preview_semana_actual(db=Depends(get_db)):
         SELECT
             m.id AS medico_id,
             m.full_name AS medico,
+            m.telefono,
             m.tipo,
             c.metodo_pago,
             c.inicio_atencion
@@ -75,6 +76,7 @@ def preview_semana_actual(db=Depends(get_db)):
             medicos[mid] = {
                 "medico_id": mid,
                 "medico": r["medico"],
+                "telefono": r["telefono"],  # ✅
                 "resumen": {
                     "cantidad_consultas": 0,
                     "total_efectivo": 0,
@@ -198,6 +200,7 @@ def listar_liquidaciones(db=Depends(get_db)):
         SELECT
             l.id,
             m.full_name AS medico,
+            m.telefono,
             m.tipo,
             l.semana_inicio,
             l.semana_fin,
