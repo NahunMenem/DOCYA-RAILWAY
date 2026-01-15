@@ -26,6 +26,8 @@ from psycopg2.extras import RealDictCursor
 # ====================================================
 # 📊LQUIDACIONES
 # ====================================================
+MP_FEE_RATE = 0.0761
+
 @router.get("/liquidaciones/preview_semana_actual")
 def preview_semana_actual(db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
@@ -56,12 +58,18 @@ def preview_semana_actual(db=Depends(get_db)):
         hora = r["inicio_atencion"].hour
         nocturna = hora >= 22 or hora < 6
 
+        # Precio base
         if tipo == "medico":
-            neto = 32000 if nocturna else 24000
-            comision = 8000 if nocturna else 6000
+            precio = 40000 if nocturna else 30000
         else:
-            neto = 24000 if nocturna else 16000
-            comision = 6000 if nocturna else 4000
+            precio = 30000 if nocturna else 20000
+
+        # MP
+        neto_post_mp = precio * (1 - MP_FEE_RATE) if metodo != "efectivo" else precio
+
+        # DocYa
+        docya = neto_post_mp * 0.20
+        profesional = neto_post_mp - docya
 
         if mid not in medicos:
             medicos[mid] = {
@@ -77,18 +85,20 @@ def preview_semana_actual(db=Depends(get_db)):
             }
 
         medicos[mid]["resumen"]["cantidad_consultas"] += 1
-        medicos[mid]["resumen"]["docya_comision_total"] += comision
+        medicos[mid]["resumen"]["docya_comision_total"] += docya
 
         if metodo == "efectivo":
-            medicos[mid]["resumen"]["total_efectivo"] += comision
+            medicos[mid]["resumen"]["total_efectivo"] += docya
         else:
-            medicos[mid]["resumen"]["total_digital"] += neto
-            medicos[mid]["resumen"]["a_pagar_medico"] += neto
+            medicos[mid]["resumen"]["total_digital"] += profesional
+            medicos[mid]["resumen"]["a_pagar_medico"] += profesional
 
     return {"medicos": list(medicos.values())}
 
 
 
+
+MP_FEE_RATE = 0.0761
 
 @router.post("/liquidaciones/generar_semana_anterior")
 def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
@@ -113,74 +123,71 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
             %s,
             %s,
 
-            -- Neto digital
+            -- Neto digital real (post MP y post DocYa)
             SUM(
-              CASE
-                WHEN metodo_pago != 'efectivo' THEN
-                  CASE
-                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 32000
-                    WHEN tipo = 'medico' THEN 24000
-                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 24000
-                    ELSE 16000
-                  END
-                ELSE 0
-              END
+              CASE WHEN metodo_pago != 'efectivo' THEN
+                (
+                  (
+                    CASE
+                      WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
+                      WHEN tipo='medico' THEN 30000
+                      WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
+                      ELSE 20000
+                    END
+                  ) * (1 - %s)
+                ) * 0.80
+              ELSE 0 END
             ),
 
-            -- Comisión efectivo
+            -- Comisión efectivo (solo DocYa)
             SUM(
-              CASE
-                WHEN metodo_pago = 'efectivo' THEN
+              CASE WHEN metodo_pago='efectivo' THEN
+                (
                   CASE
-                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 8000
-                    WHEN tipo = 'medico' THEN 6000
-                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 6000
-                    ELSE 4000
+                    WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
+                    WHEN tipo='medico' THEN 30000
+                    WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
+                    ELSE 20000
                   END
-                ELSE 0
-              END
+                ) * 0.20
+              ELSE 0 END
             ),
 
             -- Monto final
             SUM(
-              CASE
-                WHEN metodo_pago != 'efectivo' THEN
+              CASE WHEN metodo_pago!='efectivo' THEN
+                (
+                  (
+                    CASE
+                      WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
+                      WHEN tipo='medico' THEN 30000
+                      WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
+                      ELSE 20000
+                    END
+                  ) * (1 - %s)
+                ) * 0.80
+              ELSE
+                (
                   CASE
-                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 32000
-                    WHEN tipo = 'medico' THEN 24000
-                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 24000
-                    ELSE 16000
+                    WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
+                    WHEN tipo='medico' THEN 30000
+                    WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
+                    ELSE 20000
                   END
-                ELSE 0
-              END
-            )
-            -
-            SUM(
-              CASE
-                WHEN metodo_pago = 'efectivo' THEN
-                  CASE
-                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 8000
-                    WHEN tipo = 'medico' THEN 6000
-                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 6000
-                    ELSE 4000
-                  END
-                ELSE 0
+                ) * 0.80
               END
             ),
 
             'pendiente'
         FROM consultas
-        WHERE estado = 'finalizada'
-          AND inicio_atencion >= %s
-          AND inicio_atencion < %s
+        WHERE estado='finalizada'
+          AND inicio_atencion>=%s AND inicio_atencion<%s
         GROUP BY medico_id
-    """, (inicio, fin, inicio, fin))
+    """, (inicio, fin, MP_FEE_RATE, MP_FEE_RATE, inicio, fin))
 
     db.commit()
     cur.close()
-
     return {"ok": True, "semana": f"{inicio} → {fin}"}
-
 
 
 @router.get("/liquidaciones")
