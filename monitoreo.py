@@ -34,18 +34,14 @@ def preview_semana_actual(db=Depends(get_db)):
         SELECT
             m.id AS medico_id,
             m.full_name AS medico,
-            c.id AS consulta_id,
-            c.inicio_atencion::date AS fecha,
-            c.inicio_atencion,
-            c.fin_atencion,
+            m.tipo,
             c.metodo_pago,
-            c.precio_final
+            c.inicio_atencion
         FROM consultas c
         JOIN medicos m ON m.id = c.medico_id
         WHERE c.estado = 'finalizada'
           AND c.inicio_atencion >= date_trunc('week', CURRENT_DATE)
           AND c.inicio_atencion < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'
-        ORDER BY m.full_name, c.inicio_atencion;
     """)
 
     rows = cur.fetchall()
@@ -53,85 +49,44 @@ def preview_semana_actual(db=Depends(get_db)):
 
     medicos = {}
 
-    # ===============================
-    # PRIMER PASO: ACUMULAR DATOS
-    # ===============================
-    for c in rows:
-        mid = c["medico_id"]
-        metodo = c["metodo_pago"]
-        monto = float(c["precio_final"])
+    for r in rows:
+        mid = r["medico_id"]
+        tipo = r["tipo"]
+        metodo = r["metodo_pago"]
+        hora = r["inicio_atencion"].hour
+        nocturna = hora >= 22 or hora < 6
+
+        if tipo == "medico":
+            neto = 32000 if nocturna else 24000
+            comision = 8000 if nocturna else 6000
+        else:
+            neto = 24000 if nocturna else 16000
+            comision = 6000 if nocturna else 4000
 
         if mid not in medicos:
             medicos[mid] = {
                 "medico_id": mid,
-                "medico": c["medico"],
-                "consultas": [],
+                "medico": r["medico"],
                 "resumen": {
                     "cantidad_consultas": 0,
                     "total_efectivo": 0,
                     "total_digital": 0,
-                    "mp_comision": 0,
                     "docya_comision_total": 0,
                     "a_pagar_medico": 0,
                 },
             }
 
         medicos[mid]["resumen"]["cantidad_consultas"] += 1
+        medicos[mid]["resumen"]["docya_comision_total"] += comision
 
-        # EFECTIVO
         if metodo == "efectivo":
-            medicos[mid]["resumen"]["total_efectivo"] += monto
-
-            medicos[mid]["consultas"].append({
-                "fecha": c["fecha"],
-                "inicio_atencion": c["inicio_atencion"],
-                "fin_atencion": c["fin_atencion"],
-                "metodo_pago": metodo,
-                "precio_final": monto,
-                "nota": "Cobrado en efectivo"
-            })
-
-        # DIGITAL
+            medicos[mid]["resumen"]["total_efectivo"] += comision
         else:
-            medicos[mid]["resumen"]["total_digital"] += monto
+            medicos[mid]["resumen"]["total_digital"] += neto
+            medicos[mid]["resumen"]["a_pagar_medico"] += neto
 
-            medicos[mid]["consultas"].append({
-                "fecha": c["fecha"],
-                "inicio_atencion": c["inicio_atencion"],
-                "fin_atencion": c["fin_atencion"],
-                "metodo_pago": metodo,
-                "precio_final": monto,
-            })
+    return {"medicos": list(medicos.values())}
 
-    # ===============================
-    # SEGUNDO PASO: LIQUIDACIÓN REAL
-    # ===============================
-    for m in medicos.values():
-        total_consultas = m["resumen"]["cantidad_consultas"]
-        total_digital = m["resumen"]["total_digital"]
-
-        # Comisión MP (solo digital)
-        mp_fee = total_digital * 0.08
-        digital_neto = total_digital - mp_fee
-
-        # Comisión DocYa (20% de TODAS las consultas)
-        docya_total = total_consultas * 30000 * 0.20
-
-        # Lo que se transfiere al médico
-        a_pagar = digital_neto - docya_total
-
-        m["resumen"]["mp_comision"] = round(mp_fee, 2)
-        m["resumen"]["docya_comision_total"] = round(docya_total, 2)
-        m["resumen"]["a_pagar_medico"] = round(a_pagar, 2)
-
-    return {
-        "periodo": "Semana actual (en curso)",
-        "mensaje": (
-            "DocYa cobra el 20% de todas las consultas. "
-            "Las consultas en efectivo se compensan desde el dinero digital."
-        ),
-        "medicos": list(medicos.values())
-    }
 
 
 
@@ -140,19 +95,8 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
     cur = db.cursor()
 
     hoy = date.today()
-    inicio_semana = hoy - timedelta(days=hoy.weekday() + 7)
-    fin_semana = inicio_semana + timedelta(days=7)
-
-    # Evitar duplicados
-    cur.execute("""
-        SELECT 1
-        FROM liquidaciones_semanales
-        WHERE semana_inicio = %s AND semana_fin = %s
-    """, (inicio_semana, fin_semana))
-
-    if cur.fetchone():
-        cur.close()
-        raise HTTPException(409, "La liquidación ya existe")
+    inicio = hoy - timedelta(days=hoy.weekday() + 7)
+    fin = inicio + timedelta(days=7)
 
     cur.execute("""
         INSERT INTO liquidaciones_semanales (
@@ -171,46 +115,72 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
 
             -- Neto digital
             SUM(
-                CASE WHEN metodo_pago != 'efectivo'
-                     THEN precio_final * 0.80
-                     ELSE 0 END
+              CASE
+                WHEN metodo_pago != 'efectivo' THEN
+                  CASE
+                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 32000
+                    WHEN tipo = 'medico' THEN 24000
+                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 24000
+                    ELSE 16000
+                  END
+                ELSE 0
+              END
             ),
 
             -- Comisión efectivo
             SUM(
-                CASE WHEN metodo_pago = 'efectivo'
-                     THEN precio_final * 0.20
-                     ELSE 0 END
+              CASE
+                WHEN metodo_pago = 'efectivo' THEN
+                  CASE
+                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 8000
+                    WHEN tipo = 'medico' THEN 6000
+                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 6000
+                    ELSE 4000
+                  END
+                ELSE 0
+              END
             ),
 
             -- Monto final
             SUM(
-                CASE WHEN metodo_pago != 'efectivo'
-                     THEN precio_final * 0.80
-                     ELSE 0 END
-            ) -
+              CASE
+                WHEN metodo_pago != 'efectivo' THEN
+                  CASE
+                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 32000
+                    WHEN tipo = 'medico' THEN 24000
+                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 24000
+                    ELSE 16000
+                  END
+                ELSE 0
+              END
+            )
+            -
             SUM(
-                CASE WHEN metodo_pago = 'efectivo'
-                     THEN precio_final * 0.20
-                     ELSE 0 END
+              CASE
+                WHEN metodo_pago = 'efectivo' THEN
+                  CASE
+                    WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 8000
+                    WHEN tipo = 'medico' THEN 6000
+                    WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 6000
+                    ELSE 4000
+                  END
+                ELSE 0
+              END
             ),
 
             'pendiente'
-
         FROM consultas
         WHERE estado = 'finalizada'
           AND inicio_atencion >= %s
           AND inicio_atencion < %s
         GROUP BY medico_id
-    """, (inicio_semana, fin_semana, inicio_semana, fin_semana))
+    """, (inicio, fin, inicio, fin))
 
     db.commit()
     cur.close()
 
-    return {
-        "ok": True,
-        "semana": f"{inicio_semana} → {fin_semana}"
-    }
+    return {"ok": True, "semana": f"{inicio} → {fin}"}
+
 
 
 @router.get("/liquidaciones")
@@ -241,24 +211,26 @@ def listar_liquidaciones(db=Depends(get_db)):
 
 
 @router.get("/liquidaciones/medico/{medico_id}")
-def detalle_liquidacion_medico(
-    medico_id: int,
-    semana_inicio: date,
-    semana_fin: date,
-    db=Depends(get_db)
-):
+def detalle_liquidacion_medico(medico_id: int, semana_inicio: date, semana_fin: date, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
 
     cur.execute("""
         SELECT
-            id,
-            inicio_atencion::date AS fecha,
             inicio_atencion,
-            fin_atencion,
             metodo_pago,
-            precio_final,
-            precio_final * 0.20 AS docya_comision,
-            precio_final * 0.80 AS medico_neto
+            tipo,
+            CASE
+              WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 32000
+              WHEN tipo = 'medico' THEN 24000
+              WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 24000
+              ELSE 16000
+            END AS neto_profesional,
+            CASE
+              WHEN tipo = 'medico' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 8000
+              WHEN tipo = 'medico' THEN 6000
+              WHEN tipo = 'enfermero' AND (EXTRACT(HOUR FROM inicio_atencion) >= 22 OR EXTRACT(HOUR FROM inicio_atencion) < 6) THEN 6000
+              ELSE 4000
+            END AS comision_docya
         FROM consultas
         WHERE estado = 'finalizada'
           AND medico_id = %s
@@ -268,20 +240,10 @@ def detalle_liquidacion_medico(
     """, (medico_id, semana_inicio, semana_fin))
 
     consultas = cur.fetchall()
-
-    totales = {
-        "monto_total": sum(c["precio_final"] for c in consultas),
-        "comision_docya": sum(c["docya_comision"] for c in consultas),
-        "neto_medico": sum(c["medico_neto"] for c in consultas),
-    }
-
     cur.close()
 
-    return {
-        "periodo": f"{semana_inicio} → {semana_fin}",
-        "totales": totales,
-        "consultas": consultas
-    }
+    return {"consultas": consultas}
+
 
 @router.post("/liquidaciones/{id}/pagar")
 def pagar_liquidacion(id: int, db=Depends(get_db)):
