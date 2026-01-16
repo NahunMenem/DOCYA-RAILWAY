@@ -101,9 +101,22 @@ def preview_semana_actual(db=Depends(get_db)):
 @router.delete("/consultas/{consulta_id}")
 def eliminar_consulta(consulta_id: int, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("DELETE FROM consultas WHERE id = %s", (consulta_id,))
+
+    # 1️⃣ borrar pagos asociados
+    cur.execute(
+        "DELETE FROM pagos_consulta WHERE consulta_id = %s",
+        (consulta_id,)
+    )
+
+    # 2️⃣ borrar la consulta
+    cur.execute(
+        "DELETE FROM consultas WHERE id = %s",
+        (consulta_id,)
+    )
+
     db.commit()
     return {"ok": True}
+
 
 
 MP_FEE_RATE = 0.0761
