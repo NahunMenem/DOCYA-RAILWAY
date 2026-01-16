@@ -198,33 +198,50 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
     return {"ok": True, "semana": f"{inicio} → {fin}"}
 
 
+# ====================================================
+# 👥 USUARIOS REGISTRADOS – Listado completo (Admin)
+# ====================================================
 @router.get("/usuarios")
-async def listar_usuarios(db=Depends(get_db)):
+def listar_usuarios(db=Depends(get_db)):
+    """
+    Devuelve todos los usuarios registrados (patients, admins, etc).
+    Ideal para panel de administración.
+    """
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
-            SELECT 
-                email,
+            SELECT
+                id,
                 full_name,
-                password_hash,
+                email,
                 dni,
                 telefono,
                 pais,
                 provincia,
                 localidad,
                 fecha_nacimiento,
-                acepto_condiciones,
-                fecha_aceptacion,
-                version_texto,
                 validado,
-                role
+                role,
+                created_at
             FROM users
             ORDER BY created_at DESC;
         """)
+
         usuarios = cur.fetchall()
         cur.close()
-        return usuarios
 
+        return {
+            "ok": True,
+            "total": len(usuarios),
+            "usuarios": usuarios
+        }
+
+    except Exception as e:
+        print("❌ Error listando usuarios:", e)
+        return {
+            "ok": False,
+            "error": str(e)
+        }
 
 @router.get("/liquidaciones")
 def listar_liquidaciones(db=Depends(get_db)):
