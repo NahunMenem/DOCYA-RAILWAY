@@ -201,14 +201,24 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
 # ====================================================
 # 👥 USUARIOS REGISTRADOS – Listado completo (Admin)
 # ====================================================
+# ====================================================
+# 👥 USUARIOS REGISTRADOS – Listado paginado
+# ====================================================
 @router.get("/usuarios")
-def listar_usuarios(db=Depends(get_db)):
-    """
-    Devuelve todos los usuarios registrados (patients, admins, etc).
-    Ideal para panel de administración.
-    """
+def listar_usuarios(
+    page: int = 1,
+    limit: int = 15,
+    db=Depends(get_db)
+):
     try:
+        offset = (page - 1) * limit
         cur = db.cursor(cursor_factory=RealDictCursor)
+
+        # Total usuarios
+        cur.execute("SELECT COUNT(*) FROM users;")
+        total = cur.fetchone()["count"]
+
+        # Usuarios paginados
         cur.execute("""
             SELECT
                 id,
@@ -216,32 +226,30 @@ def listar_usuarios(db=Depends(get_db)):
                 email,
                 dni,
                 telefono,
-                pais,
-                provincia,
-                localidad,
-                fecha_nacimiento,
                 validado,
                 role,
                 created_at
             FROM users
-            ORDER BY created_at DESC;
-        """)
+            ORDER BY created_at DESC
+            LIMIT %s OFFSET %s;
+        """, (limit, offset))
 
         usuarios = cur.fetchall()
         cur.close()
 
         return {
             "ok": True,
-            "total": len(usuarios),
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "pages": (total + limit - 1) // limit,
             "usuarios": usuarios
         }
 
     except Exception as e:
         print("❌ Error listando usuarios:", e)
-        return {
-            "ok": False,
-            "error": str(e)
-        }
+        return {"ok": False, "error": str(e)}
+
 
 @router.get("/liquidaciones")
 def listar_liquidaciones(db=Depends(get_db)):
