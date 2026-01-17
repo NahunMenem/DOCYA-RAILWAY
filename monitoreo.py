@@ -214,6 +214,54 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
 # ====================================================
 # 👥 USUARIOS REGISTRADOS – Listado completo (Admin)
 # ====================================================
+from fastapi import APIRouter, Depends, HTTPException
+from psycopg2.extras import RealDictCursor
+from database import get_db
+
+router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
+
+
+@router.put("/{usuario_id}")
+def editar_usuario(usuario_id: int, data: dict, db=Depends(get_db)):
+    try:
+        cur = db.cursor(cursor_factory=RealDictCursor)
+
+        cur.execute(
+            """
+            UPDATE users
+            SET
+                full_name = %s,
+                email = %s,
+                telefono = %s,
+                role = %s,
+                validado = %s
+            WHERE id = %s
+            RETURNING id;
+            """,
+            (
+                data.get("full_name"),
+                data.get("email"),
+                data.get("telefono"),
+                data.get("role"),
+                data.get("validado"),
+                usuario_id,
+            ),
+        )
+
+        usuario = cur.fetchone()
+        db.commit()
+        cur.close()
+
+        if not usuario:
+            raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+        return {"ok": True, "message": "Usuario actualizado"}
+
+    except Exception as e:
+        db.rollback()
+        print("❌ Error editando usuario:", e)
+        raise HTTPException(status_code=500, detail="Error interno")
+
 # ====================================================
 # 👥 USUARIOS REGISTRADOS – Listado paginado
 # ====================================================
