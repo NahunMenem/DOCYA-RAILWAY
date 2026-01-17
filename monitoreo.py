@@ -221,8 +221,16 @@ from database import get_db
 router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
 
 
+from uuid import UUID
+from fastapi import APIRouter, Depends, HTTPException
+from psycopg2.extras import RealDictCursor
+from database import get_db
+
+router = APIRouter(prefix="/usuarios", tags=["Usuarios"])
+
+
 @router.put("/{usuario_id}")
-def editar_usuario(usuario_id: int, data: dict, db=Depends(get_db)):
+def editar_usuario(usuario_id: UUID, data: dict, db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
 
@@ -244,7 +252,7 @@ def editar_usuario(usuario_id: int, data: dict, db=Depends(get_db)):
                 data.get("telefono"),
                 data.get("role"),
                 data.get("validado"),
-                usuario_id,
+                str(usuario_id),  # UUID → string para psycopg2
             ),
         )
 
@@ -255,12 +263,13 @@ def editar_usuario(usuario_id: int, data: dict, db=Depends(get_db)):
         if not usuario:
             raise HTTPException(status_code=404, detail="Usuario no encontrado")
 
-        return {"ok": True, "message": "Usuario actualizado"}
+        return {"ok": True}
 
     except Exception as e:
         db.rollback()
         print("❌ Error editando usuario:", e)
         raise HTTPException(status_code=500, detail="Error interno")
+
 
 # ====================================================
 # 👥 USUARIOS REGISTRADOS – Listado paginado
