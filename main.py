@@ -17,7 +17,6 @@ from datetime import datetime, timedelta, date
 from unidecode import unidecode
 from zoneinfo import ZoneInfo
 from fastapi import Request
-
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
@@ -965,7 +964,8 @@ def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get
 from pydantic import BaseModel, constr
 
 class AliasIn(BaseModel):
-    alias_cbu: constr(strip_whitespace=True, min_length=3)
+    alias: str
+
 
 
 # ================================
@@ -4793,8 +4793,30 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
 
 # --- Obtener perfil alias ---
 @app.get("/medicos/{medico_id}")
-def alias_obtener_medico(medico_id: int, db=Depends(get_db)):
-    return obtener_medico(medico_id, db)
+def obtener_medico(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT id, full_name, email, especialidad, telefono,
+               alias_cbu, matricula, foto_perfil
+        FROM medicos
+        WHERE id=%s
+    """, (medico_id,))
+    row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+    return {
+        "id": row[0],
+        "full_name": row[1],
+        "email": row[2],
+        "especialidad": row[3],
+        "telefono": row[4],
+        "alias_cbu": row[5],
+        "matricula": row[6],
+        "foto_perfil": row[7],
+    }
+
 
 # --- Foto alias ---
 @app.post("/medicos/{medico_id}/foto")
@@ -4803,8 +4825,26 @@ def alias_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get_db))
 
 # --- Alias CBU alias ---
 @app.patch("/medicos/{medico_id}/alias")
-def alias_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
-    return actualizar_alias(medico_id, data, db)
+def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos
+        SET alias_cbu = %s
+        WHERE id = %s
+        RETURNING alias_cbu
+    """, (data.alias, medico_id))
+
+    row = cur.fetchone()
+    db.commit()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="Medico no encontrado")
+
+    return {
+        "ok": True,
+        "alias": row[0]
+    }
+
 
 # --- FCM Token alias ---
 @app.post("/medicos/{medico_id}/fcm_token")
