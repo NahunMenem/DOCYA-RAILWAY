@@ -962,25 +962,47 @@ def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get
 
 
 
+# ================================
+# SCHEMA
+# ================================
 class AliasIn(BaseModel):
-    alias: str
+    alias_cbu: constr(strip_whitespace=True, min_length=3)
 
-class FcmTokenIn(BaseModel):
-    fcm_token: str
+# ================================
+# ENDPOINT FINAL
+# ================================
 @app.patch("/auth/medico/{medico_id}/alias")
-def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
-    cur = db.cursor()
+def actualizar_alias(
+    medico_id: int,
+    data: AliasIn,
+    db=Depends(get_db),
+    user=Depends(get_current_user),
+):
+    # 🔒 Seguridad: solo el propio médico
+    if user["medico_id"] != medico_id:
+        raise HTTPException(status_code=403, detail="Acceso no autorizado")
+
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
     cur.execute("""
-        UPDATE medicos 
-        SET alias_cbu=%s, updated_at=NOW() 
-        WHERE id=%s 
-        RETURNING id,alias_cbu
-    """, (data.alias, medico_id))
-    row = cur.fetchone(); db.commit()
+        UPDATE medicos
+        SET alias_cbu = %s,
+            updated_at = NOW()
+        WHERE id = %s
+        RETURNING id, alias_cbu
+    """, (data.alias_cbu, medico_id))
+
+    row = cur.fetchone()
+    db.commit()
+
     if not row:
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
-    return {"ok": True, "medico_id": medico_id, "alias": row[1]}
 
+    return {
+        "ok": True,
+        "medico_id": row["id"],
+        "alias_cbu": row["alias_cbu"],
+    }
 
 @app.post("/auth/medico/{medico_id}/disponibilidad")
 def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
