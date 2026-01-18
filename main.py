@@ -962,36 +962,24 @@ def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get
 
 
 
-# ================================
-# SCHEMA
-# ================================
+from pydantic import BaseModel, constr
+
 class AliasIn(BaseModel):
     alias_cbu: constr(strip_whitespace=True, min_length=3)
+
 
 # ================================
 # ENDPOINT FINAL
 # ================================
 @app.patch("/auth/medico/{medico_id}/alias")
-def actualizar_alias(
-    medico_id: int,
-    data: AliasIn,
-    db=Depends(get_db),
-    user=Depends(get_current_user),
-):
-    # 🔒 Seguridad: solo el propio médico
-    if user["medico_id"] != medico_id:
-        raise HTTPException(status_code=403, detail="Acceso no autorizado")
-
-    cur = db.cursor(cursor_factory=RealDictCursor)
-
+def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
+    cur = db.cursor()
     cur.execute("""
-        UPDATE medicos
-        SET alias_cbu = %s,
-            updated_at = NOW()
-        WHERE id = %s
+        UPDATE medicos 
+        SET alias_cbu=%s, updated_at=NOW() 
+        WHERE id=%s 
         RETURNING id, alias_cbu
     """, (data.alias_cbu, medico_id))
-
     row = cur.fetchone()
     db.commit()
 
@@ -1000,9 +988,10 @@ def actualizar_alias(
 
     return {
         "ok": True,
-        "medico_id": row["id"],
-        "alias_cbu": row["alias_cbu"],
+        "medico_id": medico_id,
+        "alias_cbu": row[1],
     }
+
 
 @app.post("/auth/medico/{medico_id}/disponibilidad")
 def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
