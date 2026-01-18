@@ -316,7 +316,8 @@ def register(data: RegisterIn, db=Depends(get_db)):
     }
 
 
-
+class FcmTokenIn(BaseModel):
+    fcm_token: str
 
 @app.get("/users/{user_id}")
 def get_user_by_id(user_id: str, db=Depends(get_db)):
