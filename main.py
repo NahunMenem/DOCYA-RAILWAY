@@ -133,6 +133,8 @@ app.include_router(monitoreo_router)
 from auth_admin import router as auth_admin_router
 
 app.include_router(auth_admin_router)
+from pastillero import router as pastillero_router
+app.include_router(pastillero_router)
 
 
 # ====================================================
