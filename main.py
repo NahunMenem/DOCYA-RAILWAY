@@ -964,8 +964,10 @@ def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get
 
 from pydantic import BaseModel, constr
 
+
 class AliasIn(BaseModel):
-    alias: str
+    alias_cbu: str
+#   alias: str
 
 
 
