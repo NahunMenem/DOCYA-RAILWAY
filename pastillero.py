@@ -50,11 +50,12 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
             data.paciente_uuid,
             data.nombre,
             data.dosis,
-            data.horarios,
+            data.horarios,          # 👈 ACÁ
             data.fecha_inicio,
             data.fecha_fin,
             data.observaciones
         ))
+
         medicacion_id = cur.fetchone()[0]
 
         # 2. Generar tomas para HOY
