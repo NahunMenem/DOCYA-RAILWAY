@@ -966,7 +966,8 @@ from pydantic import BaseModel, constr
 
 
 class AliasIn(BaseModel):
-    alias_cbu: str
+    alias: str | None = None
+    alias_cbu: str | None = None
 #   alias: str
 
 
@@ -975,25 +976,18 @@ class AliasIn(BaseModel):
 # ENDPOINT FINAL
 # ================================
 @app.patch("/auth/medico/{medico_id}/alias")
-def actualizar_alias(medico_id: int, data: AliasIn, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        UPDATE medicos 
-        SET alias_cbu=%s, updated_at=NOW() 
-        WHERE id=%s 
-        RETURNING id, alias_cbu
-    """, (data.alias_cbu, medico_id))
-    row = cur.fetchone()
-    db.commit()
+def actualizar_alias(medico_id: int, data: AliasIn):
+    alias = data.alias_cbu or data.alias
 
-    if not row:
-        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+    if not alias:
+        raise HTTPException(status_code=400, detail="Alias requerido")
 
-    return {
-        "ok": True,
-        "medico_id": medico_id,
-        "alias_cbu": row[1],
-    }
+    cursor.execute("""
+        UPDATE medicos
+        SET alias_cbu = %s
+        WHERE id = %s
+    """, (alias, medico_id))
+
 
 
 @app.post("/auth/medico/{medico_id}/disponibilidad")
