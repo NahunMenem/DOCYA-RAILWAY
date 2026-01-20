@@ -976,17 +976,28 @@ class AliasIn(BaseModel):
 # ENDPOINT FINAL
 # ================================
 @app.patch("/auth/medico/{medico_id}/alias")
-def actualizar_alias(medico_id: int, data: AliasIn):
+def actualizar_alias(
+    medico_id: int,
+    data: AliasIn,
+    conn=Depends(get_db)
+):
     alias = data.alias_cbu or data.alias
-
     if not alias:
         raise HTTPException(status_code=400, detail="Alias requerido")
+
+    cursor = conn.cursor()
 
     cursor.execute("""
         UPDATE medicos
         SET alias_cbu = %s
         WHERE id = %s
     """, (alias, medico_id))
+
+    conn.commit()
+    cursor.close()
+
+    return {"ok": True}
+
 
 
 
