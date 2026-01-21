@@ -39,7 +39,7 @@ from psycopg2.extras import RealDictCursor
 def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
     cur = db.cursor()
     try:
-        # 1️⃣ Insertar medicación (SOLO columnas existentes)
+        # 1️⃣ Insertar medicación
         cur.execute("""
             INSERT INTO medicaciones (
                 paciente_uuid,
@@ -55,14 +55,14 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
             data.paciente_uuid,
             data.nombre,
             data.dosis,
-            list(data.horarios),
+            data.horarios,          # ✅ YA ES time[]
             data.fecha_inicio,
             data.fecha_fin
         ))
 
         medicacion_id = cur.fetchone()[0]
 
-        # 2️⃣ Crear tomas SOLO para hoy (si corresponde)
+        # 2️⃣ Crear tomas para hoy
         hoy = now_argentina().date()
 
         if hoy >= data.fecha_inicio and (data.fecha_fin is None or hoy <= data.fecha_fin):
@@ -78,7 +78,7 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
                 """, (
                     medicacion_id,
                     hoy,
-                    datetime.strptime(h, "%H:%M").time()
+                    h                # ✅ time directo
                 ))
 
         db.commit()
@@ -88,6 +88,7 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
         db.rollback()
         print("❌ Error creando medicación:", e)
         raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ====================================================
