@@ -33,18 +33,23 @@ class TomaConfirmarIn(BaseModel):
 # 🧪 CREAR MEDICACIÓN
 # ====================================================
 from datetime import datetime
+from psycopg2.extras import RealDictCursor
+
 @router.post("/medicacion")
 def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
     cur = db.cursor()
     try:
-        # 1. Crear medicación
+        # 1️⃣ Insertar medicación (SOLO columnas existentes)
         cur.execute("""
             INSERT INTO medicaciones (
-                paciente_uuid, nombre, dosis,
-                horarios, fecha_inicio, fecha_fin,
-                observaciones
+                paciente_uuid,
+                nombre,
+                dosis,
+                horarios,
+                fecha_inicio,
+                fecha_fin
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s)
+            VALUES (%s,%s,%s,%s,%s,%s)
             RETURNING id
         """, (
             data.paciente_uuid,
@@ -52,31 +57,37 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
             data.dosis,
             [datetime.strptime(h, "%H:%M").time() for h in data.horarios],
             data.fecha_inicio,
-            data.fecha_fin,
-            data.observaciones
+            data.fecha_fin
         ))
 
         medicacion_id = cur.fetchone()[0]
 
-        # 2. Generar tomas para HOY
+        # 2️⃣ Crear tomas SOLO para hoy (si corresponde)
         hoy = now_argentina().date()
-        if hoy >= data.fecha_inicio and (not data.fecha_fin or hoy <= data.fecha_fin):
+
+        if hoy >= data.fecha_inicio and (data.fecha_fin is None or hoy <= data.fecha_fin):
             for h in data.horarios:
                 cur.execute("""
                     INSERT INTO tomas (
                         medicacion_id,
                         fecha,
-                        horario_programado
+                        horario_programado,
+                        tomado
                     )
-                    VALUES (%s,%s,%s)
-                """, (medicacion_id, hoy, h))
+                    VALUES (%s,%s,%s,FALSE)
+                """, (
+                    medicacion_id,
+                    hoy,
+                    datetime.strptime(h, "%H:%M").time()
+                ))
 
         db.commit()
         return {"ok": True, "medicacion_id": medicacion_id}
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(500, f"Error creando medicación: {e}")
+        print("❌ Error creando medicación:", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ====================================================
