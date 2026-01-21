@@ -55,7 +55,7 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
             data.paciente_uuid,
             data.nombre,
             data.dosis,
-            [datetime.strptime(h, "%H:%M").time() for h in data.horarios],
+            list(data.horarios),
             data.fecha_inicio,
             data.fecha_fin
         ))
