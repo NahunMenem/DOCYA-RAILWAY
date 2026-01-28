@@ -578,6 +578,48 @@ def medicos_registrados(db=Depends(get_db)):
     except Exception as e:
         print("❌ Error en medicos_registrados:", e)
         return {"ok": False, "error": str(e)}
+
+@router.put("/medicos/{medico_id}")
+def editar_medico(medico_id: int, data: MedicoUpdate, db=Depends(get_db)):
+    try:
+        cur = db.cursor()
+        cur.execute("""
+            UPDATE medicos SET
+                full_name = %s,
+                email = %s,
+                telefono = %s,
+                especialidad = %s,
+                provincia = %s,
+                localidad = %s
+            WHERE id = %s
+        """, (
+            data.full_name,
+            data.email,
+            data.telefono,
+            data.especialidad,
+            data.provincia,
+            data.localidad,
+            medico_id
+        ))
+        db.commit()
+        cur.close()
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        return {"ok": False, "error": str(e)}
+
+@router.delete("/medicos/{medico_id}")
+def borrar_medico(medico_id: int, db=Depends(get_db)):
+    try:
+        cur = db.cursor()
+        cur.execute("DELETE FROM medicos WHERE id = %s", (medico_id,))
+        db.commit()
+        cur.close()
+        return {"ok": True}
+    except Exception as e:
+        db.rollback()
+        return {"ok": False, "error": str(e)}
+
 # ====================================================
 # ✅ VALIDAR / ❌ DESVALIDAR MATRÍCULA
 # ====================================================
