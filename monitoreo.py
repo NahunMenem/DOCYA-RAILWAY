@@ -638,6 +638,7 @@ def editar_medico(medico_id: int, data: MedicoUpdate, db=Depends(get_db)):
         db.rollback()
         return {"ok": False, "error": str(e)}
 
+
 @router.delete("/medicos/{medico_id}")
 def borrar_medico(medico_id: int, db=Depends(get_db)):
     try:
