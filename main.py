@@ -99,16 +99,37 @@ def get_access_token():
 # ====================================================
 # 🚀 CREAR APP FASTAPI
 # ====================================================
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+# ====================================================
+# 🌍 CORS – ORÍGENES PERMITIDOS
+# ====================================================
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+
+    # Frontend en Vercel
+    "https://centrodemonitoreodocya.vercel.app",
+    "https://docya-monitoreo.vercel.app",
+]
+
+# ====================================================
+# 🚀 CREAR APP FASTAPI
+# ====================================================
 app = FastAPI(title="DocYa API", version="1.0.0")
 
-# CORS
+# ====================================================
+# 🔐 CORS GLOBAL
+# ====================================================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=ALLOWED_ORIGINS if ALLOWED_ORIGINS != ["*"] else ["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 
 # ====================================================
