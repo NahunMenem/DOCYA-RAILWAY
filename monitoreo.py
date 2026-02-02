@@ -688,35 +688,37 @@ def validar_matricula(medico_id: int, db=Depends(get_db)):
 @router.get("/medicos_ubicacion")
 def medicos_ubicacion(db=Depends(get_db)):
     """
-    Devuelve la ubicación actual (latitud, longitud) de todos los médicos disponibles
-    que están conectados recientemente (último ping < 1 minuto).
+    Muestra profesionales disponibles con última ubicación válida.
+    Tolerante a iOS (no requiere ping en background).
     """
-    try:
-        cur = db.cursor(cursor_factory=RealDictCursor)
-        cur.execute("""
-            SELECT 
-                id,
-                full_name AS nombre,
-                latitud AS lat,
-                longitud AS lng,
-                telefono,
-                especialidad,
-                provincia,
-                localidad,
-                tipo  
-            FROM medicos
-            WHERE disponible = TRUE
-              AND (ultimo_ping IS NOT NULL AND ultimo_ping > NOW() - INTERVAL '1 minute')
-              AND latitud IS NOT NULL
-              AND longitud IS NOT NULL
-            ORDER BY id;
-        """)
-        medicos = cur.fetchall()
-        cur.close()
-        return {"ok": True, "medicos": medicos}
-    except Exception as e:
-        print("❌ Error en medicos_ubicacion:", e)
-        return {"ok": False, "error": str(e)}
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT 
+            id,
+            full_name AS nombre,
+            latitud AS lat,
+            longitud AS lng,
+            telefono,
+            especialidad,
+            provincia,
+            localidad,
+            tipo,
+            ultimo_ping
+        FROM medicos
+        WHERE disponible = TRUE
+          AND latitud IS NOT NULL
+          AND longitud IS NOT NULL
+        ORDER BY ultimo_ping DESC NULLS LAST
+    """)
+    data = cur.fetchall()
+    cur.close()
+
+    return {
+        "ok": True,
+        "total": len(data),
+        "medicos": data
+    }
+
 
 
 # ====================================================
