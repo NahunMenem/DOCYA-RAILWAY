@@ -112,7 +112,9 @@ ALLOWED_ORIGINS = [
     # Frontend en Vercel
     "https://centrodemonitoreodocya.vercel.app",
     "https://docya-monitoreo.vercel.app",
+    "https://centrodemonitoreodocya-tmro.vercel.app",
 ]
+
 
 # ====================================================
 # 🚀 CREAR APP FASTAPI
