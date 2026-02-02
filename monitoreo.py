@@ -27,6 +27,16 @@ from psycopg2.extras import RealDictCursor
 # 📊LQUIDACIONES
 # ====================================================
 MP_FEE_RATE = 0.0761
+from pydantic import BaseModel
+
+class MedicoUpdate(BaseModel):
+    full_name: str
+    email: str
+    telefono: str
+    especialidad: str
+    provincia: str
+    localidad: str
+
 
 @router.get("/liquidaciones/preview_semana_actual")
 def preview_semana_actual(db=Depends(get_db)):
@@ -214,9 +224,29 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
 # ====================================================
 # 👥 USUARIOS REGISTRADOS – Listado completo (Admin)
 # ====================================================
+from pydantic import BaseModel
+
+class MedicoUpdate(BaseModel):
+    full_name: str
+    email: str
+    telefono: str
+    especialidad: str
+    provincia: str
+    localidad: str
+
 # ====================================================
 # 👥 USUARIOS REGISTRADOS – Listado paginado
 # ====================================================
+from pydantic import BaseModel
+
+class MedicoUpdate(BaseModel):
+    full_name: str
+    email: str
+    telefono: str
+    especialidad: str
+    provincia: str
+    localidad: str
+
 @router.get("/usuarios")
 def listar_usuarios(
     page: int = 1,
