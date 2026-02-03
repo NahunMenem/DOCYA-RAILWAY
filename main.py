@@ -1849,7 +1849,6 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     # ============================================================
     # 🟩 EFECTIVO (idéntico flujo + push inmediato)
     # ============================================================
-
     cur.execute("""
         SELECT id, full_name, latitud, longitud, tipo,
         (6371 * acos(
@@ -1863,9 +1862,21 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
           AND tipo = %s
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
+          AND (
+            (6371 * acos(
+                cos(radians(%s)) * cos(radians(latitud)) *
+                cos(radians(longitud) - radians(%s)) +
+                sin(radians(%s)) * sin(radians(latitud))
+            )) <= 10
+          )
         ORDER BY distancia ASC
         LIMIT 1;
-    """, (data.lat, data.lng, data.lat, data.tipo))
+    """, (
+        data.lat, data.lng, data.lat,        # cálculo distancia (SELECT)
+        data.tipo,
+        data.lat, data.lng, data.lat         # filtro radio <= 10 km (WHERE)
+    ))
+
 
     row = cur.fetchone()
 
