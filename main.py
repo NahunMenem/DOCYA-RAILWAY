@@ -6684,13 +6684,8 @@ def ping_medico(medico_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail="Ping error")
 
 #mapa 
-@app.get("/monitoreo/medicos_disponibles_radio")
-def medicos_disponibles_radio(
-    lat: float,
-    lng: float,
-    radio_km: float = 10,
-    db=Depends(get_db)
-):
+@app.get("/monitoreo/medicos_mapa")
+def medicos_mapa(db=Depends(get_db)):
     cur = db.cursor()
 
     cur.execute("""
@@ -6702,31 +6697,14 @@ def medicos_disponibles_radio(
             activo,
             latitud,
             longitud,
-            ROUND(
-                6371 * acos(
-                    cos(radians(%s)) * cos(radians(latitud)) *
-                    cos(radians(longitud) - radians(%s)) +
-                    sin(radians(%s)) * sin(radians(latitud))
-                )::numeric
-            , 2) AS distancia_km
+            telefono,
+            matricula
         FROM medicos
-        WHERE disponible = TRUE
-          AND activo = TRUE
+        WHERE activo = TRUE
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
-          AND (
-            6371 * acos(
-                cos(radians(%s)) * cos(radians(latitud)) *
-                cos(radians(longitud) - radians(%s)) +
-                sin(radians(%s)) * sin(radians(latitud))
-            )
-          ) <= %s
-        ORDER BY distancia_km ASC;
-    """, (
-        lat, lng, lat,
-        lat, lng, lat,
-        radio_km
-    ))
+        ORDER BY full_name;
+    """)
 
     rows = cur.fetchall()
 
@@ -6739,16 +6717,14 @@ def medicos_disponibles_radio(
             "activo": r[4],
             "latitud": float(r[5]),
             "longitud": float(r[6]),
-            "distancia_km": float(r[7]),
+            "telefono": r[7],
+            "matricula": r[8],
         }
         for r in rows
     ]
 
     return {
         "ok": True,
-        "lat_ref": lat,
-        "lng_ref": lng,
-        "radio_km": radio_km,
         "total": len(profesionales),
         "profesionales": profesionales
     }
