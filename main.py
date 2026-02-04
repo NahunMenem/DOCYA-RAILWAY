@@ -2302,7 +2302,7 @@ def aceptar_consulta(
     cur.execute("""
         UPDATE consultas
         SET estado = 'aceptada',
-            aceptada_en = (NOW() AT TIME ZONE 'UTC-3'),
+            aceptada_en = NOW(),
             asignada_en = NULL,
             expira_en = NULL
         WHERE id = %s
