@@ -724,63 +724,65 @@ def medicos_ubicacion(db=Depends(get_db)):
 # ====================================================
 # 📋 CONSULTAS – LISTADO Y KPIs
 # ====================================================
+# ====================================================
+# 📋 CONSULTAS – LISTADO + MÉTRICAS (MONITOREO)
+# ====================================================
 @router.get("/consultas/")
-async def listar_consultas(desde: str = None, hasta: str = None, db=Depends(get_db)):
-    try:
-        cur = db.cursor(cursor_factory=RealDictCursor)
-        filtros = []
-        params = []
+def listar_consultas(
+    desde: str | None = None,
+    hasta: str | None = None,
+    db=Depends(get_db)
+):
+    cur = db.cursor(cursor_factory=RealDictCursor)
 
-        # 🔹 Filtros por fecha
-        if desde:
-            filtros.append("c.creado_en >= %s")
-            params.append(desde)
-        if hasta:
-            filtros.append("c.creado_en <= %s")
-            params.append(hasta)
+    filtros = []
+    params = []
 
-        where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
+    if desde:
+        filtros.append("c.creado_en >= %s")
+        params.append(desde)
+    if hasta:
+        filtros.append("c.creado_en <= %s")
+        params.append(hasta)
 
-        # 🔹 Consulta principal con duración
-        cur.execute(f"""
-            SELECT 
-                c.id, 
-                c.creado_en, 
-                c.estado, 
-                c.motivo, 
-                c.metodo_pago,
-                c.direccion, 
-                COALESCE(u.full_name, 'Sin paciente') AS paciente,
-                COALESCE(m.full_name, 'Sin profesional') AS profesional, 
-                COALESCE(m.tipo, '-') AS tipo,
-                c.inicio_atencion,
-                c.fin_atencion,
-                ROUND(EXTRACT(EPOCH FROM (c.fin_atencion - c.inicio_atencion)) / 60, 1) AS duracion_min
-            FROM consultas c
-            LEFT JOIN users u ON c.paciente_uuid = u.id
-            LEFT JOIN medicos m ON m.id = c.medico_id
-            {where_clause}
-            ORDER BY c.creado_en DESC;
-        """, params)
+    where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
 
-        consultas = cur.fetchall()
+    cur.execute(f"""
+        SELECT
+            c.id,
+            c.creado_en,
+            c.estado,
+            c.motivo,
+            c.metodo_pago,
+            c.direccion,
 
-        # 🔹 KPIs por estado
-        cur.execute("""
-            SELECT estado, COUNT(*) 
-            FROM consultas 
-            GROUP BY estado
-            ORDER BY estado;
-        """)
-        kpis = cur.fetchall()
+            COALESCE(u.full_name, 'Sin paciente') AS paciente,
+            COALESCE(m.full_name, 'Sin profesional') AS profesional,
+            COALESCE(m.tipo, '-') AS tipo,
 
-        cur.close()
+            -- ⏱ métricas reales
+            ROUND(
+              EXTRACT(EPOCH FROM (c.inicio_atencion - c.aceptada_en)) / 60,
+            1) AS tiempo_llegada_min,
 
-        return {"consultas": consultas, "kpis": kpis}
+            ROUND(
+              EXTRACT(EPOCH FROM (c.fin_atencion - c.inicio_atencion)) / 60,
+            1) AS duracion_atencion_min
 
-    except Exception as e:
-        print("❌ Error en listar_consultas:", e)
-        return {"error": str(e)}
+        FROM consultas c
+        LEFT JOIN users u ON u.id = c.paciente_uuid
+        LEFT JOIN medicos m ON m.id = c.medico_id
+        {where_clause}
+        ORDER BY c.creado_en DESC;
+    """, params)
+
+    consultas = cur.fetchall()
+    cur.close()
+
+    return {
+        "consultas": consultas
+    }
+
 
 # ====================================================
 # ⏱ TIEMPO PROMEDIO DE ATENCIÓN
