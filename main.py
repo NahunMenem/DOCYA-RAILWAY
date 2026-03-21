@@ -347,7 +347,9 @@ def register(request: Request, data: RegisterIn, db=Depends(get_db)):
     }
 #esto es para referidos
 from fastapi.responses import RedirectResponse
-
+@app.get("/registro/paciente")
+def registro(request: Request):
+    return templates.TemplateResponse("registro.html", {"request": request})
 @app.get("/r")
 def referido(request: Request):
     ref = request.query_params.get("ref")
