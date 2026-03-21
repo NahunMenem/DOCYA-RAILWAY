@@ -283,7 +283,7 @@ def health():
 
 
 @app.post("/auth/register")
-def register(data: RegisterIn, db=Depends(get_db)):
+def register(request: Request, data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
@@ -295,15 +295,17 @@ def register(data: RegisterIn, db=Depends(get_db)):
     full_name = data.full_name.strip().title()
 
     try:
+        ref_code = request.cookies.get("ref_code")
         cur.execute("""
             INSERT INTO users (
                 email, full_name, password_hash,
                 dni, telefono, pais, provincia, localidad,
                 fecha_nacimiento, sexo,
                 acepto_condiciones, fecha_aceptacion,
-                version_texto, validado, role
+                version_texto, validado, role,
+                codigo_referido
             )
-            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE,%s,%s)
             RETURNING id, full_name
         """, (
             data.email.lower(),
@@ -319,7 +321,8 @@ def register(data: RegisterIn, db=Depends(get_db)):
             data.acepto_condiciones,
             now_argentina() if data.acepto_condiciones else None,
             "v1.0",
-            "patient"
+            "patient",
+            ref_code   # 👈 ESTE ES EL REFERIDO
         ))
 
         user_id, full_name = cur.fetchone()
@@ -342,7 +345,21 @@ def register(data: RegisterIn, db=Depends(get_db)):
         "full_name": full_name,
         "role": "patient"
     }
+#esto es para referidos
+@app.get("/registro/paciente")
+def registro(request: Request):
+    ref = request.query_params.get("ref")
 
+    response = templates.TemplateResponse("registro.html", {"request": request})
+
+    if ref:
+        response.set_cookie(
+            key="ref_code",
+            value=ref,
+            max_age=60*60*24*30
+        )
+
+    return response
 
 class FcmTokenIn(BaseModel):
     fcm_token: str
