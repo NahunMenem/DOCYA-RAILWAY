@@ -353,10 +353,14 @@ def registro(request: Request):
     response = templates.TemplateResponse("registro.html", {"request": request})
 
     if ref:
+        print("🔥 SETEANDO COOKIE:", ref)
         response.set_cookie(
             key="ref_code",
             value=ref,
-            max_age=60*60*24*30
+            max_age=60*60*24*30,
+            httponly=True,
+            samesite="lax",
+            domain=".docya.com.ar"  # 👈 ESTO ES CLAVE
         )
 
     return response
