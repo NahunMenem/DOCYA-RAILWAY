@@ -346,6 +346,25 @@ def register(request: Request, data: RegisterIn, db=Depends(get_db)):
         "role": "patient"
     }
 #esto es para referidos
+from fastapi.responses import RedirectResponse
+
+@app.get("/r")
+def referido(request: Request):
+    ref = request.query_params.get("ref")
+
+    response = RedirectResponse(url="/registro/paciente")
+
+    if ref:
+        response.set_cookie(
+            key="ref_code",
+            value=ref,
+            max_age=60*60*24*30,
+            httponly=True,
+            samesite="lax",
+            domain=".docya.com.ar"
+        )
+
+    return response    
 @app.get("/registro/paciente")
 def registro(request: Request):
     ref = request.query_params.get("ref")
