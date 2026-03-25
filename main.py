@@ -162,6 +162,8 @@ app.include_router(auth_admin_router)
 from pastillero import router as pastillero_router
 app.include_router(pastillero_router)
 
+from referidos import router as referidos_router
+app.include_router(referidos_router)
 
 # ====================================================
 # 🔑 MODELOS Pydantic (Auth y Valoraciones)
