@@ -115,6 +115,7 @@ ALLOWED_ORIGINS = [
     "https://monitoreodocyasas-ua4l-gsyz2umjm.vercel.app/",
     "https://monitoreodocyasas-git-988b6f-nahundeveloper-gmailcoms-projects.vercel.app",
     "https://www.docya.online",
+    "https://docyacomunidad-7ii3.vercel.app",
 ]
 
 # ====================================================
