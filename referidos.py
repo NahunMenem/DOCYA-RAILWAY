@@ -73,7 +73,7 @@ def _generar_codigo(full_name: str, length: int = 8) -> str:
 
 
 def _link_referido(codigo: str) -> str:
-    base_url = os.getenv("FRONTEND_URL", "https://www.docya.com.ar/registro/paciente")
+    base_url = os.getenv("FRONTEND_URL", "https://www.docya.com.ar/")
     return f"{base_url}/?ref={codigo}"
 
 
