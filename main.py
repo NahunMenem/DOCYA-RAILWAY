@@ -2684,6 +2684,51 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
         db=db
     )
 
+# ============================================================
+    # 💰 RECOMPENSA REFERIDO — $1000 por consulta finalizada
+    # ============================================================
+    try:
+        # 1) ¿El paciente fue referido por alguien?
+        cur.execute(
+            "SELECT codigo_referido FROM users WHERE id = %s",
+            (str(paciente_uuid),)
+        )
+        user_row = cur.fetchone()
+        codigo = user_row[0] if user_row and user_row[0] else None
+
+        if codigo:
+            # 2) Buscar al referente activo con ese código
+            cur.execute(
+                "SELECT id FROM referentes WHERE codigo_referido = %s AND activo = TRUE",
+                (codigo,)
+            )
+            ref_row = cur.fetchone()
+
+            if ref_row:
+                referente_id = ref_row[0]
+
+                # 3) Evitar duplicar recompensa por la misma consulta
+                cur.execute(
+                    "SELECT id FROM recompensas_referentes WHERE consulta_id = %s",
+                    (consulta_id,)
+                )
+                if not cur.fetchone():
+                    cur.execute("""
+                        INSERT INTO recompensas_referentes (
+                            referente_id, paciente_uuid, consulta_id,
+                            monto_referente, estado, creado_en
+                        ) VALUES (%s, %s, %s, 1000, 'pendiente', %s)
+                    """, (
+                        str(referente_id),
+                        str(paciente_uuid),
+                        consulta_id,
+                        now_argentina()
+                    ))
+                    print(f"✅ Recompensa $1000 → referente {referente_id} por consulta {consulta_id}")
+    except Exception as e:
+        # No crítico: no corta la finalización de la consulta
+        print(f"⚠️ Error generando recompensa referente: {e}")
+    # ─────────────────────────────────────────────────────────────
     db.commit()
 
     return {
