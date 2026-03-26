@@ -419,3 +419,88 @@ def stats_referente(referente_id: str, db=Depends(get_db)):
         "monto_pendiente": monto_pendiente,
         "precio_por_consulta": 1000,
     }
+
+
+@router.get("/{referente_id}/mis-referidos")
+def mis_referidos(referente_id: str, db=Depends(get_db)):
+    """
+    Devuelve la lista de pacientes referidos con su última consulta,
+    monto generado y estado de pago — para poblar la tabla del dashboard.
+    """
+    cur = db.cursor()
+
+    # Verificar que el referente existe
+    cur.execute(
+        "SELECT id, codigo_referido FROM referentes WHERE id = %s",
+        (referente_id,)
+    )
+    ref = cur.fetchone()
+    if not ref:
+        raise HTTPException(status_code=404, detail="Referente no encontrado.")
+
+    _, codigo = ref
+
+    cur.execute(
+        """
+        SELECT
+            u.id                                        AS paciente_uuid,
+            u.full_name,
+            u.localidad,
+            u.created_at                                AS fecha_registro,
+
+            -- última consulta realizada
+            MAX(c.creado_en)                            AS ultima_consulta,
+
+            -- recompensas de este paciente
+            COALESCE(SUM(rr.monto_referente), 0)        AS monto_total,
+            -- estado de la recompensa más reciente
+            (
+                SELECT estado
+                FROM recompensas_referentes rr2
+                WHERE rr2.paciente_uuid = u.id::text
+                  AND rr2.referente_id  = %s
+                ORDER BY rr2.creado_en DESC
+                LIMIT 1
+            )                                           AS ultimo_estado,
+            -- fecha de vencimiento (12 meses desde registro)
+            u.created_at + INTERVAL '12 months'         AS vence_en
+
+        FROM users u
+        LEFT JOIN consultas c
+               ON c.paciente_uuid = u.id::text
+              AND c.mp_capturado = TRUE
+        LEFT JOIN recompensas_referentes rr
+               ON rr.paciente_uuid = u.id::text
+              AND rr.referente_id  = %s
+        WHERE u.codigo_referido = %s
+        GROUP BY u.id, u.full_name, u.localidad, u.created_at
+        ORDER BY MAX(c.creado_en) DESC NULLS LAST, u.created_at DESC
+        """,
+        (referente_id, referente_id, codigo)
+    )
+
+    rows = cur.fetchall()
+
+    referidos = []
+    for row in rows:
+        (
+            paciente_uuid, full_name, localidad, fecha_registro,
+            ultima_consulta, monto_total, ultimo_estado, vence_en
+        ) = row
+
+        referidos.append({
+            "paciente_uuid":   str(paciente_uuid),
+            "full_name":       full_name,
+            "localidad":       localidad or "—",
+            "fecha_registro":  fecha_registro.isoformat() if fecha_registro else None,
+            "ultima_consulta": ultima_consulta.isoformat() if ultima_consulta else None,
+            "monto_total":     float(monto_total),
+            "estado_pago":     ultimo_estado or "sin_consulta",
+            "vence_en":        vence_en.isoformat() if vence_en else None,
+        })
+
+    return {
+        "referente_id": referente_id,
+        "total": len(referidos),
+        "referidos": referidos,
+    }
