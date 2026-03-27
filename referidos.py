@@ -440,7 +440,7 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
 
     _, codigo = ref
 
-    # 🔥 QUERY CORREGIDA
+    # 🔥 QUERY CORREGIDA (UUID BIEN MANEJADO)
     cur.execute(
         """
         SELECT
@@ -449,32 +449,32 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
             u.localidad,
             u.created_at                                AS fecha_registro,
 
-            -- última consulta (sin filtro de pago)
+            -- última consulta
             MAX(c.creado_en)                            AS ultima_consulta,
 
-            -- total generado por ese paciente
+            -- total generado
             COALESCE(SUM(rr.monto_referente), 0)        AS monto_total,
 
-            -- último estado de recompensa
+            -- último estado
             (
                 SELECT rr2.estado
                 FROM recompensas_referentes rr2
-                WHERE rr2.paciente_uuid = u.id::text
+                WHERE rr2.paciente_uuid = u.id
                   AND rr2.referente_id  = %s
                 ORDER BY rr2.creado_en DESC
                 LIMIT 1
             )                                           AS ultimo_estado,
 
-            -- vencimiento (12 meses)
+            -- vencimiento
             u.created_at + INTERVAL '12 months'         AS vence_en
 
         FROM users u
 
         LEFT JOIN consultas c
-               ON c.paciente_uuid = u.id::text
+               ON c.paciente_uuid = u.id   -- ✅ UUID = UUID
 
         LEFT JOIN recompensas_referentes rr
-               ON rr.paciente_uuid = u.id::text
+               ON rr.paciente_uuid = u.id  -- ✅ UUID = UUID
               AND rr.referente_id  = %s
 
         WHERE TRIM(LOWER(u.codigo_referido)) = TRIM(LOWER(%s))
