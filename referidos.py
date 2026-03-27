@@ -425,11 +425,11 @@ def stats_referente(referente_id: str, db=Depends(get_db)):
 def mis_referidos(referente_id: str, db=Depends(get_db)):
     """
     Devuelve la lista de pacientes referidos con su última consulta,
-    monto generado y estado de pago — para poblar la tabla del dashboard.
+    monto generado y estado de pago.
     """
     cur = db.cursor()
 
-    # Verificar que el referente existe
+    # 🔹 Verificar referente
     cur.execute(
         "SELECT id, codigo_referido FROM referentes WHERE id = %s",
         (referente_id,)
@@ -440,6 +440,7 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
 
     _, codigo = ref
 
+    # 🔥 QUERY CORREGIDA
     cur.execute(
         """
         SELECT
@@ -448,32 +449,38 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
             u.localidad,
             u.created_at                                AS fecha_registro,
 
-            -- última consulta realizada
+            -- última consulta (sin filtro de pago)
             MAX(c.creado_en)                            AS ultima_consulta,
 
-            -- recompensas de este paciente
+            -- total generado por ese paciente
             COALESCE(SUM(rr.monto_referente), 0)        AS monto_total,
-            -- estado de la recompensa más reciente
+
+            -- último estado de recompensa
             (
-                SELECT estado
+                SELECT rr2.estado
                 FROM recompensas_referentes rr2
                 WHERE rr2.paciente_uuid = u.id::text
                   AND rr2.referente_id  = %s
                 ORDER BY rr2.creado_en DESC
                 LIMIT 1
             )                                           AS ultimo_estado,
-            -- fecha de vencimiento (12 meses desde registro)
+
+            -- vencimiento (12 meses)
             u.created_at + INTERVAL '12 months'         AS vence_en
 
         FROM users u
+
         LEFT JOIN consultas c
                ON c.paciente_uuid = u.id::text
-              AND c.mp_capturado = TRUE
+
         LEFT JOIN recompensas_referentes rr
                ON rr.paciente_uuid = u.id::text
               AND rr.referente_id  = %s
-        WHERE u.codigo_referido = %s
+
+        WHERE TRIM(LOWER(u.codigo_referido)) = TRIM(LOWER(%s))
+
         GROUP BY u.id, u.full_name, u.localidad, u.created_at
+
         ORDER BY MAX(c.creado_en) DESC NULLS LAST, u.created_at DESC
         """,
         (referente_id, referente_id, codigo)
@@ -494,7 +501,7 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
             "localidad":       localidad or "—",
             "fecha_registro":  fecha_registro.isoformat() if fecha_registro else None,
             "ultima_consulta": ultima_consulta.isoformat() if ultima_consulta else None,
-            "monto_total":     float(monto_total),
+            "monto_total":     float(monto_total or 0),
             "estado_pago":     ultimo_estado or "sin_consulta",
             "vence_en":        vence_en.isoformat() if vence_en else None,
         })
