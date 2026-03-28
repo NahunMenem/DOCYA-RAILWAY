@@ -6827,3 +6827,15 @@ def obtener_noticias():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     
+@app.get("/zonas-cobertura")
+def get_zonas_cobertura():
+    conn = get_db_connection()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT * FROM zonas_cobertura ORDER BY orden ASC")
+    zonas = cur.fetchall()
+    cur.close()
+    conn.close()
+    return {
+        "activas": [z for z in zonas if z["estado"] == "activa"],
+        "proximas": [z for z in zonas if z["estado"] == "proxima"]
+    }
