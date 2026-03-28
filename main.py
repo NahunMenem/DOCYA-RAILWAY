@@ -986,14 +986,15 @@ def validar_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         UPDATE medicos 
-        SET validado=TRUE, updated_at=NOW() 
+        SET validado = NOT validado, updated_at=NOW() 
         WHERE id=%s 
-        RETURNING id, full_name, tipo
+        RETURNING id, full_name, tipo, validado
     """, (medico_id,))
     row = cur.fetchone(); db.commit()
     if not row:
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
-    return {"ok": True, "medico_id": row[0], "nombre": row[1], "tipo": row[2]}
+    return {"ok": True, "medico_id": row[0], "nombre": row[1], "tipo": row[2], "validado": row[3]}
+
 
 
 @app.post("/auth/medico/{medico_id}/foto")
