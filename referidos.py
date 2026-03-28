@@ -511,3 +511,35 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
         "total": len(referidos),
         "referidos": referidos,
     }
+
+# Listar todos los referentes
+@app.get("/admin/referentes")
+def get_all_referentes(db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT id, full_name, email, telefono, dni, tipo,
+               codigo_referido, link_referido, cbu_alias, activo, creado_en
+        FROM referentes
+        ORDER BY creado_en DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+
+# Activar / desactivar referente
+@app.patch("/admin/referentes/{referente_id}/toggle")
+def toggle_referente(referente_id: str, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT activo FROM referentes WHERE id = %s", (referente_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Referente no encontrado")
+    cur.execute(
+        "UPDATE referentes SET activo = %s WHERE id = %s RETURNING activo",
+        (not row["activo"], referente_id)
+    )
+    updated = cur.fetchone()
+    db.commit()
+    cur.close()
+    return {"ok": True, "activo": updated["activo"]}
