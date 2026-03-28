@@ -1463,7 +1463,7 @@ async def intentar_reasignar(
         try:
             # 1️⃣ Verificar estado actual de la consulta
             cur.execute("""
-                SELECT lat, lng, tipo, medico_id
+                SELECT lat, lng, tipo, medico_id, estado
                 FROM consultas
                 WHERE id = %s
             """, (consulta_id,))
@@ -1473,7 +1473,12 @@ async def intentar_reasignar(
                 print("❌ Consulta no existe")
                 return False
 
-            lat, lng, tipo, medico_actual = row
+            lat, lng, tipo, medico_actual, estado_actual = row
+
+            # Si el paciente canceló, no tiene sentido seguir
+            if estado_actual in ("cancelada", "finalizada"):
+                print(f"🛑 Consulta {consulta_id} {estado_actual} — deteniendo reasignación")
+                return False
 
             # Si ya se asignó en el interín, salimos con éxito
             if medico_actual is not None:
@@ -1564,9 +1569,16 @@ async def intentar_reasignar(
         await asyncio.sleep(espera_segundos)
 
     print("🔴 No se logró asignar médico tras múltiples ciclos")
-    # Notificar al admin por Telegram y al paciente por push
+    # Verificar que la consulta no fue cancelada antes de notificar
     try:
-        await notificar_sin_medico(consulta_id, db)
+        cur_check = db.cursor()
+        cur_check.execute("SELECT estado FROM consultas WHERE id = %s", (consulta_id,))
+        row_check = cur_check.fetchone()
+        cur_check.close()
+        if row_check and row_check[0] not in ("cancelada", "finalizada"):
+            await notificar_sin_medico(consulta_id, db)
+        else:
+            print(f"ℹ️ Consulta {consulta_id} ya {row_check[0] if row_check else 'inexistente'} — sin notificación")
     except Exception as e:
         print(f"⚠️ Error enviando notificación sin médico: {e}")
     return False
