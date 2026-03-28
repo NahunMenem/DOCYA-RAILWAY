@@ -1444,6 +1444,87 @@ async def notificar_sin_medico(consulta_id: int, db):
             cur.close()
 
 
+async def notificar_consulta_nueva_telegram(consulta_id: int, medico_asignado: bool):
+    """Envía notificación Telegram al admin en cuanto ingresa una consulta."""
+    db = get_db_worker()
+    cur = db.cursor()
+    try:
+        cur.execute("""
+            SELECT
+                c.id, c.motivo, c.direccion, c.tipo,
+                u.full_name, u.telefono, u.email,
+                c.lat, c.lng, c.metodo_pago
+            FROM consultas c
+            LEFT JOIN users u ON c.paciente_uuid = u.id::text
+            WHERE c.id = %s
+        """, (consulta_id,))
+        row = cur.fetchone()
+        if not row:
+            return
+        cid, motivo, direccion, tipo, nombre, telefono, email, lat, lng, metodo_pago = row
+        tipo_label = "Médico" if tipo == "medico" else "Enfermero/a"
+        maps_url = f"https://maps.google.com/?q={lat},{lng}" if lat and lng else "Sin coordenadas"
+        nombre_str = nombre or "el paciente"
+        estado_str = "✅ Médico asignado" if medico_asignado else "⚠️ Sin médico disponible aún"
+
+        # ── Links de WhatsApp al paciente ──────────────────────────────────
+        wa_buscando = wa_encontrado = None
+        if telefono:
+            texto_buscando = (
+                f"Hola {nombre_str}, te habla el equipo de DocYa 👋\n\n"
+                f"Estamos buscando un profesional disponible cerca de tu domicilio. "
+                f"En breve te confirmamos. ¡Gracias por tu paciencia! 🙏"
+            )
+            texto_encontrado = (
+                f"Hola {nombre_str}, buenas noticias desde DocYa 🎉\n\n"
+                f"Encontramos un profesional disponible cerca tuyo. "
+                f"Por favor, volvé a solicitar la consulta desde la app y te lo asignamos de inmediato. ¡Te esperamos! 👩‍⚕️"
+            )
+            wa_buscando  = _wa_link(telefono, texto_buscando)
+            wa_encontrado = _wa_link(telefono, texto_encontrado)
+
+        wa_lineas = ""
+        if wa_buscando:
+            wa_lineas += f"\n📲 <b>WA — Seguimos buscando:</b>\n{wa_buscando}\n"
+        if wa_encontrado:
+            wa_lineas += f"\n📲 <b>WA — Encontramos médico:</b>\n{wa_encontrado}\n"
+
+        # ── Mensaje principal al admin ──────────────────────────────────────
+        msg_admin = (
+            f"📥 <b>Nueva consulta ingresada</b>\n\n"
+            f"📋 <b>Consulta #{cid}</b>\n"
+            f"👤 Paciente: <b>{nombre or 'N/D'}</b>\n"
+            f"📞 Teléfono: {telefono or 'N/D'}\n"
+            f"📧 Email: {email or 'N/D'}\n"
+            f"🏠 Dirección: {direccion}\n"
+            f"📍 Mapa: {maps_url}\n"
+            f"📝 Motivo: {motivo}\n"
+            f"💳 Pago: {metodo_pago}\n"
+            f"🩺 Tipo: {tipo_label}\n"
+            f"{estado_str}"
+            f"{wa_lineas}"
+        )
+        await _telegram_send(TELEGRAM_ADMIN_ID, msg_admin)
+
+        # ── Mensaje para copiar y pegar en el grupo de médicos ─────────────
+        msg_grupo = (
+            f"🔔 Consulta disponible – DocYa\n\n"
+            f"📋 #{cid} | {tipo_label}\n"
+            f"🏠 {direccion}\n"
+            f"📍 {maps_url}\n"
+            f"📝 {motivo}\n\n"
+            f"¿Alguien puede tomar esta consulta? Avisame al privado ✅"
+        )
+        await _telegram_send(TELEGRAM_ADMIN_ID, f"👇 <b>Copiá y pegá en el grupo de {tipo_label}es:</b>\n\n{msg_grupo}")
+
+    except Exception as e:
+        print(f"⚠️ Error en notificar_consulta_nueva_telegram: {e}")
+    finally:
+        if not cur.closed:
+            cur.close()
+        db.close()
+
+
 async def intentar_reasignar(
     consulta_id,
     db,
@@ -1799,6 +1880,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     WHERE id=%s
                 """, (consulta_id_previa,))
                 db.commit()
+                asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, False))
                 return {
                     "consulta_id": consulta_id_previa,
                     "estado": "pendiente_de_refund",
@@ -1822,6 +1904,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     WHERE id=%s
                 """, (consulta_id_previa,))
                 db.commit()
+                asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, False))
 
                 return {
                     "consulta_id": consulta_id_previa,
@@ -1995,8 +2078,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         # LANZAR WATCHDOG TARJETA (NO BLOQUEANTE)
         # ---------------------------------------------------------
         asyncio.create_task(watchdog_tarjeta())
-        
-        
+        asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, True))
+
         # ---------------------------------------------------------
         # RETURN FINAL DEL ENDPOINT (NO TOCAR)
         # ---------------------------------------------------------
@@ -2072,6 +2155,7 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         db.commit()
 
         print("⚠️ Consulta sin médico disponible")
+        asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id, False))
 
         return {
             "consulta_id": consulta_id,
@@ -2247,7 +2331,8 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
             motivo=data.motivo
         )
     )
-    
+    asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id, True))
+
     # ---------------------------------------------------------
     # RETURN FINAL DEL ENDPOINT (OBLIGATORIO)
     # ---------------------------------------------------------
