@@ -6949,6 +6949,20 @@ def ping_medico(medico_id: int, db=Depends(get_db)):
         print(f"⚠️ Error en ping médico {medico_id}: {e}")
         raise HTTPException(status_code=500, detail="Ping error")
 
+@app.post("/admin/medicos/{medico_id}/desconectar")
+def desconectar_medico(medico_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE medicos 
+        SET disponible=FALSE, activo=FALSE, latitud=NULL, longitud=NULL, updated_at=NOW()
+        WHERE id=%s RETURNING id, full_name
+    """, (medico_id,))
+    row = cur.fetchone(); db.commit()
+    if not row:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+    return {"ok": True, "medico_id": row[0], "nombre": row[1]}
+
+
 #mapa 
 @app.get("/monitoreo/medicos_mapa")
 def medicos_mapa(db=Depends(get_db)):
