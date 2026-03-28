@@ -6876,4 +6876,49 @@ def get_tarifa_consulta_medico(conn=Depends(get_db)):
         "descripcion": tarifa["descripcion"],
     }
 
-    
+
+@app.get("/tarifas/consulta-enfermero")
+def get_tarifa_consulta_enfermero(conn=Depends(get_db)):
+    ahora = now_argentina()
+    h = ahora.hour
+    nocturno = h >= 22 or h < 6
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT tipo, monto, descripcion
+        FROM tarifas_consulta
+        WHERE tipo = %s AND activa = TRUE
+        LIMIT 1
+    """, ('nocturna_enfermero' if nocturno else 'diurna_enfermero',))
+    tarifa = cur.fetchone()
+    cur.close()
+
+    if not tarifa:
+        raise HTTPException(status_code=404, detail="Tarifa no configurada")
+
+    return {
+        "tipo": tarifa["tipo"],
+        "monto": tarifa["monto"],
+        "descripcion": tarifa["descripcion"],
+    }
+
+
+# ====================================================
+# 🗺️ ZONAS DE COBERTURA
+# ====================================================
+
+@app.get("/zonas-cobertura")
+def get_zonas_cobertura(conn=Depends(get_db)):
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT nombre, detalle, estado
+        FROM zonas_cobertura
+        ORDER BY orden ASC, nombre ASC
+    """)
+    zonas = cur.fetchall()
+    cur.close()
+    return {
+        "activas":  [z for z in zonas if z["estado"] == "activa"],
+        "proximas": [z for z in zonas if z["estado"] == "proxima"],
+    }
+
