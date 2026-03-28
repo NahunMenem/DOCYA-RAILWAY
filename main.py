@@ -7059,7 +7059,7 @@ def get_tarifa_consulta_enfermero(conn=Depends(get_db)):
 def get_zonas_cobertura(conn=Depends(get_db)):
     cur = conn.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
-        SELECT nombre, detalle, estado
+        SELECT id, nombre, detalle, estado, orden
         FROM zonas_cobertura
         ORDER BY orden ASC, nombre ASC
     """)
