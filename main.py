@@ -6803,3 +6803,27 @@ def medicos_mapa(db=Depends(get_db)):
         "total": len(profesionales),
         "profesionales": profesionales
     }
+
+
+# ====================================================
+# 🖼️ NOTICIAS / CAROUSEL - Imágenes desde Cloudinary
+# ====================================================
+import cloudinary.api
+
+@app.get("/noticias")
+def obtener_noticias():
+    try:
+        result = cloudinary.api.resources_by_tag(
+            "noticias-docya",
+            resource_type="image",
+            max_results=50
+        )
+        cloud = cloudinary.config().cloud_name
+        urls = [
+            f"https://res.cloudinary.com/{cloud}/image/upload/c_fill,w_1200,h_500,q_auto,f_auto/{r['public_id']}.{r['format']}"
+            for r in result.get("resources", [])
+        ]
+        return {"urls": urls}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
