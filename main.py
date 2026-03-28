@@ -54,6 +54,10 @@ JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
 ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
+TELEGRAM_BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")   # token del bot
+TELEGRAM_ADMIN_ID    = os.getenv("TELEGRAM_ADMIN_ID")     # tu chat_id privado
+TELEGRAM_GRUPO_ID    = os.getenv("TELEGRAM_GRUPO_ID")     # id del grupo de médicos
+
 
 # ====================================================
 # ⚙️ FUNCIONES UTILITARIAS
@@ -1322,6 +1326,124 @@ import asyncio
 # 🧠 MOTOR INTELIGENTE DE REASIGNACIÓN – CEREBRO
 # ====================================================
 
+# ====================================================
+# 📲 NOTIFICACIONES TELEGRAM – SIN MÉDICO DISPONIBLE
+# ====================================================
+
+async def _telegram_send(chat_id: str, text: str, reply_markup: dict = None):
+    """Envía un mensaje por Telegram. Falla silenciosamente si no hay token."""
+    if not TELEGRAM_BOT_TOKEN or not chat_id:
+        return
+    payload = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    try:
+        async with httpx.AsyncClient(timeout=8) as client:
+            await client.post(
+                f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+                json=payload,
+            )
+    except Exception as e:
+        print(f"⚠️ Telegram error: {e}")
+
+
+def _wa_link(telefono: str, texto: str) -> str:
+    """Genera un link de WhatsApp con texto pre-escrito para Argentina."""
+    from urllib.parse import quote
+    # Normalizar número argentino: sacar +, espacios, guiones
+    numero = telefono.strip().replace("+", "").replace(" ", "").replace("-", "")
+    # Si empieza con 0 (ej: 011...) lo reemplazamos por 54
+    if numero.startswith("0"):
+        numero = "54" + numero[1:]
+    # Si es solo 10 dígitos (ej: 1155667788) agregar 54 adelante
+    if len(numero) == 10:
+        numero = "54" + numero
+    return f"https://wa.me/{numero}?text={quote(texto)}"
+
+
+async def notificar_sin_medico(consulta_id: int, db):
+    """
+    Se llama cuando intentar_reasignar() agota todos los ciclos sin éxito.
+    Manda un mensaje a Telegram con:
+    - Datos completos del paciente
+    - Mensaje para el grupo de médicos (listo para copiar)
+    - Link de WhatsApp → "seguimos buscando"
+    - Link de WhatsApp → "encontramos un médico, volvé a pedir"
+    """
+    cur = db.cursor()
+    try:
+        cur.execute("""
+            SELECT
+                c.id, c.motivo, c.direccion, c.tipo,
+                u.full_name, u.telefono, u.email,
+                c.lat, c.lng
+            FROM consultas c
+            LEFT JOIN users u ON c.paciente_uuid = u.id::text
+            WHERE c.id = %s
+        """, (consulta_id,))
+        row = cur.fetchone()
+        if not row:
+            return
+
+        cid, motivo, direccion, tipo, nombre, telefono, email, lat, lng = row
+        tipo_label = "Médico" if tipo == "medico" else "Enfermero/a"
+        maps_url = f"https://maps.google.com/?q={lat},{lng}" if lat and lng else "Sin coordenadas"
+        nombre_str = nombre or "el paciente"
+
+        # Links de WhatsApp pre-escritos
+        wa_buscando = wa_encontrado = None
+        if telefono:
+            texto_buscando = (
+                f"Hola {nombre_str}, te habla el equipo de DocYa 👋\n\n"
+                f"Estamos buscando un profesional disponible cerca de tu domicilio. "
+                f"En breve te confirmamos. ¡Gracias por tu paciencia! 🙏"
+            )
+            texto_encontrado = (
+                f"Hola {nombre_str}, buenas noticias desde DocYa 🎉\n\n"
+                f"Encontramos un profesional disponible cerca tuyo. "
+                f"Por favor, volvé a solicitar la consulta desde la app y te lo asignamos de inmediato. ¡Te esperamos! 👩‍⚕️"
+            )
+            wa_buscando  = _wa_link(telefono, texto_buscando)
+            wa_encontrado = _wa_link(telefono, texto_encontrado)
+
+        wa_lineas = ""
+        if wa_buscando:
+            wa_lineas += f"\n📲 <b>WA — Seguimos buscando:</b>\n{wa_buscando}\n"
+        if wa_encontrado:
+            wa_lineas += f"\n📲 <b>WA — Encontramos médico:</b>\n{wa_encontrado}\n"
+
+        # ── Mensaje principal al admin ─────────────────────────────────────
+        msg_admin = (
+            f"🚨 <b>Sin {tipo_label} disponible</b>\n\n"
+            f"📋 <b>Consulta #{cid}</b>\n"
+            f"👤 Paciente: <b>{nombre or 'N/D'}</b>\n"
+            f"📞 Teléfono: {telefono or 'N/D'}\n"
+            f"📧 Email: {email or 'N/D'}\n"
+            f"🏠 Dirección: {direccion}\n"
+            f"📍 Mapa: {maps_url}\n"
+            f"📝 Motivo: {motivo}"
+            f"{wa_lineas}"
+        )
+        await _telegram_send(TELEGRAM_ADMIN_ID, msg_admin)
+
+        # ── Mensaje listo para copiar y mandar al grupo de médicos ─────────
+        msg_grupo = (
+            f"🔔 Consulta disponible – DocYa\n\n"
+            f"📋 #{cid} | {tipo_label}\n"
+            f"🏠 {direccion}\n"
+            f"📍 {maps_url}\n"
+            f"📝 {motivo}\n\n"
+            f"¿Alguien puede tomar esta consulta? Avisame al privado ✅"
+        )
+        await _telegram_send(TELEGRAM_ADMIN_ID, f"👇 <b>Copiá y pegá en el grupo de {tipo_label}es:</b>\n\n{msg_grupo}")
+
+    except Exception as e:
+        print(f"⚠️ Error en notificar_sin_medico: {e}")
+    finally:
+        if not cur.closed:
+            cur.close()
+
+
 async def intentar_reasignar(
     consulta_id,
     db,
@@ -1442,6 +1564,11 @@ async def intentar_reasignar(
         await asyncio.sleep(espera_segundos)
 
     print("🔴 No se logró asignar médico tras múltiples ciclos")
+    # Notificar al admin por Telegram y al paciente por push
+    try:
+        await notificar_sin_medico(consulta_id, db)
+    except Exception as e:
+        print(f"⚠️ Error enviando notificación sin médico: {e}")
     return False
 
 async def enviar_notificaciones_asignacion(medico_id, consulta_id, cur):
@@ -2684,51 +2811,6 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
         db=db
     )
 
-# ============================================================
-    # 💰 RECOMPENSA REFERIDO — $1000 por consulta finalizada
-    # ============================================================
-    try:
-        # 1) ¿El paciente fue referido por alguien?
-        cur.execute(
-            "SELECT codigo_referido FROM users WHERE id = %s",
-            (str(paciente_uuid),)
-        )
-        user_row = cur.fetchone()
-        codigo = user_row[0] if user_row and user_row[0] else None
-
-        if codigo:
-            # 2) Buscar al referente activo con ese código
-            cur.execute(
-                "SELECT id FROM referentes WHERE codigo_referido = %s AND activo = TRUE",
-                (codigo,)
-            )
-            ref_row = cur.fetchone()
-
-            if ref_row:
-                referente_id = ref_row[0]
-
-                # 3) Evitar duplicar recompensa por la misma consulta
-                cur.execute(
-                    "SELECT id FROM recompensas_referentes WHERE consulta_id = %s",
-                    (consulta_id,)
-                )
-                if not cur.fetchone():
-                    cur.execute("""
-                        INSERT INTO recompensas_referentes (
-                            referente_id, paciente_uuid, consulta_id,
-                            monto_referente, estado, creado_en
-                        ) VALUES (%s, %s, %s, 1000, 'pendiente', %s)
-                    """, (
-                        str(referente_id),
-                        str(paciente_uuid),
-                        consulta_id,
-                        now_argentina()
-                    ))
-                    print(f"✅ Recompensa $1000 → referente {referente_id} por consulta {consulta_id}")
-    except Exception as e:
-        # No crítico: no corta la finalización de la consulta
-        print(f"⚠️ Error generando recompensa referente: {e}")
-    # ─────────────────────────────────────────────────────────────
     db.commit()
 
     return {
@@ -5800,11 +5882,21 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                 }
 
                 print(f"📤 Reenviando a {len(active_chats[consulta_id])} sockets: {msg_obj}")
+                dead_sockets = []
                 for conn_ws in active_chats[consulta_id]:
                     try:
                         await conn_ws.send_json(msg_obj)
                     except Exception as e:
-                        print(f"⚠️ Error enviando a cliente: {e}")
+                        print(f"⚠️ Error enviando a cliente (socket muerto): {e}")
+                        dead_sockets.append(conn_ws)
+                # Limpiar sockets muertos para evitar memory leak
+                for dead in dead_sockets:
+                    try:
+                        active_chats[consulta_id].remove(dead)
+                    except ValueError:
+                        pass
+                if consulta_id in active_chats and not active_chats[consulta_id]:
+                    del active_chats[consulta_id]
 
                 # --------------------------------------------------------
                 # 🔔 NOTIFICACIÓN PUSH — FIX DEFINITIVO
@@ -6806,48 +6898,6 @@ def medicos_mapa(db=Depends(get_db)):
 
 
 # ====================================================
-# 🖼️ NOTICIAS / CAROUSEL - Imágenes desde Cloudinary
-# ====================================================
-import cloudinary.api
-
-@app.get("/noticias")
-def obtener_noticias():
-    try:
-        result = cloudinary.api.resources_by_tag(
-            "noticias-docya",
-            resource_type="image",
-            max_results=50
-        )
-        cloud = cloudinary.config().cloud_name
-        urls = [
-            f"https://res.cloudinary.com/{cloud}/image/upload/c_fill,w_1200,h_500,q_auto,f_auto/{r['public_id']}.{r['format']}"
-            for r in result.get("resources", [])
-        ]
-        return {"urls": urls}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ====================================================
-# 🗺️ ZONAS DE COBERTURA
-# ====================================================
-
-@app.get("/zonas-cobertura")
-def get_zonas_cobertura(conn=Depends(get_db)):
-    cur = conn.cursor(cursor_factory=RealDictCursor)
-    cur.execute("""
-        SELECT nombre, detalle, estado
-        FROM zonas_cobertura
-        ORDER BY orden ASC, nombre ASC
-    """)
-    zonas = cur.fetchall()
-    cur.close()
-    return {
-        "activas":  [z for z in zonas if z["estado"] == "activa"],
-        "proximas": [z for z in zonas if z["estado"] == "proxima"],
-    }
-
-# ====================================================
 # 💰 TARIFAS DE CONSULTA
 # ====================================================
 
@@ -6921,4 +6971,3 @@ def get_zonas_cobertura(conn=Depends(get_db)):
         "activas":  [z for z in zonas if z["estado"] == "activa"],
         "proximas": [z for z in zonas if z["estado"] == "proxima"],
     }
-
