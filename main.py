@@ -1,3 +1,4 @@
+
 # ====================================================
 # 📌 IMPORTS Y CONFIGURACIÓN INICIAL.
 # ====================================================
@@ -1378,7 +1379,7 @@ async def notificar_sin_medico(consulta_id: int, db):
                 u.full_name, u.telefono, u.email,
                 c.lat, c.lng
             FROM consultas c
-            LEFT JOIN users u ON c.paciente_uuid = u.id::text
+            LEFT JOIN users u ON c.paciente_uuid::text = u.id::text
             WHERE c.id = %s
         """, (consulta_id,))
         row = cur.fetchone()
@@ -1455,7 +1456,7 @@ async def notificar_consulta_nueva_telegram(consulta_id: int, medico_asignado: b
                 u.full_name, u.telefono, u.email,
                 c.lat, c.lng, c.metodo_pago
             FROM consultas c
-            LEFT JOIN users u ON c.paciente_uuid = u.id::text
+            LEFT JOIN users u ON c.paciente_uuid::text = u.id::text
             WHERE c.id = %s
         """, (consulta_id,))
         row = cur.fetchone()
@@ -7068,3 +7069,25 @@ def get_zonas_cobertura(conn=Depends(get_db)):
         "activas":  [z for z in zonas if z["estado"] == "activa"],
         "proximas": [z for z in zonas if z["estado"] == "proxima"],
     }
+
+# ====================================================
+# 🖼️ NOTICIAS / CAROUSEL - Imágenes desde Cloudinary
+# ====================================================
+import cloudinary.api
+
+@app.get("/noticias")
+def obtener_noticias():
+    try:
+        result = cloudinary.api.resources_by_tag(
+            "noticias-docya",
+            resource_type="image",
+            max_results=50
+        )
+        cloud = cloudinary.config().cloud_name
+        urls = [
+            f"https://res.cloudinary.com/{cloud}/image/upload/c_fill,w_1200,h_500,q_auto,f_auto/{r['public_id']}.{r['format']}"
+            for r in result.get("resources", [])
+        ]
+        return {"urls": urls}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
