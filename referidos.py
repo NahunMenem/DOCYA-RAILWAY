@@ -495,7 +495,7 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
             ultima_consulta, monto_total, ultimo_estado, vence_en
         ) = row
 
-        referidos.append({
+        referidos.routerend({
             "paciente_uuid":   str(paciente_uuid),
             "full_name":       full_name,
             "localidad":       localidad or "—",
@@ -513,7 +513,7 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
     }
 
 # Listar todos los referentes
-@app.get("/admin/referentes")
+@router.get("/admin/referentes")
 def get_all_referentes(db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
@@ -528,7 +528,7 @@ def get_all_referentes(db=Depends(get_db)):
 
 
 # Activar / desactivar referente
-@app.patch("/admin/referentes/{referente_id}/toggle")
+@router.patch("/admin/referentes/{referente_id}/toggle")
 def toggle_referente(referente_id: str, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("SELECT activo FROM referentes WHERE id = %s", (referente_id,))
@@ -543,3 +543,49 @@ def toggle_referente(referente_id: str, db=Depends(get_db)):
     db.commit()
     cur.close()
     return {"ok": True, "activo": updated["activo"]}
+# Listar todas las recompensas (con join a referentes y users)
+@router.get("/admin/recompensas")
+def get_recompensas(estado: str = None, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    filtro = "WHERE rr.estado = %s" if estado else ""
+    params = (estado,) if estado else ()
+    cur.execute(f"""
+        SELECT rr.id, rr.referente_id, rr.monto_referente, rr.estado, rr.creado_en,
+               r.full_name AS referente_nombre, r.cbu_alias AS referente_cbu,
+               u.full_name AS paciente_nombre
+        FROM recompensas_referentes rr
+        JOIN referentes r ON r.id::text = rr.referente_id::text
+        JOIN users u ON u.id = rr.paciente_uuid
+        {filtro}
+        ORDER BY rr.creado_en DESC
+    """, params)
+    rows = cur.fetchall()
+    cur.close()
+    return [dict(r) for r in rows]
+
+
+# Marcar una recompensa individual como pagada
+@router.patch("/admin/recompensas/{recompensa_id}/pagar")
+def pagar_recompensa(recompensa_id: int, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute(
+        "UPDATE recompensas_referentes SET estado='pagado' WHERE id=%s RETURNING id",
+        (recompensa_id,)
+    )
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Recompensa no encontrada")
+    db.commit(); cur.close()
+    return {"ok": True}
+
+
+# Pagar todas las pendientes de un referente
+@router.patch("/admin/referentes/{referente_id}/pagar-pendientes")
+def pagar_pendientes(referente_id: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        UPDATE recompensas_referentes SET estado='pagado'
+        WHERE referente_id::text = %s AND estado = 'pendiente'
+    """, (referente_id,))
+    pagados = cur.rowcount
+    db.commit(); cur.close()
+    return {"ok": True, "pagados": pagados}
