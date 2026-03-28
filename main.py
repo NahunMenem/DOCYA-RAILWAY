@@ -6846,4 +6846,34 @@ def get_zonas_cobertura(conn=Depends(get_db)):
         "activas":  [z for z in zonas if z["estado"] == "activa"],
         "proximas": [z for z in zonas if z["estado"] == "proxima"],
     }
+
+# ====================================================
+# 💰 TARIFAS DE CONSULTA
+# ====================================================
+
+@app.get("/tarifas/consulta-medico")
+def get_tarifa_consulta_medico(conn=Depends(get_db)):
+    ahora = now_argentina()
+    h = ahora.hour
+    nocturno = h >= 22 or h < 6
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT tipo, monto, descripcion
+        FROM tarifas_consulta
+        WHERE tipo = %s AND activa = TRUE
+        LIMIT 1
+    """, ('nocturna' if nocturno else 'diurna',))
+    tarifa = cur.fetchone()
+    cur.close()
+
+    if not tarifa:
+        raise HTTPException(status_code=404, detail="Tarifa no configurada")
+
+    return {
+        "tipo": tarifa["tipo"],
+        "monto": tarifa["monto"],
+        "descripcion": tarifa["descripcion"],
+    }
+
     
