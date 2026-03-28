@@ -7071,6 +7071,241 @@ def get_zonas_cobertura(conn=Depends(get_db)):
     }
 
 # ====================================================
+# 💰 GESTIÓN DE TARIFAS (CRUD)
+# ====================================================
+
+@app.get("/admin/tarifas")
+def get_all_tarifas(conn=Depends(get_db)):
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT * FROM tarifas_consulta ORDER BY tipo ASC")
+    tarifas = cur.fetchall()
+    cur.close()
+    return tarifas
+
+
+@app.post("/admin/tarifas")
+def crear_tarifa(payload: dict, conn=Depends(get_db)):
+    """
+    Body esperado:
+    {
+        "tipo": "diurna" | "nocturna" | "diurna_enfermero" | "nocturna_enfermero",
+        "monto": 5000.00,
+        "descripcion": "Consulta médica diurna",
+        "activa": true
+    }
+    """
+    tipo        = payload.get("tipo")
+    monto       = payload.get("monto")
+    descripcion = payload.get("descripcion", "")
+    activa      = payload.get("activa", True)
+
+    if not tipo or monto is None:
+        raise HTTPException(status_code=400, detail="Campos 'tipo' y 'monto' son obligatorios")
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Verificar que no exista ya ese tipo
+    cur.execute("SELECT id FROM tarifas_consulta WHERE tipo = %s", (tipo,))
+    if cur.fetchone():
+        cur.close()
+        raise HTTPException(status_code=409, detail=f"Ya existe una tarifa con tipo '{tipo}'")
+
+    cur.execute("""
+        INSERT INTO tarifas_consulta (tipo, monto, descripcion, activa)
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+    """, (tipo, monto, descripcion, activa))
+    nueva = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": "Tarifa creada exitosamente", "tarifa": nueva}
+
+
+@app.put("/admin/tarifas/{tipo}")
+def editar_tarifa(tipo: str, payload: dict, conn=Depends(get_db)):
+    """
+    Body esperado (todos opcionales, solo se actualizan los enviados):
+    {
+        "monto": 6000.00,
+        "descripcion": "Nueva descripción",
+        "activa": true
+    }
+    """
+    campos_permitidos = {"monto", "descripcion", "activa"}
+    updates = {k: v for k, v in payload.items() if k in campos_permitidos}
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No se enviaron campos válidos para actualizar")
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Verificar que exista
+    cur.execute("SELECT id FROM tarifas_consulta WHERE tipo = %s", (tipo,))
+    if not cur.fetchone():
+        cur.close()
+        raise HTTPException(status_code=404, detail=f"No existe tarifa con tipo '{tipo}'")
+
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
+    valores    = list(updates.values()) + [tipo]
+
+    cur.execute(f"""
+        UPDATE tarifas_consulta
+        SET {set_clause}
+        WHERE tipo = %s
+        RETURNING *
+    """, valores)
+    actualizada = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": "Tarifa actualizada exitosamente", "tarifa": actualizada}
+
+
+@app.patch("/admin/tarifas/{tipo}/toggle")
+def toggle_tarifa(tipo: str, conn=Depends(get_db)):
+    """Activa o desactiva una tarifa sin tocar el resto de campos."""
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id, activa FROM tarifas_consulta WHERE tipo = %s", (tipo,))
+    tarifa = cur.fetchone()
+    if not tarifa:
+        cur.close()
+        raise HTTPException(status_code=404, detail=f"No existe tarifa con tipo '{tipo}'")
+
+    cur.execute("""
+        UPDATE tarifas_consulta SET activa = %s WHERE tipo = %s RETURNING *
+    """, (not tarifa["activa"], tipo))
+    actualizada = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": f"Tarifa {'activada' if actualizada['activa'] else 'desactivada'}", "tarifa": actualizada}
+
+
+# ====================================================
+# 🗺️ GESTIÓN DE ZONAS DE COBERTURA (CRUD)
+# ====================================================
+
+@app.post("/admin/zonas-cobertura")
+def crear_zona(payload: dict, conn=Depends(get_db)):
+    """
+    Body esperado:
+    {
+        "nombre": "Palermo",
+        "detalle": "Palermo Soho, Hollywood y Chico",
+        "estado": "activa" | "proxima",
+        "orden": 1          ← opcional
+    }
+    """
+    nombre  = payload.get("nombre")
+    detalle = payload.get("detalle", "")
+    estado  = payload.get("estado", "activa")
+    orden   = payload.get("orden", 99)
+
+    if not nombre:
+        raise HTTPException(status_code=400, detail="El campo 'nombre' es obligatorio")
+
+    if estado not in ("activa", "proxima"):
+        raise HTTPException(status_code=400, detail="Estado debe ser 'activa' o 'proxima'")
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("SELECT id FROM zonas_cobertura WHERE nombre = %s", (nombre,))
+    if cur.fetchone():
+        cur.close()
+        raise HTTPException(status_code=409, detail=f"Ya existe una zona llamada '{nombre}'")
+
+    cur.execute("""
+        INSERT INTO zonas_cobertura (nombre, detalle, estado, orden)
+        VALUES (%s, %s, %s, %s)
+        RETURNING *
+    """, (nombre, detalle, estado, orden))
+    nueva = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": "Zona creada exitosamente", "zona": nueva}
+
+
+@app.put("/admin/zonas-cobertura/{zona_id}")
+def editar_zona(zona_id: int, payload: dict, conn=Depends(get_db)):
+    """
+    Body esperado (todos opcionales):
+    {
+        "nombre": "Palermo",
+        "detalle": "Descripción actualizada",
+        "estado": "activa" | "proxima",
+        "orden": 2
+    }
+    """
+    campos_permitidos = {"nombre", "detalle", "estado", "orden"}
+    updates = {k: v for k, v in payload.items() if k in campos_permitidos}
+
+    if not updates:
+        raise HTTPException(status_code=400, detail="No se enviaron campos válidos para actualizar")
+
+    if "estado" in updates and updates["estado"] not in ("activa", "proxima"):
+        raise HTTPException(status_code=400, detail="Estado debe ser 'activa' o 'proxima'")
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute("SELECT id FROM zonas_cobertura WHERE id = %s", (zona_id,))
+    if not cur.fetchone():
+        cur.close()
+        raise HTTPException(status_code=404, detail=f"No existe zona con id {zona_id}")
+
+    set_clause = ", ".join(f"{k} = %s" for k in updates)
+    valores    = list(updates.values()) + [zona_id]
+
+    cur.execute(f"""
+        UPDATE zonas_cobertura
+        SET {set_clause}
+        WHERE id = %s
+        RETURNING *
+    """, valores)
+    actualizada = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": "Zona actualizada exitosamente", "zona": actualizada}
+
+
+@app.patch("/admin/zonas-cobertura/{zona_id}/estado")
+def cambiar_estado_zona(zona_id: int, payload: dict, conn=Depends(get_db)):
+    """
+    Cambia solo el estado de una zona.
+    Body: { "estado": "activa" | "proxima" }
+    """
+    estado = payload.get("estado")
+    if estado not in ("activa", "proxima"):
+        raise HTTPException(status_code=400, detail="Estado debe ser 'activa' o 'proxima'")
+
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id FROM zonas_cobertura WHERE id = %s", (zona_id,))
+    if not cur.fetchone():
+        cur.close()
+        raise HTTPException(status_code=404, detail=f"No existe zona con id {zona_id}")
+
+    cur.execute("""
+        UPDATE zonas_cobertura SET estado = %s WHERE id = %s RETURNING *
+    """, (estado, zona_id))
+    actualizada = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": f"Estado de zona actualizado a '{estado}'", "zona": actualizada}
+
+
+@app.delete("/admin/zonas-cobertura/{zona_id}")
+def eliminar_zona(zona_id: int, conn=Depends(get_db)):
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id FROM zonas_cobertura WHERE id = %s", (zona_id,))
+    if not cur.fetchone():
+        cur.close()
+        raise HTTPException(status_code=404, detail=f"No existe zona con id {zona_id}")
+
+    cur.execute("DELETE FROM zonas_cobertura WHERE id = %s RETURNING nombre", (zona_id,))
+    eliminada = cur.fetchone()
+    conn.commit()
+    cur.close()
+    return {"message": f"Zona '{eliminada['nombre']}' eliminada exitosamente"}
+
+
+# ====================================================
 # 🖼️ NOTICIAS / CAROUSEL - Imágenes desde Cloudinary
 # ====================================================
 import cloudinary.api
