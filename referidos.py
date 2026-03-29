@@ -14,19 +14,16 @@ import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from sib_api_v3_sdk import SendSmtpEmail
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 from psycopg2.extras import RealDictCursor
 
-# ────────────────────────────────────────────────────
-# Se reutiliza la misma DB/JWT que en main.py
-# (importar get_db, JWT_SECRET, etc. desde allí en el proyecto real;
-#  aquí los re-declaramos para que el archivo sea autocontenido)
-# ────────────────────────────────────────────────────
 from main import get_db, pwd_context, JWT_SECRET, JWT_EXPIRE_MINUTES, now_argentina, create_access_token
 
 router = APIRouter(prefix="/referidos", tags=["referidos"])
+
+ESTADOS_VALIDOS = {"pendiente", "pagado", "anulado"}
 
 
 # ====================================================
@@ -62,19 +59,44 @@ class ReferenteOut(BaseModel):
 # 🔧 HELPERS
 # ====================================================
 
-def _generar_codigo(full_name: str, length: int = 8) -> str:
-    """
-    Genera un código único: primeras letras del nombre + random alfanumérico.
-    Ej: 'JUAN-A3X9'
-    """
+def _generar_codigo(full_name: str) -> str:
+    """Genera un código único: primeras letras del nombre + random alfanumérico."""
     base = full_name.strip().split()[0].upper()[:4]
     sufijo = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
     return f"{base}-{sufijo}"
 
 
 def _link_referido(codigo: str) -> str:
-    base_url = os.getenv("FRONTEND_URL", "https://www.docya.com.ar/")
+    base_url = os.getenv("FRONTEND_URL", "https://referidos.docya.online")
     return f"{base_url}/?ref={codigo}"
+
+
+def _get_referente_id_from_token(authorization: str | None) -> str:
+    """
+    Extrae y valida el JWT del header Authorization.
+    Devuelve el referente_id (sub) o lanza 401.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Token de autenticación requerido.")
+    token = authorization.split(" ", 1)[1]
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="El token expiró. Iniciá sesión nuevamente.")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido.")
+    if payload.get("role") != "referente":
+        raise HTTPException(status_code=403, detail="Acceso denegado.")
+    return payload["sub"]
+
+
+def _require_admin(authorization: str | None):
+    """Verifica la API key de admin desde el header Authorization."""
+    admin_key = os.getenv("ADMIN_API_KEY")
+    if not admin_key:
+        raise HTTPException(status_code=500, detail="ADMIN_API_KEY no configurada.")
+    if not authorization or authorization != f"Bearer {admin_key}":
+        raise HTTPException(status_code=403, detail="Acceso de administrador requerido.")
 
 
 def _enviar_email_bienvenida_referente(email: str, full_name: str, codigo: str, link: str):
@@ -173,10 +195,7 @@ def _enviar_email_bienvenida_referente(email: str, full_name: str, codigo: str, 
 
 @router.post("/register", response_model=ReferenteOut, status_code=201)
 def register_referente(data: ReferenteRegisterIn, db=Depends(get_db)):
-    """
-    Registra un nuevo referente (embajador) en el programa de referidos.
-    Genera automáticamente su código y link único.
-    """
+    """Registra un nuevo referente. Genera automáticamente su código y link único."""
     if not data.acepto_condiciones:
         raise HTTPException(
             status_code=422,
@@ -184,60 +203,41 @@ def register_referente(data: ReferenteRegisterIn, db=Depends(get_db)):
         )
 
     cur = db.cursor()
-
-    # ── Verificar duplicado por email ──────────────────────────────
-    cur.execute(
-        "SELECT id FROM referentes WHERE email = %s",
-        (data.email.lower(),)
-    )
-    if cur.fetchone():
-        raise HTTPException(
-            status_code=409,
-            detail="El email ya está registrado en el programa de referidos."
-        )
-
-    # ── Verificar duplicado por DNI ────────────────────────────────
-    cur.execute(
-        "SELECT id FROM referentes WHERE dni = %s",
-        (data.dni.strip(),)
-    )
-    if cur.fetchone():
-        raise HTTPException(
-            status_code=409,
-            detail="El DNI ya está registrado en el programa de referidos."
-        )
-
-    # ── Validar tipo ───────────────────────────────────────────────
-    tipos_validos = {"influencer", "embajador", "paciente", "partner"}
-    if data.tipo not in tipos_validos:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Tipo inválido. Valores permitidos: {', '.join(tipos_validos)}"
-        )
-
-    # ── Generar código único (retry en colisión) ───────────────────
-    codigo = None
-    for _ in range(10):
-        candidato = _generar_codigo(data.full_name)
-        cur.execute("SELECT id FROM referentes WHERE codigo_referido = %s", (candidato,))
-        if not cur.fetchone():
-            codigo = candidato
-            break
-
-    if not codigo:
-        raise HTTPException(
-            status_code=500,
-            detail="No se pudo generar un código único. Intentá de nuevo."
-        )
-
-    link = _link_referido(codigo)
-
-    # ── Hash de contraseña ─────────────────────────────────────────
-    password_hash = pwd_context.hash(data.password)
-    full_name = data.full_name.strip().title()
-
-    # ── INSERT ─────────────────────────────────────────────────────
     try:
+        # ── Verificar duplicado por email ──────────────────────────────
+        cur.execute("SELECT id FROM referentes WHERE email = %s", (data.email.lower(),))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="El email ya está registrado en el programa de referidos.")
+
+        # ── Verificar duplicado por DNI ────────────────────────────────
+        cur.execute("SELECT id FROM referentes WHERE dni = %s", (data.dni.strip(),))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="El DNI ya está registrado en el programa de referidos.")
+
+        # ── Validar tipo ───────────────────────────────────────────────
+        tipos_validos = {"influencer", "embajador", "paciente", "partner"}
+        if data.tipo not in tipos_validos:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Tipo inválido. Valores permitidos: {', '.join(sorted(tipos_validos))}"
+            )
+
+        # ── Generar código único (retry en colisión) ───────────────────
+        codigo = None
+        for _ in range(10):
+            candidato = _generar_codigo(data.full_name)
+            cur.execute("SELECT id FROM referentes WHERE codigo_referido = %s", (candidato,))
+            if not cur.fetchone():
+                codigo = candidato
+                break
+
+        if not codigo:
+            raise HTTPException(status_code=500, detail="No se pudo generar un código único. Intentá de nuevo.")
+
+        link = _link_referido(codigo)
+        password_hash = pwd_context.hash(data.password)
+        full_name = data.full_name.strip().title()
+
         cur.execute(
             """
             INSERT INTO referentes (
@@ -255,32 +255,25 @@ def register_referente(data: ReferenteRegisterIn, db=Depends(get_db)):
             RETURNING id, full_name, email, tipo, link_referido, codigo_referido
             """,
             (
-                full_name,
-                data.dni.strip(),
-                data.telefono.strip(),
-                data.email.lower(),
-                password_hash,
-                data.cbu_alias.strip(),
-                data.tipo,
-                codigo,
-                link,
-                now_argentina(),   # fecha_aceptacion
-                now_argentina(),   # creado_en
+                full_name, data.dni.strip(), data.telefono.strip(),
+                data.email.lower(), password_hash, data.cbu_alias.strip(),
+                data.tipo, codigo, link,
+                now_argentina(), now_argentina(),
             )
         )
         row = cur.fetchone()
         db.commit()
 
+    except HTTPException:
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error interno al registrar referente: {e}"
-        )
+        raise HTTPException(status_code=500, detail=f"Error interno al registrar referente: {e}")
+    finally:
+        cur.close()
 
     referente_id, full_name_db, email_db, tipo_db, link_db, codigo_db = row
 
-    # ── Email de bienvenida (no bloqueante) ────────────────────────
     try:
         _enviar_email_bienvenida_referente(email_db, full_name_db, codigo_db, link_db)
     except Exception as e:
@@ -304,35 +297,31 @@ def register_referente(data: ReferenteRegisterIn, db=Depends(get_db)):
 def login_referente(data: ReferenteLoginIn, db=Depends(get_db)):
     """Login del referente. Devuelve JWT + datos básicos del perfil."""
     cur = db.cursor()
-
-    cur.execute(
-        """
-        SELECT id, full_name, email, tipo, password_hash,
-               codigo_referido, link_referido, activo
-        FROM referentes
-        WHERE lower(email) = %s
-        LIMIT 1
-        """,
-        (data.email.strip().lower(),)
-    )
-    row = cur.fetchone()
+    try:
+        cur.execute(
+            """
+            SELECT id, full_name, email, tipo, password_hash,
+                   codigo_referido, link_referido, activo
+            FROM referentes
+            WHERE lower(email) = %s
+            LIMIT 1
+            """,
+            (data.email.strip().lower(),)
+        )
+        row = cur.fetchone()
+    finally:
+        cur.close()
 
     if not row:
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
 
-    (
-        ref_id, full_name, email, tipo, password_hash,
-        codigo, link, activo
-    ) = row
+    ref_id, full_name, email, tipo, password_hash, codigo, link, activo = row
 
     if not pwd_context.verify(data.password, password_hash):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
 
     if not activo:
-        raise HTTPException(
-            status_code=403,
-            detail="Tu cuenta está desactivada. Contactá a soporte."
-        )
+        raise HTTPException(status_code=403, detail="Tu cuenta está desactivada. Contactá a soporte.")
 
     token = create_access_token({
         "sub": str(ref_id),
@@ -356,58 +345,62 @@ def login_referente(data: ReferenteLoginIn, db=Depends(get_db)):
 
 
 # ──────────────────────────────────────────────────────────────────
-# DASHBOARD — estadísticas del referente
+# STATS
 # ──────────────────────────────────────────────────────────────────
 
 @router.get("/{referente_id}/stats")
-def stats_referente(referente_id: str, db=Depends(get_db)):
-    """
-    Devuelve las métricas del referente:
-    - Total de referidos registrados
-    - Total de consultas válidas
-    - Monto total acumulado
-    - Monto pendiente de cobro
-    """
+def stats_referente(
+    referente_id: str,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    """Devuelve las métricas del referente. Requiere JWT propio."""
+    token_sub = _get_referente_id_from_token(authorization)
+    if token_sub != referente_id:
+        raise HTTPException(status_code=403, detail="No podés ver las stats de otro referente.")
+
     cur = db.cursor()
+    try:
+        cur.execute(
+            "SELECT id, full_name, codigo_referido FROM referentes WHERE id = %s",
+            (referente_id,)
+        )
+        ref = cur.fetchone()
+        if not ref:
+            raise HTTPException(status_code=404, detail="Referente no encontrado.")
 
-    # Verificar que existe
-    cur.execute("SELECT id, full_name, codigo_referido FROM referentes WHERE id = %s", (referente_id,))
-    ref = cur.fetchone()
-    if not ref:
-        raise HTTPException(status_code=404, detail="Referente no encontrado.")
+        _, full_name, codigo = ref
 
-    ref_id_db, full_name, codigo = ref
+        # Usar TRIM/LOWER para consistencia con mis-referidos
+        cur.execute(
+            "SELECT COUNT(*) FROM users WHERE TRIM(LOWER(codigo_referido)) = TRIM(LOWER(%s))",
+            (codigo,)
+        )
+        total_referidos = cur.fetchone()[0]
 
-    # Pacientes registrados con el código
-    cur.execute(
-        "SELECT COUNT(*) FROM users WHERE codigo_referido = %s",
-        (codigo,)
-    )
-    total_referidos = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT COUNT(*), COALESCE(SUM(monto_referente), 0)
+            FROM recompensas_referentes
+            WHERE referente_id = %s AND estado IN ('pendiente', 'pagado')
+            """,
+            (referente_id,)
+        )
+        row = cur.fetchone()
+        total_consultas_validas = row[0]
+        monto_total_acumulado = float(row[1])
 
-    # Consultas válidas (pagadas) de esos pacientes
-    cur.execute(
-        """
-        SELECT COUNT(*), COALESCE(SUM(monto_referente), 0)
-        FROM recompensas_referentes
-        WHERE referente_id = %s AND estado IN ('pendiente', 'pagado')
-        """,
-        (referente_id,)
-    )
-    row = cur.fetchone()
-    total_consultas_validas = row[0]
-    monto_total_acumulado = float(row[1])
-
-    # Monto pendiente de cobro
-    cur.execute(
-        """
-        SELECT COALESCE(SUM(monto_referente), 0)
-        FROM recompensas_referentes
-        WHERE referente_id = %s AND estado = 'pendiente'
-        """,
-        (referente_id,)
-    )
-    monto_pendiente = float(cur.fetchone()[0])
+        cur.execute(
+            """
+            SELECT COALESCE(SUM(monto_referente), 0)
+            FROM recompensas_referentes
+            WHERE referente_id = %s AND estado = 'pendiente'
+            """,
+            (referente_id,)
+        )
+        monto_pendiente = float(cur.fetchone()[0])
+    finally:
+        cur.close()
 
     return {
         "referente_id": referente_id,
@@ -421,72 +414,76 @@ def stats_referente(referente_id: str, db=Depends(get_db)):
     }
 
 
+# ──────────────────────────────────────────────────────────────────
+# MIS REFERIDOS
+# ──────────────────────────────────────────────────────────────────
+
 @router.get("/{referente_id}/mis-referidos")
-def mis_referidos(referente_id: str, db=Depends(get_db)):
+def mis_referidos(
+    referente_id: str,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
     """
     Devuelve la lista de pacientes referidos con su última consulta,
-    monto generado y estado de pago.
+    monto generado y estado de pago. Requiere JWT propio.
     """
+    token_sub = _get_referente_id_from_token(authorization)
+    if token_sub != referente_id:
+        raise HTTPException(status_code=403, detail="No podés ver los referidos de otro referente.")
+
     cur = db.cursor()
+    try:
+        cur.execute(
+            "SELECT id, codigo_referido FROM referentes WHERE id = %s",
+            (referente_id,)
+        )
+        ref = cur.fetchone()
+        if not ref:
+            raise HTTPException(status_code=404, detail="Referente no encontrado.")
 
-    # 🔹 Verificar referente
-    cur.execute(
-        "SELECT id, codigo_referido FROM referentes WHERE id = %s",
-        (referente_id,)
-    )
-    ref = cur.fetchone()
-    if not ref:
-        raise HTTPException(status_code=404, detail="Referente no encontrado.")
+        _, codigo = ref
 
-    _, codigo = ref
+        cur.execute(
+            """
+            SELECT
+                u.id                                        AS paciente_uuid,
+                u.full_name,
+                u.localidad,
+                u.created_at                                AS fecha_registro,
+                MAX(c.creado_en)                            AS ultima_consulta,
+                COALESCE(SUM(rr.monto_referente), 0)        AS monto_total,
+                (
+                    SELECT rr2.estado
+                    FROM recompensas_referentes rr2
+                    WHERE rr2.paciente_uuid = u.id
+                      AND rr2.referente_id  = %s
+                    ORDER BY rr2.creado_en DESC
+                    LIMIT 1
+                )                                           AS ultimo_estado,
+                u.created_at + INTERVAL '12 months'         AS vence_en
 
-    # 🔥 QUERY CORREGIDA (UUID BIEN MANEJADO)
-    cur.execute(
-        """
-        SELECT
-            u.id                                        AS paciente_uuid,
-            u.full_name,
-            u.localidad,
-            u.created_at                                AS fecha_registro,
+            FROM users u
 
-            -- última consulta
-            MAX(c.creado_en)                            AS ultima_consulta,
+            LEFT JOIN consultas c
+                   ON c.paciente_uuid = u.id
 
-            -- total generado
-            COALESCE(SUM(rr.monto_referente), 0)        AS monto_total,
+            LEFT JOIN recompensas_referentes rr
+                   ON rr.paciente_uuid = u.id
+                  AND rr.referente_id  = %s
 
-            -- último estado
-            (
-                SELECT rr2.estado
-                FROM recompensas_referentes rr2
-                WHERE rr2.paciente_uuid = u.id
-                  AND rr2.referente_id  = %s
-                ORDER BY rr2.creado_en DESC
-                LIMIT 1
-            )                                           AS ultimo_estado,
+            WHERE TRIM(LOWER(u.codigo_referido)) = TRIM(LOWER(%s))
 
-            -- vencimiento
-            u.created_at + INTERVAL '12 months'         AS vence_en
+            GROUP BY u.id, u.full_name, u.localidad, u.created_at
 
-        FROM users u
+            ORDER BY MAX(c.creado_en) DESC NULLS LAST, u.created_at DESC
+            """,
+            (referente_id, referente_id, codigo)
+        )
 
-        LEFT JOIN consultas c
-               ON c.paciente_uuid = u.id   -- ✅ UUID = UUID
-
-        LEFT JOIN recompensas_referentes rr
-               ON rr.paciente_uuid = u.id  -- ✅ UUID = UUID
-              AND rr.referente_id  = %s
-
-        WHERE TRIM(LOWER(u.codigo_referido)) = TRIM(LOWER(%s))
-
-        GROUP BY u.id, u.full_name, u.localidad, u.created_at
-
-        ORDER BY MAX(c.creado_en) DESC NULLS LAST, u.created_at DESC
-        """,
-        (referente_id, referente_id, codigo)
-    )
-
-    rows = cur.fetchall()
+        rows = cur.fetchall()
+    finally:
+        cur.close()
 
     referidos = []
     for row in rows:
@@ -495,7 +492,7 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
             ultima_consulta, monto_total, ultimo_estado, vence_en
         ) = row
 
-        referidos.routerend({
+        referidos.append({                          # ← corregido (era routerend)
             "paciente_uuid":   str(paciente_uuid),
             "full_name":       full_name,
             "localidad":       localidad or "—",
@@ -512,80 +509,142 @@ def mis_referidos(referente_id: str, db=Depends(get_db)):
         "referidos": referidos,
     }
 
-# Listar todos los referentes
+
+# ====================================================
+# 🔐 ADMIN ENDPOINTS
+# ====================================================
+
 @router.get("/admin/referentes")
-def get_all_referentes(db=Depends(get_db)):
+def get_all_referentes(
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    _require_admin(authorization)
     cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute("""
-        SELECT id, full_name, email, telefono, dni, tipo,
-               codigo_referido, link_referido, cbu_alias, activo, creado_en
-        FROM referentes
-        ORDER BY creado_en DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
+    try:
+        cur.execute("""
+            SELECT id, full_name, email, telefono, dni, tipo,
+                   codigo_referido, link_referido, cbu_alias, activo, creado_en
+            FROM referentes
+            ORDER BY creado_en DESC
+        """)
+        rows = cur.fetchall()
+    finally:
+        cur.close()
     return [dict(r) for r in rows]
 
 
-# Activar / desactivar referente
 @router.patch("/admin/referentes/{referente_id}/toggle")
-def toggle_referente(referente_id: str, db=Depends(get_db)):
+def toggle_referente(
+    referente_id: str,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    _require_admin(authorization)
     cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute("SELECT activo FROM referentes WHERE id = %s", (referente_id,))
-    row = cur.fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Referente no encontrado")
-    cur.execute(
-        "UPDATE referentes SET activo = %s WHERE id = %s RETURNING activo",
-        (not row["activo"], referente_id)
-    )
-    updated = cur.fetchone()
-    db.commit()
-    cur.close()
+    try:
+        cur.execute("SELECT activo FROM referentes WHERE id = %s", (referente_id,))
+        row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Referente no encontrado.")
+        cur.execute(
+            "UPDATE referentes SET activo = %s WHERE id = %s RETURNING activo",
+            (not row["activo"], referente_id)
+        )
+        updated = cur.fetchone()
+        db.commit()
+    finally:
+        cur.close()
     return {"ok": True, "activo": updated["activo"]}
-# Listar todas las recompensas (con join a referentes y users)
+
+
 @router.get("/admin/recompensas")
-def get_recompensas(estado: str = None, db=Depends(get_db)):
+def get_recompensas(
+    estado: str | None = None,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    _require_admin(authorization)
+
+    if estado is not None and estado not in ESTADOS_VALIDOS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Estado inválido. Valores permitidos: {', '.join(sorted(ESTADOS_VALIDOS))}"
+        )
+
     cur = db.cursor(cursor_factory=RealDictCursor)
-    filtro = "WHERE rr.estado = %s" if estado else ""
-    params = (estado,) if estado else ()
-    cur.execute(f"""
-        SELECT rr.id, rr.referente_id, rr.monto_referente, rr.estado, rr.creado_en,
-               r.full_name AS referente_nombre, r.cbu_alias AS referente_cbu,
-               u.full_name AS paciente_nombre
-        FROM recompensas_referentes rr
-        JOIN referentes r ON r.id::text = rr.referente_id::text
-        JOIN users u ON u.id = rr.paciente_uuid
-        {filtro}
-        ORDER BY rr.creado_en DESC
-    """, params)
-    rows = cur.fetchall()
-    cur.close()
+    try:
+        if estado:
+            cur.execute(
+                """
+                SELECT rr.id, rr.referente_id, rr.monto_referente, rr.estado, rr.creado_en,
+                       r.full_name AS referente_nombre, r.cbu_alias AS referente_cbu,
+                       u.full_name AS paciente_nombre
+                FROM recompensas_referentes rr
+                JOIN referentes r ON r.id::text = rr.referente_id::text
+                JOIN users u ON u.id = rr.paciente_uuid
+                WHERE rr.estado = %s
+                ORDER BY rr.creado_en DESC
+                """,
+                (estado,)
+            )
+        else:
+            cur.execute(
+                """
+                SELECT rr.id, rr.referente_id, rr.monto_referente, rr.estado, rr.creado_en,
+                       r.full_name AS referente_nombre, r.cbu_alias AS referente_cbu,
+                       u.full_name AS paciente_nombre
+                FROM recompensas_referentes rr
+                JOIN referentes r ON r.id::text = rr.referente_id::text
+                JOIN users u ON u.id = rr.paciente_uuid
+                ORDER BY rr.creado_en DESC
+                """
+            )
+        rows = cur.fetchall()
+    finally:
+        cur.close()
     return [dict(r) for r in rows]
 
 
-# Marcar una recompensa individual como pagada
 @router.patch("/admin/recompensas/{recompensa_id}/pagar")
-def pagar_recompensa(recompensa_id: int, db=Depends(get_db)):
+def pagar_recompensa(
+    recompensa_id: int,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    _require_admin(authorization)
     cur = db.cursor(cursor_factory=RealDictCursor)
-    cur.execute(
-        "UPDATE recompensas_referentes SET estado='pagado' WHERE id=%s RETURNING id",
-        (recompensa_id,)
-    )
-    if not cur.fetchone():
-        raise HTTPException(status_code=404, detail="Recompensa no encontrada")
-    db.commit(); cur.close()
+    try:
+        cur.execute(
+            "UPDATE recompensas_referentes SET estado='pagado' WHERE id=%s RETURNING id",
+            (recompensa_id,)
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Recompensa no encontrada.")
+        db.commit()
+    finally:
+        cur.close()
     return {"ok": True}
 
 
-# Pagar todas las pendientes de un referente
 @router.patch("/admin/referentes/{referente_id}/pagar-pendientes")
-def pagar_pendientes(referente_id: str, db=Depends(get_db)):
+def pagar_pendientes(
+    referente_id: str,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    _require_admin(authorization)
     cur = db.cursor()
-    cur.execute("""
-        UPDATE recompensas_referentes SET estado='pagado'
-        WHERE referente_id::text = %s AND estado = 'pendiente'
-    """, (referente_id,))
-    pagados = cur.rowcount
-    db.commit(); cur.close()
+    try:
+        cur.execute(
+            """
+            UPDATE recompensas_referentes SET estado='pagado'
+            WHERE referente_id::text = %s AND estado = 'pendiente'
+            """,
+            (referente_id,)
+        )
+        pagados = cur.rowcount
+        db.commit()
+    finally:
+        cur.close()
     return {"ok": True, "pagados": pagados}
