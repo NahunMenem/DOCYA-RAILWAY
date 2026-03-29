@@ -648,3 +648,36 @@ def pagar_pendientes(
     finally:
         cur.close()
     return {"ok": True, "pagados": pagados}
+
+
+@router.get("/admin/referentes/{referente_id}/referidos")
+def get_referidos_admin(
+    referente_id: str,
+    authorization: str | None = Header(default=None),
+    db=Depends(get_db),
+):
+    _require_admin(authorization)
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute("SELECT codigo_referido FROM referentes WHERE id = %s", (referente_id,))
+        ref = cur.fetchone()
+        if not ref:
+            raise HTTPException(status_code=404, detail="Referente no encontrado.")
+        codigo = ref["codigo_referido"]
+        cur.execute("""
+            SELECT u.id, u.full_name, u.email, u.localidad, u.created_at AS fecha_registro,
+                   COALESCE(SUM(rr.monto_referente), 0) AS monto_total,
+                   COUNT(rr.id) AS total_consultas,
+                   MAX(rr.creado_en) AS ultima_consulta,
+                   (SELECT rr2.estado FROM recompensas_referentes rr2
+                    WHERE rr2.paciente_uuid = u.id ORDER BY rr2.creado_en DESC LIMIT 1) AS estado
+            FROM users u
+            LEFT JOIN recompensas_referentes rr ON rr.paciente_uuid = u.id AND rr.referente_id::text = %s
+            WHERE TRIM(LOWER(u.codigo_referido)) = TRIM(LOWER(%s))
+            GROUP BY u.id, u.full_name, u.email, u.localidad, u.created_at
+            ORDER BY u.created_at DESC
+        """, (referente_id, codigo))
+        rows = cur.fetchall()
+    finally:
+        cur.close()
+    return [dict(r) for r in rows]    
