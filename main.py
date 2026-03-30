@@ -119,6 +119,7 @@ ALLOWED_ORIGINS = [
     "https://docya-monitoreo-omwg.vercel.app",
     "https://docya-monitoreo.vercel.app",
     "https://comunidaddocya-tfq8.vercel.app",
+    "https://www.docya.com.ar",
     "https://monitoreodocyasas-ua4l-gsyz2umjm.vercel.app/",
     "https://monitoreodocyasas-git-988b6f-nahundeveloper-gmailcoms-projects.vercel.app",
     "https://www.docya.online",
