@@ -655,11 +655,22 @@ body {{
     justify-content:space-between;
 }}
 
-.copies {{
+.page {
+    width:210mm;
+    height:297mm;
+    margin:auto;
+    background:white;
+    padding:10mm;
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+}
+
+.row {
     display:flex;
     gap:10px;
-    height:48%;
-}}
+    flex:1;
+}
 
 .copy {{
     flex:1;
@@ -789,14 +800,17 @@ button {{
 <button onclick="window.print()">Imprimir</button>
 
 <div class="page">
-    <div class="copies">
+
+    <div class="row">
         {receta_copy("ORIGINAL")}
         {receta_copy("COPIA")}
     </div>
 
-    <div class="copies">
+    <div class="row">
         {receta_copy("DUPLICADO")}
+        <div></div>
     </div>
+
 </div>
 
 </body>
