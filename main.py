@@ -180,6 +180,8 @@ app.include_router(chat_ia_router)
 from medicamentos import router as medicamentos_router
 app.include_router(medicamentos_router)
 
+from recetario import router as recetario_router
+app.include_router(recetario_router)
 # ====================================================
 # 🔑 MODELOS Pydantic (Auth y Valoraciones)
 # ====================================================
