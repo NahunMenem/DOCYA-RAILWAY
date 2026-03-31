@@ -502,6 +502,7 @@ def verificar_receta(uuid_receta: str, db=Depends(get_db)):
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
+
 from fastapi.responses import HTMLResponse
 from fastapi import Depends, HTTPException
 from datetime import datetime
@@ -540,14 +541,12 @@ def receta_html(
     ) = row
 
     fecha = creado_en.strftime("%d/%m/%Y") if creado_en else "—"
-    fecha_nac = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "—"
+    fecha_nac_str = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "—"
 
     sexo_label = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo)
 
-    # 🔹 Código RL tipo ministerio
     rl_code = f"RL-2024-{random.randint(100000000,999999999)}"
 
-    # 🔹 QR + Barcode
     base = os.getenv("API_BASE_URL", "https://docya-railway-production.up.railway.app")
     ver_url = f"{base}/recetario/verificar/{uuid_val}"
 
@@ -556,7 +555,6 @@ def receta_html(
 
     logo = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
 
-    # 🔹 Medicamentos
     meds = ""
     for i, m in enumerate(medicamentos or [], 1):
         meds += f"""
@@ -567,14 +565,12 @@ def receta_html(
         </div>
         """
 
-    # 🔹 Firma
     firma = f'<img src="{firma_url}" class="firma-img">' if firma_url else '<div class="firma-line"></div>'
 
     def receta_copy(tipo):
         return f"""
         <div class="copy">
-            
-            <!-- HEADER -->
+
             <div class="header">
                 <img src="{logo}" class="logo">
 
@@ -591,25 +587,21 @@ def receta_html(
                 </div>
             </div>
 
-            <!-- PACIENTE -->
             <div class="paciente">
                 <p><strong>Paciente:</strong> {pac_apellido}, {pac_nombre} | Sexo: {sexo_label}</p>
-                <p><strong>{tipo_doc}:</strong> {nro_doc} | CUIL: {cuil or "—"} | Nac: {fecha_nac}</p>
+                <p><strong>{tipo_doc}:</strong> {nro_doc} | CUIL: {cuil or "—"} | Nac: {fecha_nac_str}</p>
                 <p><strong>{obra_social or "—"}</strong> | Plan: {plan or "—"} | Credencial: {nro_credencial or "—"}</p>
             </div>
 
-            <!-- RP -->
             <div class="rp">
                 <h3>Rp:</h3>
                 {meds}
             </div>
 
-            <!-- DIAG -->
             <div class="diag">
                 <strong>Diagnóstico:</strong> {diagnostico or "—"}
             </div>
 
-            <!-- FIRMA -->
             <div class="firma">
                 {firma}
                 <p><strong>{med_nombre}</strong></p>
@@ -617,13 +609,12 @@ def receta_html(
                 <span>FIRMA Y SELLO</span>
             </div>
 
-            <!-- FOOTER -->
             <div class="footer">
                 <img src="{barcode_url}" class="barcode">
                 <img src="{qr_url}" class="qr">
 
                 <p class="legal">
-                    Documento firmado electrónicamente bajo Ley 25.506.  
+                    Documento firmado electrónicamente bajo Ley 25.506.<br>
                     Verificar en: {ver_url}
                 </p>
             </div>
@@ -652,25 +643,14 @@ body {{
     padding:10mm;
     display:flex;
     flex-direction:column;
-    justify-content:space-between;
+    gap:10px;
 }}
 
-.page {
-    width:210mm;
-    height:297mm;
-    margin:auto;
-    background:white;
-    padding:10mm;
-    display:flex;
-    flex-direction:column;
-    gap:10px;
-}
-
-.row {
+.row {{
     display:flex;
     gap:10px;
     flex:1;
-}
+}}
 
 .copy {{
     flex:1;
@@ -756,7 +736,7 @@ body {{
 
 .footer {{
     display:flex;
-    justify-content:space-between;
+    flex-direction:column;
     align-items:center;
     margin-top:10px;
 }}
@@ -767,12 +747,12 @@ body {{
 
 .qr {{
     height:80px;
+    margin-top:5px;
 }}
 
 .legal {{
     font-size:8px;
     text-align:center;
-    width:100%;
     margin-top:5px;
 }}
 
