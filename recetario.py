@@ -502,6 +502,12 @@ def verificar_receta(uuid_receta: str, db=Depends(get_db)):
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
+from fastapi.responses import HTMLResponse
+from fastapi import Depends, HTTPException
+from datetime import datetime
+import os
+import random
+
 @router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 def receta_html(
     receta_id: int,
@@ -533,182 +539,264 @@ def receta_html(
         med_nombre, matricula, especialidad, tipo_med, firma_url
     ) = row
 
-    fecha_emision = creado_en.strftime("%d/%m/%Y") if creado_en else "—"
-    fecha_nac_str = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "—"
+    fecha = creado_en.strftime("%d/%m/%Y") if creado_en else "—"
+    fecha_nac = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "—"
 
     sexo_label = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo)
 
-    # 🔹 Medicamentos
-    meds_html = ""
-    for i, m in enumerate(medicamentos or [], 1):
-        meds_html += f"""
-        <p>
-            {i}) <strong>{m.get("nombre","")}</strong> {m.get("concentracion","")} {m.get("presentacion","")}<br>
-            Cantidad: {m.get("cantidad",1)}<br>
-            {m.get("indicaciones","")}
-        </p>
-        """
+    # 🔹 Código RL tipo ministerio
+    rl_code = f"RL-2024-{random.randint(100000000,999999999)}"
 
-    # 🔹 Firma
-    if firma_url:
-        firma_bloque = f'<img src="{firma_url}" style="max-height:50px;">'
-    else:
-        firma_bloque = '<div style="border-bottom:1px solid #000;width:120px;margin:auto;height:40px;"></div>'
-
+    # 🔹 QR + Barcode
     base = os.getenv("API_BASE_URL", "https://docya-railway-production.up.railway.app")
     ver_url = f"{base}/recetario/verificar/{uuid_val}"
-    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=100x100&data={ver_url}"
+
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=120x120&data={ver_url}"
+    barcode_url = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={nro_doc}&scale=2&height=12"
 
     logo = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
 
+    # 🔹 Medicamentos
+    meds = ""
+    for i, m in enumerate(medicamentos or [], 1):
+        meds += f"""
+        <div class="med">
+            {i}) <strong>{m.get("nombre","")}</strong> {m.get("concentracion","")}<br>
+            Cantidad: {m.get("cantidad",1)}<br>
+            {m.get("indicaciones","")}
+        </div>
+        """
+
+    # 🔹 Firma
+    firma = f'<img src="{firma_url}" class="firma-img">' if firma_url else '<div class="firma-line"></div>'
+
+    def receta_copy(tipo):
+        return f"""
+        <div class="copy">
+            
+            <!-- HEADER -->
+            <div class="header">
+                <img src="{logo}" class="logo">
+
+                <div class="medico">
+                    <strong>{med_nombre}</strong><br>
+                    {especialidad or "MÉDICO"}<br>
+                    MN {matricula}
+                </div>
+
+                <div class="info">
+                    <span class="badge">{tipo}</span><br>
+                    Fecha: {fecha}<br>
+                    <span class="rl">{rl_code}</span>
+                </div>
+            </div>
+
+            <!-- PACIENTE -->
+            <div class="paciente">
+                <p><strong>Paciente:</strong> {pac_apellido}, {pac_nombre} | Sexo: {sexo_label}</p>
+                <p><strong>{tipo_doc}:</strong> {nro_doc} | CUIL: {cuil or "—"} | Nac: {fecha_nac}</p>
+                <p><strong>{obra_social or "—"}</strong> | Plan: {plan or "—"} | Credencial: {nro_credencial or "—"}</p>
+            </div>
+
+            <!-- RP -->
+            <div class="rp">
+                <h3>Rp:</h3>
+                {meds}
+            </div>
+
+            <!-- DIAG -->
+            <div class="diag">
+                <strong>Diagnóstico:</strong> {diagnostico or "—"}
+            </div>
+
+            <!-- FIRMA -->
+            <div class="firma">
+                {firma}
+                <p><strong>{med_nombre}</strong></p>
+                <p>MN {matricula}</p>
+                <span>FIRMA Y SELLO</span>
+            </div>
+
+            <!-- FOOTER -->
+            <div class="footer">
+                <img src="{barcode_url}" class="barcode">
+                <img src="{qr_url}" class="qr">
+
+                <p class="legal">
+                    Documento firmado electrónicamente bajo Ley 25.506.  
+                    Verificar en: {ver_url}
+                </p>
+            </div>
+
+        </div>
+        """
+
     html = f"""
 <!DOCTYPE html>
-<html lang="es">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Receta DocYa</title>
 
 <style>
 body {{
-    font-family: Arial, sans-serif;
-    background: #fff;
-    font-size: 11px;
-    margin: 0;
+    margin:0;
+    font-family: Arial;
+    background:#f1f5f9;
 }}
 
 .page {{
-    width: 210mm;
-    margin: auto;
-    padding: 10mm;
+    width:210mm;
+    height:297mm;
+    margin:auto;
+    background:white;
+    padding:10mm;
+    display:flex;
+    flex-direction:column;
+    justify-content:space-between;
+}}
+
+.copies {{
+    display:flex;
+    gap:10px;
+    height:48%;
+}}
+
+.copy {{
+    flex:1;
+    border:1px solid #e5e7eb;
+    border-top:4px solid #14B8A6;
+    padding:10px;
+    display:flex;
+    flex-direction:column;
 }}
 
 .header {{
-    display: flex;
-    justify-content: space-between;
-    margin-bottom: 6px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
 }}
 
 .logo {{
-    height: 30px;
+    height:35px;
+}}
+
+.medico {{
+    font-size:10px;
+    text-align:center;
+}}
+
+.info {{
+    text-align:right;
+    font-size:9px;
 }}
 
 .badge {{
-    background: #14B8A6;
-    color: white;
-    padding: 2px 8px;
-    font-size: 9px;
-    border-radius: 10px;
+    background:#14B8A6;
+    color:white;
+    padding:2px 6px;
+    border-radius:6px;
+    font-weight:bold;
+}}
+
+.rl {{
+    color:#14B8A6;
+    font-weight:bold;
 }}
 
 .paciente {{
-    border-top: 1px solid #000;
-    border-bottom: 1px solid #000;
-    padding: 4px 0;
-    margin-top: 5px;
-}}
-
-.legal {{
-    font-size: 8px;
-    margin: 6px 0;
+    margin-top:5px;
+    border-top:1px solid #ccc;
+    border-bottom:1px solid #ccc;
+    padding:5px 0;
+    font-size:10px;
 }}
 
 .rp {{
-    margin-top: 8px;
-    font-size: 11px;
+    margin-top:10px;
+    flex:1;
+}}
+
+.med {{
+    margin-bottom:5px;
+    font-size:10px;
 }}
 
 .diag {{
-    margin-top: 6px;
+    font-size:10px;
+    margin-top:5px;
 }}
 
 .firma {{
-    text-align: center;
-    margin-top: 15px;
+    text-align:center;
+    margin-top:10px;
+    font-size:10px;
 }}
 
-.sello {{
-    color: #14B8A6;
-    font-weight: bold;
+.firma-img {{
+    max-height:50px;
+}}
+
+.firma-line {{
+    width:120px;
+    height:40px;
+    border-bottom:1px solid black;
+    margin:auto;
+}}
+
+.footer {{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:10px;
+}}
+
+.barcode {{
+    height:40px;
 }}
 
 .qr {{
-    text-align: right;
-    margin-top: 10px;
+    height:80px;
+}}
+
+.legal {{
+    font-size:8px;
+    text-align:center;
+    width:100%;
+    margin-top:5px;
 }}
 
 button {{
-    background: #14B8A6;
-    color: white;
-    border: none;
-    padding: 6px 12px;
-    margin: 10px;
-    border-radius: 6px;
-    cursor: pointer;
+    position:fixed;
+    top:10px;
+    left:10px;
+    background:#14B8A6;
+    color:white;
+    border:none;
+    padding:6px 12px;
+    border-radius:6px;
 }}
 
 @media print {{
-    button {{
-        display: none;
-    }}
+    button {{display:none;}}
+    body {{background:white;}}
 }}
 </style>
 
 </head>
+
 <body>
 
-<button onclick="window.print()">🖨 Imprimir</button>
+<button onclick="window.print()">Imprimir</button>
 
 <div class="page">
-
-    <div class="header">
-        <div>
-            <img src="{logo}" class="logo">
-        </div>
-
-        <div>
-            <strong>{med_nombre}</strong><br>
-            MÉDICO<br>
-            MN {matricula}<br>
-            Fecha: {fecha_emision}
-        </div>
-
-        <div>
-            <span class="badge">RECETA</span>
-        </div>
+    <div class="copies">
+        {receta_copy("ORIGINAL")}
+        {receta_copy("COPIA")}
     </div>
 
-    <div class="paciente">
-        <p><strong>Paciente:</strong> {pac_apellido}, {pac_nombre} | Sexo: {sexo_label}</p>
-        <p><strong>{tipo_doc}:</strong> {nro_doc} | CUIL: {cuil or "—"} | F. Nacimiento: {fecha_nac_str}</p>
-        <p><strong>{obra_social or "—"}</strong> | PLAN: {plan or "—"} | Credencial: {nro_credencial or "—"}</p>
+    <div class="copies">
+        {receta_copy("DUPLICADO")}
     </div>
-
-    <div class="legal">
-        Esta receta fue creada por un emisor inscripto y validado en el Registro de Recetarios Electrónicos del Ministerio de Salud de la Nación.
-    </div>
-
-    <div class="rp">
-        <strong>Rp:</strong>
-        {meds_html}
-    </div>
-
-    <div class="diag">
-        <strong>Diagnóstico:</strong> {diagnostico or "—"}
-    </div>
-
-    <div class="firma">
-        {firma_bloque}
-        <p><strong>{med_nombre}</strong></p>
-        <p>Médico</p>
-        <p>MN {matricula}</p>
-        <p class="sello">FIRMA Y SELLO</p>
-    </div>
-
-    <div class="qr">
-        <img src="{qr_url}" width="80">
-        <p>Verificar autenticidad</p>
-    </div>
-
 </div>
 
 </body>
