@@ -1086,8 +1086,65 @@ body {{
 @media print {{
   body {{ background: #fff; font-size: 10px; }}
   .no-print {{ display: none !important; }}
-  .page {{ page-break-after: always; box-shadow: none; margin: 0; border-radius: 0; }}
-  .page:last-child {{ page-break-after: avoid; }}
+  .page {{
+    width: 196mm;
+    min-height: auto;
+    height: auto;
+    page-break-after: always;
+    break-after: page;
+    box-shadow: none;
+    margin: 0 auto;
+    border-radius: 0;
+    overflow: hidden;
+  }}
+  .page:last-child {{
+    page-break-after: auto;
+    break-after: auto;
+  }}
+  .page.two-up {{
+    position: relative;
+  }}
+  .page.two-up .copies {{
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    gap: 16mm;
+    padding-top: 10mm;
+  }}
+  .page.two-up .copy {{
+    flex: none;
+    width: 90mm;
+    min-width: 90mm;
+    max-width: 90mm;
+    height: 160mm;
+    min-height: 160mm;
+  }}
+  .page.two-up .copy-divider {{
+    position: absolute;
+    top: 10mm;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 0;
+    min-height: 160mm;
+    height: 160mm;
+    margin: 0;
+    border-left: 1px dashed #9ca3af;
+    background: none;
+  }}
+  .page.half-sheet .copies.single {{
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 10mm;
+  }}
+  .page.half-sheet .copy {{
+    flex: none;
+    width: 90mm;
+    min-width: 90mm;
+    max-width: 90mm;
+    height: 160mm;
+    min-height: 160mm;
+  }}
   @page {{ margin: 7mm; size: A4; }}
 }}
 
@@ -1625,3 +1682,4 @@ def _html_no_encontrada(uuid_receta: str):
 </div>
 </body>
 </html>"""
+
