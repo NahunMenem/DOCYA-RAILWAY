@@ -105,7 +105,7 @@ def get_access_token():
 # 🚀 CREAR APP FASTAPI
 # ====================================================
 from fastapi import FastAPI
-from fastapi.middleware. import Middleware
+
 
 # ====================================================
 # 🌍 CORS – ORÍGENES PERMITIDOS
