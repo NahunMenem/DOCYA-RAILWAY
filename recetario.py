@@ -1134,7 +1134,7 @@ body {{
 .page.two-up .copies {{
   align-items: flex-start;
   justify-content: center;
-  gap: 8mm;
+  gap: 10mm;
   padding-top: 10mm;
 }}
 
@@ -1315,8 +1315,8 @@ body {{
 }}
 .page.two-up .copy {{
   flex: 0 0 auto;
-  width: 100mm;
-  max-width: 100mm;
+  width: 90mm;
+  max-width: 90mm;
   min-height: 160mm;
 }}
 .page.half-sheet .copies.single {{
@@ -1326,8 +1326,8 @@ body {{
 }}
 .page.half-sheet .copies.single .copy {{
   flex: 0 0 auto;
-  width: 100mm;
-  max-width: 100mm;
+  width: 90mm;
+  max-width: 90mm;
   min-height: 160mm;
 }}
 
@@ -1625,6 +1625,3 @@ def _html_no_encontrada(uuid_receta: str):
 </div>
 </body>
 </html>"""
-
-
-
