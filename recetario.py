@@ -499,6 +499,368 @@ def verificar_receta(uuid_receta: str, db=Depends(get_db)):
 
 
 # ====================================================
+# 📜 CERTIFICADOS MÉDICOS
+# ====================================================
+
+class CertificadoIn(BaseModel):
+    paciente_id:   int
+    diagnostico:   Optional[str] = None
+    reposo_dias:   Optional[int] = None
+    observaciones: Optional[str] = None
+
+@router.post("/certificados", status_code=201)
+def emitir_certificado(
+    data: CertificadoIn,
+    medico_id: int = Depends(get_medico_id),
+    db=Depends(get_db)
+):
+    """Emite un certificado médico y lo persiste."""
+    cur = db.cursor()
+    # Verificar que el paciente pertenece al médico
+    cur.execute("""
+        SELECT id FROM recetario_pacientes
+        WHERE id=%s AND medico_id=%s
+    """, (data.paciente_id, medico_id))
+    if not cur.fetchone():
+        raise HTTPException(404, "Paciente no encontrado")
+
+    cur.execute("""
+        INSERT INTO recetario_certificados
+            (medico_id, paciente_id, diagnostico, reposo_dias, observaciones)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id, creado_en
+    """, (medico_id, data.paciente_id, data.diagnostico,
+          data.reposo_dias, data.observaciones))
+    row = cur.fetchone()
+    db.commit()
+    return {"id": row[0], "creado_en": str(row[1]),
+            "url_html": f"/recetario/certificados/{row[0]}/html"}
+
+
+@router.get("/certificados")
+def listar_certificados(
+    medico_id: int = Depends(get_medico_id),
+    db=Depends(get_db)
+):
+    """Lista todos los certificados emitidos por el médico."""
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id, c.diagnostico, c.reposo_dias, c.creado_en,
+               p.nombre, p.apellido, p.tipo_documento, p.nro_documento
+        FROM recetario_certificados c
+        JOIN recetario_pacientes p ON p.id = c.paciente_id
+        WHERE c.medico_id = %s
+        ORDER BY c.creado_en DESC
+    """, (medico_id,))
+    rows = cur.fetchall()
+    return {"total": len(rows), "certificados": [
+        {
+            "id": r[0], "diagnostico": r[1], "reposo_dias": r[2],
+            "fecha": r[3].strftime("%d/%m/%Y") if r[3] else None,
+            "paciente": f"{r[5]}, {r[4]}",
+            "documento": f"{r[6]} {r[7]}",
+        } for r in rows
+    ]}
+
+
+@router.get("/certificados/{cert_id}/html", response_class=HTMLResponse)
+def certificado_html(
+    cert_id: int,
+    medico_id: int = Depends(get_medico_id),
+    db=Depends(get_db)
+):
+    """Devuelve el certificado en HTML listo para imprimir / guardar como PDF."""
+    cur = db.cursor()
+    cur.execute("""
+        SELECT c.id, c.diagnostico, c.reposo_dias, c.observaciones, c.creado_en,
+               p.nombre, p.apellido, p.tipo_documento, p.nro_documento,
+               p.sexo, p.fecha_nacimiento, p.cuil, p.obra_social,
+               m.full_name, m.matricula, m.especialidad, m.tipo, m.firma_url
+        FROM recetario_certificados c
+        JOIN recetario_pacientes p ON p.id = c.paciente_id
+        JOIN medicos             m ON m.id = c.medico_id
+        WHERE c.id = %s AND c.medico_id = %s
+    """, (cert_id, medico_id))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(404, "Certificado no encontrado")
+
+    (cert_id_val, diagnostico, reposo_dias, observaciones, creado_en,
+     pac_nombre, pac_apellido, tipo_doc, nro_doc,
+     sexo, fecha_nac, cuil, obra_social,
+     med_nombre, matricula, especialidad, tipo_med, firma_url) = row
+
+    fecha_emision = creado_en.strftime("%d/%m/%Y") if creado_en else "—"
+    fecha_nac_str = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "—"
+    sexo_label    = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo or "—")
+    esp_label     = (especialidad or tipo_med or "Médico/a").title()
+    mat_label     = matricula or "—"
+
+    base    = os.getenv("API_BASE_URL", "https://docya-railway-production.up.railway.app")
+    ver_url = f"{base}/recetario/certificados/{cert_id_val}/html"
+    qr_url  = f"https://api.qrserver.com/v1/create-qr-code/?size=110x110&data={ver_url}"
+    logo_src = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
+
+    # Firma
+    firma_bloque = (f'<img src="{firma_url}" class="firma-img" alt="Firma">'
+                    if firma_url else '<div class="firma-linea"></div>')
+
+    # Cuerpo del certificado
+    reposo_txt = (f"<strong>{reposo_dias}</strong> día{'s' if reposo_dias != 1 else ''}"
+                  if reposo_dias else "el período indicado por el profesional")
+
+    obs_parrafo = (f'<p style="text-align:justify;margin-top:14px;"><strong>Observaciones:</strong> {observaciones}</p>'
+                   if observaciones else "")
+
+    html = f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Certificado Médico — DocYa</title>
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+body {{
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 13px;
+  color: #1f2937;
+  background: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+}}
+@media print {{
+  body {{ background: #fff; }}
+  .no-print {{ display: none !important; }}
+  .page {{ box-shadow: none; margin: 0; border-radius: 0; }}
+  @page {{ margin: 12mm; size: A4; }}
+}}
+/* Toolbar */
+.no-print {{
+  position: sticky; top: 0; z-index: 20;
+  background: #1e293b; padding: 9px 16px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}}
+.no-print button {{
+  background: #14B8A6; color: #fff; border: none;
+  padding: 6px 20px; border-radius: 20px;
+  font-size: 12px; font-weight: 700; cursor: pointer;
+}}
+.no-print a {{ color: #14B8A6; font-size: 12px; text-decoration: none; }}
+/* Page */
+.page {{
+  background: #fff;
+  max-width: 210mm;
+  min-height: 297mm;
+  margin: 16px auto;
+  padding: 40px 48px;
+  box-shadow: 0 4px 28px rgba(0,0,0,0.14);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+}}
+/* Header */
+.header {{
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 3px solid #14B8A6;
+  padding-bottom: 12px;
+  margin-bottom: 28px;
+}}
+.logo {{ height: 48px; }}
+.header-right {{ text-align: right; font-size: 11px; color: #6b7280; line-height: 1.7; }}
+.header-right strong {{ color: #374151; }}
+/* Title */
+.cert-title {{
+  text-align: center;
+  font-size: 20px;
+  font-weight: 900;
+  color: #14B8A6;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  margin-bottom: 28px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #e5e7eb;
+}}
+/* Patient box */
+.pac-box {{
+  border: 1.5px solid #14B8A6;
+  border-radius: 6px;
+  background: #f0fdfa;
+  padding: 14px 18px;
+  margin-bottom: 24px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 24px;
+}}
+.pac-field {{ min-width: 140px; }}
+.pac-field label {{
+  display: block; font-size: 9px; color: #6b7280;
+  text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;
+}}
+.pac-field strong {{ font-size: 13px; }}
+/* Cert body */
+.cert-body {{
+  border: 1px solid #d1fae5;
+  border-radius: 6px;
+  background: #f9fdfc;
+  padding: 24px 28px;
+  margin-bottom: 24px;
+  flex: 1;
+  line-height: 1.85;
+}}
+.cert-body p {{ text-align: justify; margin-bottom: 14px; }}
+.cert-body p:last-child {{ margin-bottom: 0; }}
+/* Reposo highlight */
+.reposo-box {{
+  display: inline-flex; align-items: center; gap: 8px;
+  background: rgba(20,184,166,0.1); border: 1px solid rgba(20,184,166,0.35);
+  border-radius: 6px; padding: 8px 14px; margin: 8px 0;
+  font-weight: 600; font-size: 13px; color: #0f766e;
+}}
+/* Signature */
+.sig-row {{
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-top: 32px;
+  padding-top: 20px;
+  border-top: 1px dashed #9ca3af;
+  gap: 20px;
+}}
+.sig-legal {{ flex: 1; font-size: 9.5px; color: #6b7280; line-height: 1.6; }}
+.sig-legal a {{ color: #14B8A6; }}
+.sig-block {{ text-align: center; min-width: 160px; }}
+.firma-img  {{ max-width: 140px; max-height: 60px; object-fit: contain; display: block; margin: 0 auto 4px; }}
+.firma-linea {{ width: 140px; height: 52px; border-bottom: 1.5px solid #374151; margin: 0 auto 4px; }}
+.firma-name  {{ font-size: 11px; font-weight: 700; }}
+.firma-sub   {{ font-size: 10px; color: #555; margin-top: 1px; }}
+.firma-stamp {{ font-size: 10px; font-weight: 800; color: #14B8A6; margin-top: 3px; letter-spacing: 0.5px; }}
+/* QR strip */
+.qr-strip {{
+  display: flex; align-items: center; gap: 12px;
+  background: #f8fafc; border: 1px solid #e5e7eb;
+  border-radius: 6px; padding: 10px 14px; margin-top: 20px;
+}}
+.qr-img {{ flex-shrink: 0; border: 1px solid #e5e7eb; border-radius: 4px; }}
+.qr-info {{ flex: 1; font-size: 9px; line-height: 1.7; color: #374151; }}
+.qr-badge {{
+  flex-shrink: 0;
+  background: linear-gradient(135deg, #0AE6C7, #0d9488);
+  color: #fff; font-size: 8px; font-weight: 800;
+  text-align: center; padding: 6px 10px; border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.4;
+}}
+/* Footer */
+.footer {{
+  text-align: center; font-size: 9px; color: #9ca3af;
+  margin-top: 20px; padding-top: 14px;
+  border-top: 1px solid #f3f4f6;
+}}
+/* Mobile */
+@media (max-width: 600px) {{
+  .page {{ padding: 20px 18px; min-height: unset; margin: 8px; }}
+  .header .logo {{ height: 36px; }}
+  .cert-title {{ font-size: 15px; letter-spacing: 1px; }}
+  .pac-box {{ gap: 8px 16px; }}
+  .sig-row {{ flex-direction: column; align-items: center; }}
+  .sig-block {{ min-width: unset; }}
+}}
+</style>
+</head>
+<body>
+
+<div class="no-print">
+  <button onclick="window.print()">🖨 Imprimir / PDF</button>
+  <span style="color:#94a3b8;font-size:11px;">Certificado #{cert_id_val}</span>
+</div>
+
+<div class="page">
+
+  <!-- HEADER -->
+  <div class="header">
+    <img src="{logo_src}" class="logo" alt="DocYa">
+    <div class="header-right">
+      <strong>Fecha de emisión:</strong> {fecha_emision}<br>
+      <strong>ID:</strong> {cert_id_val:08d}<br>
+      <strong>Conforme:</strong> Ley 25.506
+    </div>
+  </div>
+
+  <!-- TITLE -->
+  <div class="cert-title">Certificado Médico</div>
+
+  <!-- PACIENTE -->
+  <div class="pac-box">
+    <div class="pac-field" style="flex:1 1 100%">
+      <label>Paciente</label>
+      <strong>{pac_apellido.upper()}, {pac_nombre}</strong>
+    </div>
+    <div class="pac-field"><label>{tipo_doc}</label><strong>{nro_doc}</strong></div>
+    {"<div class='pac-field'><label>CUIL</label><strong>" + cuil + "</strong></div>" if cuil else ""}
+    <div class="pac-field"><label>Sexo</label><strong>{sexo_label}</strong></div>
+    <div class="pac-field"><label>F. Nacimiento</label><strong>{fecha_nac_str}</strong></div>
+    {"<div class='pac-field'><label>Obra Social</label><strong>" + obra_social + "</strong></div>" if obra_social else ""}
+  </div>
+
+  <!-- CUERPO -->
+  <div class="cert-body">
+    <p>
+      Por medio del presente, certifico que <strong>{pac_apellido.upper()}, {pac_nombre}</strong>,
+      identificado/a con {tipo_doc} <strong>{nro_doc}</strong>,
+      fue evaluado/a el día <strong>{fecha_emision}</strong> por el/la suscripto/a,
+      constatándose el siguiente diagnóstico:
+      <strong>{diagnostico or "sin diagnóstico especificado"}</strong>.
+    </p>
+    {"<p>Se recomienda reposo por <span class='reposo-box'>🛏 " + str(reposo_dias) + " día" + ("s" if reposo_dias != 1 else "") + " de reposo</span>, a partir de la fecha del presente certificado, debiendo evitar actividades laborales y/o físicas durante dicho período.</p>" if reposo_dias else ""}
+    {obs_parrafo}
+    <p>
+      Se expide el presente certificado a pedido del/la interesado/a,
+      para ser presentado ante quien corresponda.
+    </p>
+  </div>
+
+  <!-- FIRMA -->
+  <div class="sig-row">
+    <div class="sig-legal">
+      Este documento ha sido firmado digitalmente por<br>
+      <strong>{med_nombre}</strong> — {esp_label} — MN {mat_label}<br>
+      conforme a la <a href="#">Ley 25.506</a> de Firma Digital de la República Argentina.<br>
+      Verificá su autenticidad en: <a href="{ver_url}">{ver_url}</a>
+    </div>
+    <div class="sig-block">
+      {firma_bloque}
+      <div class="firma-name">{med_nombre}</div>
+      <div class="firma-sub">{esp_label}</div>
+      <div class="firma-sub">MN {mat_label}</div>
+      <div class="firma-stamp">FIRMA Y SELLO</div>
+    </div>
+  </div>
+
+  <!-- QR -->
+  <div class="qr-strip">
+    <img src="{qr_url}" width="90" height="90" alt="QR" class="qr-img">
+    <div class="qr-info">
+      <strong>DocYa — Documentos Médicos Digitales</strong><br>
+      {med_nombre} | {esp_label} | MN {mat_label}<br>
+      Verificar autenticidad: {ver_url}
+    </div>
+    <div class="qr-badge">certificado<br>médico</div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    Certificado generado digitalmente mediante DocYa — Plataforma de Documentos Médicos Electrónicos.<br>
+    © {datetime.now().year} DocYa — Todos los derechos reservados.
+  </div>
+
+</div>
+</body>
+</html>"""
+
+    return HTMLResponse(html)
+
+
+# ====================================================
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
