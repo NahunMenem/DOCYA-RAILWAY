@@ -864,10 +864,7 @@ body {{
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
-# ====================================================
-# 🖨️ RECETA HTML IMPRIMIBLE
-# ====================================================
-
+@router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 @router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 def receta_html(
     receta_id: int,
@@ -1041,11 +1038,12 @@ def receta_html(
 </div>"""
 
     # Página 3: DUPLICADO con ambas secciones y marca de agua
-    def _copy_dup():
+    def _copy_full(badge, extra_class="", watermark_text=""):
+        watermark_html = f'<div class="watermark">{watermark_text}</div>' if watermark_text else ""
         return f"""
-<div class="copy">
-  <div class="watermark">DUPLICADO</div>
-  {_top("DUPLICADO")}
+<div class="copy {extra_class}">
+  {watermark_html}
+  {_top(badge)}
   {pac_grid}
   <div class="dup-content">
     <div class="dup-col">
@@ -1307,21 +1305,6 @@ body {{
   max-width: 105mm;
 }}
 
-.page.stacked {{
-  min-height: 297mm;
-}}
-.page.stacked .copies {{
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}}
-.stack-divider {{
-  height: 1px;
-  margin: 0 10px;
-  background: repeating-linear-gradient(
-    to right, #9ca3af 0, #9ca3af 5px, transparent 5px, transparent 10px
-  );
-}}
 .copy.compact {{
   padding: 6px 9px 5px;
   min-height: 0;
@@ -1431,6 +1414,16 @@ body {{
   font-size: 6.5px;
   padding: 3px 5px;
 }}
+.copy.compact .dup-content {{
+  margin-bottom: 3px;
+}}
+.copy.compact .dup-col {{
+  padding: 4px 5px;
+}}
+.copy.compact .watermark {{
+  font-size: 40px;
+  letter-spacing: 4px;
+}}
 
 /* ── Mobile responsive ───────────────────────────────────────────────────── */
 @media (max-width: 600px) {{
@@ -1482,19 +1475,19 @@ body {{
   <span class="page-label">Receta #{rec_id}</span>
 </div>
 
-<!-- ═══ PÁGINA 1: ORIGINAL + INDICACIONES ═══════════════════════════════════ -->
-<div class="page stacked">
+<!-- ═══ PÁGINA 1: ORIGINAL + COPIA ══════════════════════════════════════════ -->
+<div class="page">
   <div class="copies">
-    {_copy_rp("ORIGINAL", "compact")}
-    <div class="stack-divider"></div>
-    {_copy_ind("ORIGINAL", "compact")}
+    {_copy_full("ORIGINAL", "compact")}
+    <div class="copy-divider"></div>
+    {_copy_full("COPIA", "compact")}
   </div>
 </div>
 
 <!-- ═══ PÁGINA 2: DUPLICADO ══════════════════════════════════════════════════ -->
 <div class="page">
   <div class="copies single">
-    {_copy_dup()}
+    {_copy_full("DUPLICADO", "compact", "DUPLICADO")}
   </div>
 </div>
 
@@ -1595,3 +1588,4 @@ def _html_no_encontrada(uuid_receta: str):
 </div>
 </body>
 </html>"""
+
