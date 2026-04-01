@@ -1131,6 +1131,12 @@ body {{
   flex: 1;
   min-height: 0;
 }}
+.page.two-up .copies {{
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8mm;
+  padding-top: 10mm;
+}}
 
 /* ── Dashed vertical divider ─────────────────────────────────────────────── */
 .copy-divider {{
@@ -1139,6 +1145,10 @@ body {{
   background: repeating-linear-gradient(
     to bottom, #9ca3af 0, #9ca3af 5px, transparent 5px, transparent 10px
   );
+}}
+.page.two-up .copy-divider {{
+  align-self: stretch;
+  min-height: 160mm;
 }}
 
 /* ── Single copy ─────────────────────────────────────────────────────────── */
@@ -1303,6 +1313,12 @@ body {{
 .copies.single .copy {{
   max-width: 105mm;
 }}
+.page.two-up .copy {{
+  flex: 0 0 auto;
+  width: 100mm;
+  max-width: 100mm;
+  min-height: 160mm;
+}}
 .page.half-sheet .copies.single {{
   justify-content: center;
   align-items: flex-start;
@@ -1310,14 +1326,15 @@ body {{
 }}
 .page.half-sheet .copies.single .copy {{
   flex: 0 0 auto;
-  width: 180mm;
-  max-width: 180mm;
-  min-height: 128mm;
+  width: 100mm;
+  max-width: 100mm;
+  min-height: 160mm;
 }}
 
 .copy.compact {{
   padding: 6px 9px 5px;
   min-height: 0;
+  height: 160mm;
 }}
 .copy.compact .top-strip {{
   gap: 5px;
@@ -1382,7 +1399,7 @@ body {{
   font-size: 7.5px;
 }}
 .copy.compact .blank-space {{
-  min-height: 12px;
+  min-height: 8px;
   margin: 4px 0;
 }}
 .copy.compact .sig-footer {{
@@ -1438,8 +1455,8 @@ body {{
   padding: 7px 10px 6px;
 }}
 .page.half-sheet .copy.compact .dup-content {{
-  flex: 0 0 auto;
-  min-height: 58mm;
+  flex: 1;
+  min-height: 0;
 }}
 .page.half-sheet .copy.compact .blank-space {{
   display: none;
@@ -1496,7 +1513,7 @@ body {{
 </div>
 
 <!-- ═══ PÁGINA 1: ORIGINAL + COPIA ══════════════════════════════════════════ -->
-<div class="page">
+<div class="page two-up">
   <div class="copies">
     {_copy_full("ORIGINAL", "compact")}
     <div class="copy-divider"></div>
@@ -1608,5 +1625,6 @@ def _html_no_encontrada(uuid_receta: str):
 </div>
 </body>
 </html>"""
+
 
 
