@@ -864,6 +864,10 @@ body {{
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
+# ====================================================
+# 🖨️ RECETA HTML IMPRIMIBLE
+# ====================================================
+
 @router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 def receta_html(
     receta_id: int,
@@ -907,6 +911,7 @@ def receta_html(
         cantidad      = m.get("cantidad", 1)
         indicaciones  = m.get("indicaciones", "")
         cantidad_txt  = {1:"uno",2:"dos",3:"tres",4:"cuatro",5:"cinco"}.get(int(cantidad), str(cantidad))
+        indicaciones_html = indicaciones if indicaciones else '<em style="color:#aaa">Sin indicaciones</em>'
         meds_rp_html += (
             f'<div class="med-rp">'
             f'<span class="med-num">{i})</span>&nbsp;'
@@ -918,7 +923,7 @@ def receta_html(
         meds_com_html += (
             f'<div class="med-com">'
             f'<span class="med-num">{i})</span>&nbsp;'
-            f'{indicaciones if indicaciones else "<em style=\'color:#aaa\'>Sin indicaciones</em>"}'
+            f"{indicaciones_html}"
             f'</div>'
         )
 
@@ -1005,9 +1010,9 @@ def receta_html(
 
     # ── COPY builders ────────────────────────────────────────────────────────
     # Página 1: sección Rp (solo medicamentos + diagnóstico)
-    def _copy_rp(badge):
+    def _copy_rp(badge, extra_class=""):
         return f"""
-<div class="copy">
+<div class="copy {extra_class}">
   {_top(badge)}
   {pac_grid}
   <div class="sec-title">Rp/</div>
@@ -1021,9 +1026,9 @@ def receta_html(
 </div>"""
 
     # Página 2: sección Indicaciones (solo comentarios)
-    def _copy_ind(badge):
+    def _copy_ind(badge, extra_class=""):
         return f"""
-<div class="copy">
+<div class="copy {extra_class}">
   {_top(badge)}
   {pac_grid}
   <div class="sec-title ind-title">Indicaciones:</div>
@@ -1302,6 +1307,131 @@ body {{
   max-width: 105mm;
 }}
 
+.page.stacked {{
+  min-height: 297mm;
+}}
+.page.stacked .copies {{
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}}
+.stack-divider {{
+  height: 1px;
+  margin: 0 10px;
+  background: repeating-linear-gradient(
+    to right, #9ca3af 0, #9ca3af 5px, transparent 5px, transparent 10px
+  );
+}}
+.copy.compact {{
+  padding: 6px 9px 5px;
+  min-height: 0;
+}}
+.copy.compact .top-strip {{
+  gap: 5px;
+  padding-bottom: 5px;
+  margin-bottom: 5px;
+}}
+.copy.compact .barcode {{
+  max-height: 18px;
+  max-width: 70px;
+}}
+.copy.compact .logo {{
+  height: 21px;
+  margin-bottom: 2px;
+}}
+.copy.compact .copy-badge {{
+  font-size: 6.5px;
+  padding: 2px 7px;
+}}
+.copy.compact .top-info {{
+  font-size: 8px;
+  line-height: 1.4;
+}}
+.copy.compact .pac-grid {{
+  margin-bottom: 5px;
+}}
+.copy.compact .pf {{
+  padding: 2px 5px;
+}}
+.copy.compact .pf-name {{
+  font-size: 9px;
+}}
+.copy.compact .pf label {{
+  font-size: 6.5px;
+}}
+.copy.compact .pf strong {{
+  font-size: 8.5px;
+}}
+.copy.compact .sec-title {{
+  font-size: 11px;
+  padding-bottom: 2px;
+  margin-bottom: 4px;
+}}
+.copy.compact .ind-title {{
+  font-size: 10px;
+}}
+.copy.compact .rp-body,
+.copy.compact .ind-body {{
+  min-height: 0;
+}}
+.copy.compact .med-rp {{
+  margin: 2px 0;
+  line-height: 1.35;
+  font-size: 8.5px;
+}}
+.copy.compact .med-com {{
+  margin: 2px 0;
+  line-height: 1.35;
+  font-size: 8.5px;
+}}
+.copy.compact .med-cant,
+.copy.compact .diag-row {{
+  font-size: 7.5px;
+}}
+.copy.compact .blank-space {{
+  min-height: 12px;
+  margin: 4px 0;
+}}
+.copy.compact .sig-footer {{
+  gap: 6px;
+  padding-top: 4px;
+  margin-bottom: 4px;
+}}
+.copy.compact .sig-legal,
+.copy.compact .firma-sub,
+.copy.compact .strip-note {{
+  font-size: 6.5px;
+}}
+.copy.compact .sig-date,
+.copy.compact .firma-label,
+.copy.compact .firma-stamp,
+.copy.compact .strip-info {{
+  font-size: 7px;
+}}
+.copy.compact .sig-right {{
+  min-width: 92px;
+}}
+.copy.compact .firma-img {{
+  max-width: 84px;
+  max-height: 32px;
+}}
+.copy.compact .firma-linea {{
+  width: 80px;
+  height: 28px;
+}}
+.copy.compact .qr-strip {{
+  gap: 5px;
+  padding: 4px 5px;
+}}
+.copy.compact .qr-img {{
+  width: 48px;
+  height: 48px;
+}}
+.copy.compact .strip-badge {{
+  font-size: 6.5px;
+  padding: 3px 5px;
+}}
+
 /* ── Mobile responsive ───────────────────────────────────────────────────── */
 @media (max-width: 600px) {{
   body {{ font-size: 12px; background: #f1f5f9; }}
@@ -1352,25 +1482,16 @@ body {{
   <span class="page-label">Receta #{rec_id}</span>
 </div>
 
-<!-- ═══ PÁGINA 1: Rp — ORIGINAL + COPIA ═════════════════════════════════════ -->
-<div class="page">
+<!-- ═══ PÁGINA 1: ORIGINAL + INDICACIONES ═══════════════════════════════════ -->
+<div class="page stacked">
   <div class="copies">
-    {_copy_rp("ORIGINAL")}
-    <div class="copy-divider"></div>
-    {_copy_rp("COPIA")}
+    {_copy_rp("ORIGINAL", "compact")}
+    <div class="stack-divider"></div>
+    {_copy_ind("ORIGINAL", "compact")}
   </div>
 </div>
 
-<!-- ═══ PÁGINA 2: Indicaciones — ORIGINAL + COPIA ═══════════════════════════ -->
-<div class="page">
-  <div class="copies">
-    {_copy_ind("ORIGINAL")}
-    <div class="copy-divider"></div>
-    {_copy_ind("COPIA")}
-  </div>
-</div>
-
-<!-- ═══ PÁGINA 3: DUPLICADO ══════════════════════════════════════════════════ -->
+<!-- ═══ PÁGINA 2: DUPLICADO ══════════════════════════════════════════════════ -->
 <div class="page">
   <div class="copies single">
     {_copy_dup()}
