@@ -865,7 +865,6 @@ body {{
 # ====================================================
 
 @router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
-@router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 def receta_html(
     receta_id: int,
     medico_id: int = Depends(get_medico_id),
@@ -1304,6 +1303,17 @@ body {{
 .copies.single .copy {{
   max-width: 105mm;
 }}
+.page.half-sheet .copies.single {{
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 10mm;
+}}
+.page.half-sheet .copies.single .copy {{
+  flex: 0 0 auto;
+  width: 180mm;
+  max-width: 180mm;
+  min-height: 128mm;
+}}
 
 .copy.compact {{
   padding: 6px 9px 5px;
@@ -1424,6 +1434,16 @@ body {{
   font-size: 40px;
   letter-spacing: 4px;
 }}
+.page.half-sheet .copy.compact {{
+  padding: 7px 10px 6px;
+}}
+.page.half-sheet .copy.compact .dup-content {{
+  flex: 0 0 auto;
+  min-height: 58mm;
+}}
+.page.half-sheet .copy.compact .blank-space {{
+  display: none;
+}}
 
 /* ── Mobile responsive ───────────────────────────────────────────────────── */
 @media (max-width: 600px) {{
@@ -1485,7 +1505,7 @@ body {{
 </div>
 
 <!-- ═══ PÁGINA 2: DUPLICADO ══════════════════════════════════════════════════ -->
-<div class="page">
+<div class="page half-sheet">
   <div class="copies single">
     {_copy_full("DUPLICADO", "compact", "DUPLICADO")}
   </div>
@@ -1588,4 +1608,5 @@ def _html_no_encontrada(uuid_receta: str):
 </div>
 </body>
 </html>"""
+
 
