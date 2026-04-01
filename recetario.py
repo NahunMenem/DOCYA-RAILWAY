@@ -939,7 +939,7 @@ def receta_html(
                if nro_credencial else "")
 
     logo_src  = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
-    esp_label = (especialidad or tipo_med or "").upper()
+    esp_label = "MÉDICO"
     mat_label = matricula or "—"
     anulada_pill = "<span class='anulada-pill'>⚠ ANULADA</span>" if estado == "anulada" else ""
 
@@ -1183,7 +1183,7 @@ body {{
   margin-bottom: 6px;
 }}
 .top-barcodes {{ display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }}
-.barcode {{ max-height: 22px; max-width: 80px; }}
+.barcode {{ display: block; width: auto; height: 22px; max-width: 80px; object-fit: contain; }}
 .top-center {{ flex: 1; text-align: center; }}
 .logo {{ height: 26px; display: block; margin: 0 auto 3px; }}
 .copy-badge {{
@@ -1279,7 +1279,7 @@ body {{
   border-radius: 3px;
   padding: 5px 7px;
 }}
-.qr-img {{ flex-shrink: 0; border: 1px solid #e5e7eb; border-radius: 2px; }}
+.qr-img {{ flex-shrink: 0; display: block; border: 1px solid #e5e7eb; border-radius: 2px; }}
 .strip-info {{ flex: 1; min-width: 0; font-size: 8px; line-height: 1.55; color: #374151; }}
 .strip-note {{ color: #6b7280; display: block; font-size: 7px; margin-top: 1px; }}
 .strip-badge {{
@@ -1463,7 +1463,7 @@ body {{
 }}
 
 /* ── Mobile responsive ───────────────────────────────────────────────────── */
-@media (max-width: 600px) {{
+@media screen and (max-width: 600px) {{
   body {{ font-size: 12px; background: #f1f5f9; }}
   .page {{
     max-width: 100%;
