@@ -864,6 +864,10 @@ body {{
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
+# ====================================================
+# 🖨️ RECETA HTML IMPRIMIBLE
+# ====================================================
+
 @router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 def receta_html(
     receta_id: int,
@@ -1087,7 +1091,7 @@ body {{
   body {{ background: #fff; font-size: 10px; }}
   .no-print {{ display: none !important; }}
   .page {{
-    width: 196mm;
+    width: 283mm;
     min-height: auto;
     height: auto;
     page-break-after: always;
@@ -1101,51 +1105,22 @@ body {{
     page-break-after: auto;
     break-after: auto;
   }}
-  .page.two-up {{
-    position: relative;
-  }}
-  .page.two-up .copies {{
+  .page.recipe-page .copies.single {{
     display: flex;
     justify-content: center;
-    align-items: flex-start;
-    gap: 16mm;
-    padding-top: 10mm;
+    align-items: center;
+    padding: 0;
+    min-height: 196mm;
   }}
-  .page.two-up .copy {{
+  .page.recipe-page .copy.recipe-sheet {{
     flex: none;
-    width: 90mm;
-    min-width: 90mm;
-    max-width: 90mm;
-    height: 160mm;
-    min-height: 160mm;
+    width: 140mm;
+    min-width: 140mm;
+    max-width: 140mm;
+    height: 190mm;
+    min-height: 190mm;
   }}
-  .page.two-up .copy-divider {{
-    position: absolute;
-    top: 10mm;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 0;
-    min-height: 160mm;
-    height: 160mm;
-    margin: 0;
-    border-left: 1px dashed #9ca3af;
-    background: none;
-  }}
-  .page.half-sheet .copies.single {{
-    display: flex;
-    justify-content: center;
-    align-items: flex-start;
-    padding-top: 10mm;
-  }}
-  .page.half-sheet .copy {{
-    flex: none;
-    width: 90mm;
-    min-width: 90mm;
-    max-width: 90mm;
-    height: 160mm;
-    min-height: 160mm;
-  }}
-  @page {{ margin: 7mm; size: A4; }}
+  @page {{ margin: 7mm; size: A4 landscape; }}
 }}
 
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -1172,8 +1147,8 @@ body {{
 /* ── Page wrapper ────────────────────────────────────────────────────────── */
 .page {{
   background: #fff;
-  max-width: 210mm;
-  min-height: 297mm;
+  max-width: 297mm;
+  min-height: 210mm;
   margin: 14px auto;
   box-shadow: 0 4px 28px rgba(0,0,0,0.15);
   border-radius: 2px;
@@ -1370,22 +1345,17 @@ body {{
 .copies.single .copy {{
   max-width: 105mm;
 }}
-.page.two-up .copy {{
-  flex: 0 0 auto;
-  width: 90mm;
-  max-width: 90mm;
-  min-height: 160mm;
-}}
-.page.half-sheet .copies.single {{
+.page.recipe-page .copies.single {{
   justify-content: center;
-  align-items: flex-start;
-  padding-top: 10mm;
+  align-items: center;
+  min-height: 100%;
+  padding: 10mm 0;
 }}
-.page.half-sheet .copies.single .copy {{
+.page.recipe-page .copies.single .copy.recipe-sheet {{
   flex: 0 0 auto;
-  width: 90mm;
-  max-width: 90mm;
-  min-height: 160mm;
+  width: 140mm;
+  max-width: 140mm;
+  min-height: 190mm;
 }}
 
 .copy.compact {{
@@ -1508,14 +1478,14 @@ body {{
   font-size: 40px;
   letter-spacing: 4px;
 }}
-.page.half-sheet .copy.compact {{
+.page.recipe-page .copy.compact {{
   padding: 7px 10px 6px;
 }}
-.page.half-sheet .copy.compact .dup-content {{
+.page.recipe-page .copy.compact .dup-content {{
   flex: 1;
   min-height: 0;
 }}
-.page.half-sheet .copy.compact .blank-space {{
+.page.recipe-page .copy.compact .blank-space {{
   display: none;
 }}
 
@@ -1569,19 +1539,17 @@ body {{
   <span class="page-label">Receta #{rec_id}</span>
 </div>
 
-<!-- ═══ PÁGINA 1: ORIGINAL + COPIA ══════════════════════════════════════════ -->
-<div class="page two-up">
-  <div class="copies">
-    {_copy_full("ORIGINAL", "compact")}
-    <div class="copy-divider"></div>
-    {_copy_full("COPIA", "compact")}
+<!-- ═══ PÁGINA 1: ORIGINAL ══════════════════════════════════════════════════ -->
+<div class="page recipe-page">
+  <div class="copies single">
+    {_copy_full("ORIGINAL", "compact recipe-sheet")}
   </div>
 </div>
 
-<!-- ═══ PÁGINA 2: DUPLICADO ══════════════════════════════════════════════════ -->
-<div class="page half-sheet">
+<!-- ═══ PÁGINA 2: COPIA ═════════════════════════════════════════════════════ -->
+<div class="page recipe-page">
   <div class="copies single">
-    {_copy_full("DUPLICADO", "compact", "DUPLICADO")}
+    {_copy_full("COPIA", "compact recipe-sheet", "COPIA")}
   </div>
 </div>
 
@@ -1682,4 +1650,3 @@ def _html_no_encontrada(uuid_receta: str):
 </div>
 </body>
 </html>"""
-
