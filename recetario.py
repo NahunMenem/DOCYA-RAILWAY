@@ -864,10 +864,6 @@ body {{
 # 🖨️ RECETA HTML IMPRIMIBLE
 # ====================================================
 
-# ====================================================
-# 🖨️ RECETA HTML IMPRIMIBLE
-# ====================================================
-
 @router.get("/recetas/{receta_id}/html", response_class=HTMLResponse)
 def receta_html(
     receta_id: int,
@@ -897,58 +893,52 @@ def receta_html(
      sexo, fecha_nac, cuil,
      med_nombre, matricula, especialidad, tipo_med, firma_url) = row
 
-    fecha_emision  = creado_en.strftime("%d/%m/%Y") if creado_en else "—"
-    fecha_nac_str  = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "—"
-    sexo_label     = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo)
+    fecha_emision = creado_en.strftime("%d/%m/%Y") if creado_en else "&mdash;"
+    fecha_nac_str = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "&mdash;"
+    sexo_label = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo)
 
-    # ── Medicamentos ─────────────────────────────────────────────────────────
-    meds_rp_html  = ""
+    meds_rp_html = ""
     meds_com_html = ""
     for i, m in enumerate(medicamentos or [], 1):
-        nombre        = m.get("nombre", "")
+        nombre = m.get("nombre", "")
         concentracion = m.get("concentracion") or ""
-        presentacion  = m.get("presentacion") or ""
-        cantidad      = m.get("cantidad", 1)
-        indicaciones  = m.get("indicaciones", "")
-        cantidad_txt  = {1:"uno",2:"dos",3:"tres",4:"cuatro",5:"cinco"}.get(int(cantidad), str(cantidad))
+        presentacion = m.get("presentacion") or ""
+        cantidad = m.get("cantidad", 1)
+        indicaciones = m.get("indicaciones", "")
+        cantidad_txt = {1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco"}.get(int(cantidad), str(cantidad))
         indicaciones_html = indicaciones if indicaciones else '<em style="color:#aaa">Sin indicaciones</em>'
         meds_rp_html += (
-            f'<div class="med-rp">'
-            f'<span class="med-num">{i})</span>&nbsp;'
+            f'<div class="med-rp"><span class="med-num">{i})</span> '
             f'<strong>{nombre}{(" " + concentracion) if concentracion else ""}</strong>'
-            f'{(" — " + presentacion) if presentacion else ""}<br>'
-            f'<span class="med-cant">Cant: {cantidad} ({cantidad_txt})</span>'
-            f'</div>'
+            f'{(" &mdash; " + presentacion) if presentacion else ""}<br>'
+            f'<span class="med-cant">Cant: {cantidad} ({cantidad_txt})</span></div>'
         )
-        meds_com_html += (
-            f'<div class="med-com">'
-            f'<span class="med-num">{i})</span>&nbsp;'
-            f"{indicaciones_html}"
-            f'</div>'
-        )
+        meds_com_html += f'<div class="med-com"><span class="med-num">{i})</span> {indicaciones_html}</div>'
 
-    diag_html = (f'<div class="diag-row"><strong>Diagnóstico:</strong> {diagnostico}</div>'
-                 if diagnostico else "")
+    diag_html = (
+        f'<div class="diag-row"><strong>Diagn&oacute;stico:</strong> {diagnostico}</div>'
+        if diagnostico else ""
+    )
 
-    # ── Firma ────────────────────────────────────────────────────────────────
-    firma_bloque = (f'<img src="{firma_url}" alt="Firma" class="firma-img">'
-                    if firma_url else '<div class="firma-linea"></div>')
-
-    # ── URLs / recursos ──────────────────────────────────────────────────────
-    base    = os.getenv("API_BASE_URL", "https://docya-railway-production.up.railway.app")
+    base = os.getenv("API_BASE_URL", "https://docya-railway-production.up.railway.app")
     ver_url = f"{base}/recetario/verificar/{uuid_val}"
-    qr_url  = f"https://api.qrserver.com/v1/create-qr-code/?size=96x96&data={ver_url}"
-    bc_doc  = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={nro_doc}&scale=2&height=10&includetext=false"
-    bc_cred = (f"https://bwipjs-api.metafloor.com/?bcid=code128&text={nro_credencial}&scale=2&height=10&includetext=false"
-               if nro_credencial else "")
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=96x96&data={ver_url}"
+    bc_doc = f"https://bwipjs-api.metafloor.com/?bcid=code128&text={nro_doc}&scale=2&height=10&includetext=false"
+    bc_cred = (
+        f"https://bwipjs-api.metafloor.com/?bcid=code128&text={nro_credencial}&scale=2&height=10&includetext=false"
+        if nro_credencial else ""
+    )
 
-    logo_src  = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
-    esp_label = "MÉDICO"
-    mat_label = matricula or "—"
-    anulada_pill = "<span class='anulada-pill'>⚠ ANULADA</span>" if estado == "anulada" else ""
-
-    # ── Bloques HTML reutilizables ────────────────────────────────────────────
+    logo_src = "https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png"
+    esp_label = "M&Eacute;DICO"
+    mat_label = matricula or "&mdash;"
+    anulada_pill = "<span class='anulada-pill'>? ANULADA</span>" if estado == "anulada" else ""
     cred_bc_html = f'<img class="barcode" src="{bc_cred}" alt="Cred">' if bc_cred else ""
+    cuil_html = f'<div class="pf"><label>CUIL</label><strong>{cuil}</strong></div>' if cuil else ""
+    firma_html = (
+        f'<img src="{firma_url}" alt="Firma" class="firma-img">'
+        if firma_url else '<div class="firma-linea"></div>'
+    )
 
     def _top(badge):
         return f"""
@@ -975,588 +965,207 @@ def receta_html(
         <div class="pf"><label>Sexo</label><strong>{sexo_label}</strong></div>
         <div class="pf"><label>{tipo_doc}</label><strong>{nro_doc}</strong></div>
         <div class="pf"><label>F. Nacimiento</label><strong>{fecha_nac_str}</strong></div>
-        {"<div class='pf'><label>CUIL</label><strong>" + cuil + "</strong></div>" if cuil else ""}
-        <div class="pf"><label>Obra Social</label><strong>{obra_social or "—"}</strong></div>
-        <div class="pf"><label>Plan</label><strong>{plan or "—"}</strong></div>
-        <div class="pf"><label>N° Credencial</label><strong>{nro_credencial or "—"}</strong></div>
+        {cuil_html}
+        <div class="pf"><label>Obra Social</label><strong>{obra_social or "&mdash;"}</strong></div>
+        <div class="pf"><label>Plan</label><strong>{plan or "&mdash;"}</strong></div>
+        <div class="pf"><label>N&deg; Credencial</label><strong>{nro_credencial or "&mdash;"}</strong></div>
       </div>"""
 
     sig_footer = f"""
       <div class="sig-footer">
-        <div class="sig-left">
-          <p class="sig-legal">Este documento ha sido firmado electrónicamente por<br>
-          <strong>{med_nombre}</strong><br>
-          conforme Ley 25.506 de Firma Digital.</p>
+        <div>
+          <p class="sig-legal">Este documento ha sido firmado electr&oacute;nicamente por<br><strong>{med_nombre}</strong><br>conforme Ley 25.506 de Firma Digital.</p>
           <p class="sig-date">{fecha_emision}</p>
         </div>
         <div class="sig-right">
-          {firma_bloque}
+          {firma_html}
           <div class="firma-label">{med_nombre}</div>
-          <div class="firma-sub">{esp_label} · MN {mat_label}</div>
+          <div class="firma-sub">{esp_label} &middot; MN {mat_label}</div>
           <div class="firma-stamp">FIRMA Y SELLO</div>
         </div>
       </div>"""
 
     qr_strip = f"""
       <div class="qr-strip">
-        <img src="{qr_url}" width="64" height="64" alt="QR" class="qr-img">
+        <img src="{qr_url}" alt="QR" class="qr-img">
         <div class="strip-info">
           <strong>{esp_label}</strong><br>
           {med_nombre}<br>
-          <span class="strip-note">Esta receta fue creada por un emisor inscripto en DocYa — Sistema de Recetas Médicas Digitales. RL-2024-{rec_id:09d}</span>
+          <span class="strip-note">Esta receta fue creada por un emisor inscripto en DocYa. RL-2024-{rec_id:09d}</span>
         </div>
-        <div class="strip-badge">receta<br>electrónica</div>
+        <div class="strip-badge">receta<br>electr&oacute;nica</div>
       </div>"""
 
-    # ── COPY builders ────────────────────────────────────────────────────────
-    # Página 1: sección Rp (solo medicamentos + diagnóstico)
-    def _copy_rp(badge, extra_class=""):
+    def _content_box(only_indications=False):
+        if only_indications:
+            return f"""
+      <div class="content-box ind-only">
+        <div class="col">
+          <div class="sec-title ind-title">Indicaciones:</div>
+          {meds_com_html}
+        </div>
+      </div>"""
         return f"""
-<div class="copy {extra_class}">
-  {_top(badge)}
-  {pac_grid}
-  <div class="sec-title">Rp/</div>
-  <div class="sec-body rp-body">
-    {meds_rp_html}
-    {diag_html}
-  </div>
-  <div class="blank-space"></div>
-  {sig_footer}
-  {qr_strip}
-</div>"""
+      <div class="content-box">
+        <div class="col">
+          <div class="sec-title">Rp/</div>
+          {meds_rp_html}
+          {diag_html}
+        </div>
+        <div class="inner-divider"></div>
+        <div class="col">
+          <div class="sec-title ind-title">Indicaciones:</div>
+          {meds_com_html}
+        </div>
+      </div>"""
 
-    # Página 2: sección Indicaciones (solo comentarios)
-    def _copy_ind(badge, extra_class=""):
-        return f"""
-<div class="copy {extra_class}">
-  {_top(badge)}
-  {pac_grid}
-  <div class="sec-title ind-title">Indicaciones:</div>
-  <div class="sec-body ind-body">
-    {meds_com_html}
-  </div>
-  <div class="blank-space"></div>
-  {sig_footer}
-  {qr_strip}
-</div>"""
-
-    # Página 3: DUPLICADO con ambas secciones y marca de agua
-    def _copy_full(badge, extra_class="", watermark_text=""):
+    def _copy(badge, watermark_text="", only_indications=False):
         watermark_html = f'<div class="watermark">{watermark_text}</div>' if watermark_text else ""
         return f"""
-<div class="copy {extra_class}">
-  {watermark_html}
-  {_top(badge)}
-  {pac_grid}
-  <div class="dup-content">
-    <div class="dup-col">
-      <div class="sec-title">Rp/</div>
-      <div class="sec-body">
-        {meds_rp_html}
-        {diag_html}
-      </div>
-    </div>
-    <div class="dup-divider"></div>
-    <div class="dup-col">
-      <div class="sec-title ind-title">Indicaciones:</div>
-      <div class="sec-body">
-        {meds_com_html}
-      </div>
-    </div>
-  </div>
-  <div class="blank-space" style="min-height:16px"></div>
-  {sig_footer}
-  {qr_strip}
-</div>"""
+    <div class="copy">
+      {watermark_html}
+      {_top(badge)}
+      {pac_grid}
+      {_content_box(only_indications)}
+      {sig_footer}
+      {qr_strip}
+    </div>"""
 
     html = f"""<!DOCTYPE html>
 <html lang="es">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Receta #{rec_id} — DocYa</title>
+<title>Receta #{rec_id} &mdash; DocYa</title>
 <style>
-/* ── Reset ───────────────────────────────────────────────────────────────── */
 * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+:root {{
+  --teal: #14b8a6;
+  --teal-dark: #0d9488;
+  --ink: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --sheet-w: 297mm;
+  --sheet-h: 210mm;
+  --print-w: 283mm;
+  --print-h: 196mm;
+  --half-w: 141.5mm;
+  --half-h: 190mm;
+}}
 body {{
   font-family: Arial, Helvetica, sans-serif;
-  font-size: 11px;
-  color: #111;
+  color: var(--ink);
   background: #e2e8f0;
   -webkit-font-smoothing: antialiased;
 }}
-
-/* ── Print ───────────────────────────────────────────────────────────────── */
+.no-print {{ position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: #111827; }}
+.no-print button {{ border: none; border-radius: 999px; padding: 8px 18px; background: var(--teal); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }}
+.no-print a {{ color: var(--teal); text-decoration: none; font-size: 13px; }}
+.anulada-pill {{ background: #fef2f2; color: #dc2626; border: 1px solid #dc2626; border-radius: 999px; padding: 3px 10px; font-weight: 700; font-size: 11px; }}
+.page-label {{ margin-left: auto; color: #94a3b8; font-size: 12px; }}
+.page {{ width: min(100%, var(--sheet-w)); min-height: var(--sheet-h); margin: 14px auto; background: #fff; border-top: 3px solid var(--teal); box-shadow: 0 4px 28px rgba(0,0,0,0.15); }}
+.sheet {{ width: var(--print-w); min-height: var(--print-h); margin: 0 auto; display: grid; grid-template-columns: var(--half-w) 1px var(--half-w); align-items: start; padding-top: 3mm; }}
+.sheet.single {{ grid-template-columns: var(--half-w); justify-content: center; }}
+.divider {{ width: 1px; height: var(--half-h); background: repeating-linear-gradient(to bottom, #6b7280 0, #6b7280 2px, transparent 2px, transparent 4px); }}
+.copy {{ height: var(--half-h); padding: 7px 10px 6px; overflow: hidden; position: relative; }}
+.watermark {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 900; letter-spacing: 4px; color: rgba(0,0,0,0.05); transform: rotate(-30deg); pointer-events: none; }}
+.top-strip {{ display: grid; grid-template-columns: 76px 1fr 92px; gap: 8px; align-items: start; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }}
+.top-barcodes {{ display: flex; flex-direction: column; gap: 3px; }}
+.barcode {{ display: block; width: auto; max-width: 72px; height: 18px; object-fit: contain; }}
+.top-center {{ text-align: center; }}
+.logo {{ display: block; height: 21px; margin: 0 auto 2px; }}
+.copy-badge {{ display: inline-block; padding: 2px 7px; border-radius: 999px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }}
+.top-info {{ text-align: right; font-size: 8px; line-height: 1.35; color: #374151; }}
+.fecha-teal {{ color: var(--teal-dark); font-weight: 700; }}
+.pac-grid {{ display: flex; flex-wrap: wrap; margin-bottom: 5px; overflow: hidden; border: 1.5px solid var(--teal-dark); border-radius: 3px; }}
+.pf {{ flex: 1 1 33%; min-width: 0; padding: 2px 5px; border-right: 1px solid #ccfbf1; border-bottom: 1px solid #ccfbf1; }}
+.pf-name {{ flex: 1 1 100%; background: #f0fdfa; }}
+.pf label {{ display: block; margin-bottom: 1px; color: var(--muted); font-size: 6.5px; letter-spacing: 0.3px; text-transform: uppercase; }}
+.pf strong {{ font-size: 8.5px; }}
+.content-box {{ display: grid; grid-template-columns: 1fr 1px 1fr; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }}
+.content-box.ind-only {{ grid-template-columns: 1fr; }}
+.col {{ min-height: 96mm; padding: 4px 5px; }}
+.col:last-child {{ background: #fafafa; }}
+.inner-divider {{ width: 1px; background: var(--line); }}
+.sec-title {{ margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid var(--line); color: var(--teal-dark); font-size: 11px; font-weight: 900; }}
+.ind-title {{ color: #374151; font-size: 10px; }}
+.med-rp, .med-com {{ margin: 2px 0; font-size: 8.5px; line-height: 1.35; }}
+.med-num {{ color: var(--teal-dark); font-weight: 700; }}
+.med-cant {{ color: var(--muted); font-size: 7.5px; }}
+.diag-row {{ margin-top: 6px; padding: 2px 6px; border-left: 2px solid var(--teal-dark); background: #f0fdfa; color: #374151; font-size: 7.5px; }}
+.sig-footer {{ display: grid; grid-template-columns: 1fr 92px; gap: 6px; align-items: end; margin-bottom: 4px; padding-top: 4px; border-top: 1px dashed #9ca3af; }}
+.sig-legal, .firma-sub, .strip-note {{ font-size: 6.5px; }}
+.sig-legal {{ color: var(--muted); line-height: 1.45; }}
+.sig-date, .firma-label, .firma-stamp, .strip-info {{ font-size: 7px; }}
+.sig-date {{ margin-top: 4px; font-weight: 700; }}
+.sig-right {{ text-align: center; }}
+.firma-img {{ display: block; width: auto; max-width: 84px; max-height: 32px; margin: 0 auto 2px; object-fit: contain; }}
+.firma-linea {{ width: 80px; height: 28px; margin: 0 auto 2px; border-bottom: 1.5px solid #111; }}
+.firma-label {{ font-weight: 700; }}
+.firma-sub {{ color: #555; }}
+.firma-stamp {{ margin-top: 3px; color: var(--teal-dark); font-weight: 800; letter-spacing: 0.5px; }}
+.qr-strip {{ display: grid; grid-template-columns: 48px 1fr auto; gap: 5px; align-items: center; padding: 4px 5px; background: #f8fafc; border: 1px solid var(--line); border-radius: 3px; }}
+.qr-img {{ display: block; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 2px; }}
+.strip-info {{ line-height: 1.45; color: #374151; }}
+.strip-note {{ display: block; margin-top: 1px; color: var(--muted); }}
+.strip-badge {{ padding: 3px 5px; border-radius: 3px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; line-height: 1.35; letter-spacing: 0.4px; text-align: center; text-transform: uppercase; }}
 @media print {{
-  body {{ background: #fff; font-size: 10px; }}
+  html, body {{ width: var(--sheet-w); height: var(--sheet-h); margin: 0; padding: 0; background: #fff; }}
   .no-print {{ display: none !important; }}
-  .page {{
-    width: 283mm;
-    min-height: auto;
-    height: auto;
-    page-break-after: always;
-    break-after: page;
-    box-shadow: none;
-    margin: 0 auto;
-    border-radius: 0;
-    overflow: hidden;
-  }}
-  .page:last-child {{
-    page-break-after: auto;
-    break-after: auto;
-  }}
-  .page.recipe-page .copies.single {{
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    padding: 0;
-    min-height: 196mm;
-  }}
-  .page.recipe-page .copy.recipe-sheet {{
-    flex: none;
-    width: 140mm;
-    min-width: 140mm;
-    max-width: 140mm;
-    height: 190mm;
-    min-height: 190mm;
-  }}
-  @page {{ margin: 7mm; size: A4 landscape; }}
+  .page {{ width: var(--sheet-w); min-height: var(--sheet-h); margin: 0; border-top: 0; box-shadow: none; page-break-after: always; break-after: page; }}
+  .page:last-child {{ page-break-after: auto; break-after: auto; }}
+  .sheet, .copy, .content-box, .sig-footer, .qr-strip {{ break-inside: avoid; page-break-inside: avoid; }}
+  @page {{ size: A4 landscape; margin: 7mm; }}
 }}
-
-/* ── Toolbar ─────────────────────────────────────────────────────────────── */
-.no-print {{
-  position: sticky; top: 0; z-index: 20;
-  background: #1e293b; padding: 9px 16px;
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-}}
-.no-print button {{
-  background: #14B8A6; color: #fff; border: none;
-  padding: 6px 18px; border-radius: 20px;
-  font-size: 12px; font-weight: 700; cursor: pointer;
-  white-space: nowrap;
-}}
-.no-print a {{ color: #14B8A6; font-size: 12px; text-decoration: none; white-space: nowrap; }}
-.anulada-pill {{
-  background: #fef2f2; color: #dc2626; border: 1px solid #dc2626;
-  border-radius: 20px; padding: 3px 10px; font-weight: 700; font-size: 11px;
-}}
-.page-label {{
-  color: #94a3b8; font-size: 11px; margin-left: auto;
-}}
-
-/* ── Page wrapper ────────────────────────────────────────────────────────── */
-.page {{
-  background: #fff;
-  max-width: 297mm;
-  min-height: 210mm;
-  margin: 14px auto;
-  box-shadow: 0 4px 28px rgba(0,0,0,0.15);
-  border-radius: 2px;
-  display: flex;
-  flex-direction: column;
-  border-top: 3px solid #14B8A6;
-}}
-
-/* ── Two-copy row ────────────────────────────────────────────────────────── */
-.copies {{
-  display: flex;
-  flex: 1;
-  min-height: 0;
-}}
-.page.two-up .copies {{
-  align-items: flex-start;
-  justify-content: center;
-  gap: 10mm;
-  padding-top: 10mm;
-}}
-
-/* ── Dashed vertical divider ─────────────────────────────────────────────── */
-.copy-divider {{
-  flex-shrink: 0;
-  width: 1px;
-  background: repeating-linear-gradient(
-    to bottom, #9ca3af 0, #9ca3af 5px, transparent 5px, transparent 10px
-  );
-}}
-.page.two-up .copy-divider {{
-  align-self: stretch;
-  min-height: 160mm;
-}}
-
-/* ── Single copy ─────────────────────────────────────────────────────────── */
-.copy {{
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding: 9px 11px 7px;
-  position: relative;
-  overflow: hidden;
-}}
-
-/* ── Watermark ───────────────────────────────────────────────────────────── */
-.watermark {{
-  position: absolute;
-  top: 46%; left: 50%;
-  transform: translate(-50%, -50%) rotate(-30deg);
-  font-size: 58px; font-weight: 900;
-  color: rgba(0,0,0,0.055);
-  pointer-events: none; white-space: nowrap;
-  letter-spacing: 6px; z-index: 0;
-}}
-
-/* ── Top strip (barcodes + logo + info) ──────────────────────────────────── */
-.top-strip {{
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding-bottom: 7px;
-  border-bottom: 1px solid #e5e7eb;
-  margin-bottom: 6px;
-}}
-.top-barcodes {{ display: flex; flex-direction: column; gap: 2px; flex-shrink: 0; }}
-.barcode {{ display: block; width: auto; height: 22px; max-width: 80px; object-fit: contain; }}
-.top-center {{ flex: 1; text-align: center; }}
-.logo {{ height: 26px; display: block; margin: 0 auto 3px; }}
-.copy-badge {{
-  display: inline-block;
-  background: linear-gradient(135deg, #0AE6C7, #0d9488);
-  color: #fff; font-size: 7.5px; font-weight: 800;
-  letter-spacing: 1px; padding: 2px 9px; border-radius: 9999px;
-  text-transform: uppercase;
-}}
-.top-info {{ text-align: right; font-size: 9px; line-height: 1.6; color: #374151; flex-shrink: 0; }}
-.fecha-teal {{ color: #0d9488; font-weight: 700; }}
-
-/* ── Patient grid ────────────────────────────────────────────────────────── */
-.pac-grid {{
-  display: flex;
-  flex-wrap: wrap;
-  border: 1.5px solid #0d9488;
-  border-radius: 3px;
-  margin-bottom: 6px;
-  overflow: hidden;
-}}
-.pf {{
-  flex: 1 1 33%;
-  padding: 3px 6px;
-  border-right: 1px solid #ccfbf1;
-  border-bottom: 1px solid #ccfbf1;
-  min-width: 0;
-}}
-.pf:last-child, .pf-name {{ border-right: none; }}
-.pf-name {{ flex: 1 1 100%; background: #f0fdfa; font-size: 10px; }}
-.pf label {{
-  display: block; font-size: 7.5px; color: #6b7280;
-  text-transform: uppercase; letter-spacing: 0.4px; margin-bottom: 1px;
-}}
-.pf strong {{ font-size: 10px; }}
-
-/* ── Section title ───────────────────────────────────────────────────────── */
-.sec-title {{
-  font-size: 13px; font-weight: 900; color: #0d9488;
-  border-bottom: 1px solid #e5e7eb;
-  padding-bottom: 3px; margin-bottom: 5px;
-}}
-.ind-title {{ font-size: 11px; font-weight: 800; color: #374151; }}
-
-/* ── Section body ────────────────────────────────────────────────────────── */
-.sec-body {{ flex: 1; }}
-.rp-body  {{ min-height: 60px; }}
-.ind-body {{ min-height: 60px; }}
-.med-rp  {{ margin: 4px 0; line-height: 1.55; font-size: 10px; }}
-.med-com {{ margin: 5px 0; font-size: 10px; line-height: 1.6; color: #374151; }}
-.med-cant {{ color: #6b7280; font-size: 9px; }}
-.med-num  {{ color: #0d9488; font-weight: 700; }}
-.diag-row {{
-  font-size: 9.5px; border-left: 2px solid #0d9488;
-  padding: 2px 6px; margin-top: 6px;
-  background: #f0fdfa; color: #374151;
-}}
-
-/* ── Blank writing space ─────────────────────────────────────────────────── */
-.blank-space {{
-  flex: 1;
-  min-height: 32px;
-  border: 1px dashed #d1d5db;
-  border-radius: 3px;
-  margin: 5px 0;
-}}
-
-/* ── Signature footer ────────────────────────────────────────────────────── */
-.sig-footer {{
-  display: flex;
-  gap: 8px;
-  border-top: 1px dashed #9ca3af;
-  padding-top: 5px;
-  margin-bottom: 5px;
-}}
-.sig-left {{ flex: 1; }}
-.sig-legal {{ font-size: 7.5px; color: #6b7280; line-height: 1.6; }}
-.sig-date  {{ font-size: 8px; color: #374151; margin-top: 4px; font-weight: 600; }}
-.sig-right {{ min-width: 115px; text-align: center; flex-shrink: 0; }}
-.firma-img  {{ max-width: 105px; max-height: 44px; object-fit: contain; display: block; margin: 0 auto 2px; }}
-.firma-linea {{ width: 100px; height: 40px; border-bottom: 1.5px solid #111; margin: 0 auto 2px; }}
-.firma-label {{ font-size: 8px; font-weight: 700; }}
-.firma-sub   {{ font-size: 7.5px; color: #555; }}
-.firma-stamp {{ font-size: 8px; font-weight: 800; color: #0d9488; margin-top: 3px; letter-spacing: 0.5px; }}
-
-/* ── QR bottom strip ─────────────────────────────────────────────────────── */
-.qr-strip {{
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: #f8fafc;
-  border: 1px solid #e5e7eb;
-  border-radius: 3px;
-  padding: 5px 7px;
-}}
-.qr-img {{ flex-shrink: 0; display: block; border: 1px solid #e5e7eb; border-radius: 2px; }}
-.strip-info {{ flex: 1; min-width: 0; font-size: 8px; line-height: 1.55; color: #374151; }}
-.strip-note {{ color: #6b7280; display: block; font-size: 7px; margin-top: 1px; }}
-.strip-badge {{
-  flex-shrink: 0;
-  background: linear-gradient(135deg, #0AE6C7, #0d9488);
-  color: #fff; font-size: 7.5px; font-weight: 800;
-  text-align: center; padding: 4px 7px; border-radius: 3px;
-  text-transform: uppercase; letter-spacing: 0.5px; line-height: 1.4;
-}}
-
-/* ── DUPLICADO: two columns inside single copy ───────────────────────────── */
-.dup-content {{
-  display: flex;
-  gap: 0;
-  flex: 1;
-  min-height: 0;
-  border: 1px solid #e5e7eb;
-  border-radius: 3px;
-  overflow: hidden;
-  margin-bottom: 4px;
-}}
-.dup-col {{ flex: 1; padding: 5px 7px; display: flex; flex-direction: column; }}
-.dup-col:first-child {{ background: #fff; }}
-.dup-col:last-child  {{ background: #fafafa; }}
-.dup-divider {{ width: 1px; background: #e5e7eb; flex-shrink: 0; }}
-
-/* ── Single-copy page ────────────────────────────────────────────────────── */
-.copies.single {{
-  justify-content: center;
-}}
-.copies.single .copy {{
-  max-width: 105mm;
-}}
-.page.recipe-page .copies.single {{
-  justify-content: center;
-  align-items: center;
-  min-height: 100%;
-  padding: 10mm 0;
-}}
-.page.recipe-page .copies.single .copy.recipe-sheet {{
-  flex: 0 0 auto;
-  width: 140mm;
-  max-width: 140mm;
-  min-height: 190mm;
-}}
-
-.copy.compact {{
-  padding: 6px 9px 5px;
-  min-height: 0;
-  height: 160mm;
-}}
-.copy.compact .top-strip {{
-  gap: 5px;
-  padding-bottom: 5px;
-  margin-bottom: 5px;
-}}
-.copy.compact .barcode {{
-  max-height: 18px;
-  max-width: 70px;
-}}
-.copy.compact .logo {{
-  height: 21px;
-  margin-bottom: 2px;
-}}
-.copy.compact .copy-badge {{
-  font-size: 6.5px;
-  padding: 2px 7px;
-}}
-.copy.compact .top-info {{
-  font-size: 8px;
-  line-height: 1.4;
-}}
-.copy.compact .pac-grid {{
-  margin-bottom: 5px;
-}}
-.copy.compact .pf {{
-  padding: 2px 5px;
-}}
-.copy.compact .pf-name {{
-  font-size: 9px;
-}}
-.copy.compact .pf label {{
-  font-size: 6.5px;
-}}
-.copy.compact .pf strong {{
-  font-size: 8.5px;
-}}
-.copy.compact .sec-title {{
-  font-size: 11px;
-  padding-bottom: 2px;
-  margin-bottom: 4px;
-}}
-.copy.compact .ind-title {{
-  font-size: 10px;
-}}
-.copy.compact .rp-body,
-.copy.compact .ind-body {{
-  min-height: 0;
-}}
-.copy.compact .med-rp {{
-  margin: 2px 0;
-  line-height: 1.35;
-  font-size: 8.5px;
-}}
-.copy.compact .med-com {{
-  margin: 2px 0;
-  line-height: 1.35;
-  font-size: 8.5px;
-}}
-.copy.compact .med-cant,
-.copy.compact .diag-row {{
-  font-size: 7.5px;
-}}
-.copy.compact .blank-space {{
-  min-height: 8px;
-  margin: 4px 0;
-}}
-.copy.compact .sig-footer {{
-  gap: 6px;
-  padding-top: 4px;
-  margin-bottom: 4px;
-}}
-.copy.compact .sig-legal,
-.copy.compact .firma-sub,
-.copy.compact .strip-note {{
-  font-size: 6.5px;
-}}
-.copy.compact .sig-date,
-.copy.compact .firma-label,
-.copy.compact .firma-stamp,
-.copy.compact .strip-info {{
-  font-size: 7px;
-}}
-.copy.compact .sig-right {{
-  min-width: 92px;
-}}
-.copy.compact .firma-img {{
-  max-width: 84px;
-  max-height: 32px;
-}}
-.copy.compact .firma-linea {{
-  width: 80px;
-  height: 28px;
-}}
-.copy.compact .qr-strip {{
-  gap: 5px;
-  padding: 4px 5px;
-}}
-.copy.compact .qr-img {{
-  width: 48px;
-  height: 48px;
-}}
-.copy.compact .strip-badge {{
-  font-size: 6.5px;
-  padding: 3px 5px;
-}}
-.copy.compact .dup-content {{
-  margin-bottom: 3px;
-}}
-.copy.compact .dup-col {{
-  padding: 4px 5px;
-}}
-.copy.compact .watermark {{
-  font-size: 40px;
-  letter-spacing: 4px;
-}}
-.page.recipe-page .copy.compact {{
-  padding: 7px 10px 6px;
-}}
-.page.recipe-page .copy.compact .dup-content {{
-  flex: 1;
-  min-height: 0;
-}}
-.page.recipe-page .copy.compact .blank-space {{
-  display: none;
-}}
-
-/* ── Mobile responsive ───────────────────────────────────────────────────── */
-@media screen and (max-width: 600px) {{
-  body {{ font-size: 12px; background: #f1f5f9; }}
-  .page {{
-    max-width: 100%;
-    min-height: unset;
-    margin: 8px;
-    border-radius: 6px;
-  }}
-  .copies {{
-    flex-direction: column;
-  }}
-  .copy-divider {{
-    width: 100%;
-    height: 1px;
-    background: repeating-linear-gradient(
-      to right, #9ca3af 0, #9ca3af 5px, transparent 5px, transparent 10px
-    );
-  }}
-  .top-barcodes {{ display: none; }}
-  .barcode {{ display: none; }}
-  .top-strip {{ flex-wrap: wrap; gap: 4px; }}
-  .top-info {{ font-size: 10px; }}
-  .pf {{ flex: 1 1 45%; font-size: 11px; }}
-  .pf strong {{ font-size: 11px; }}
-  .sec-title {{ font-size: 15px; }}
-  .med-rp, .med-com {{ font-size: 12px; }}
-  .firma-img {{ max-width: 130px; max-height: 55px; }}
-  .firma-linea {{ width: 130px; height: 50px; }}
-  .qr-strip {{ gap: 10px; padding: 8px; }}
-  .strip-info {{ font-size: 10px; }}
-  .strip-note {{ font-size: 9px; }}
-  .dup-content {{ flex-direction: column; }}
-  .dup-divider {{ width: 100%; height: 1px; }}
-  .copies.single .copy {{ max-width: 100%; }}
-  .no-print {{ gap: 8px; }}
-  .no-print button {{ font-size: 13px; padding: 8px 20px; }}
+@media screen and (max-width: 700px) {{
+  .no-print {{ position: static; gap: 8px; padding: 10px 12px; }}
+  .page-label {{ width: 100%; margin-left: 0; }}
+  .page {{ width: auto; min-height: unset; margin: 8px; border-top-width: 2px; border-radius: 6px; }}
+  .sheet {{ width: 100%; min-height: unset; padding: 8px; grid-template-columns: 1fr; row-gap: 10px; }}
+  .sheet.single {{ grid-template-columns: 1fr; }}
+  .divider {{ width: 100%; height: 1px; background: repeating-linear-gradient(to right, #6b7280 0, #6b7280 2px, transparent 2px, transparent 4px); }}
+  .copy {{ height: auto; min-height: unset; padding: 10px; }}
+  .top-strip {{ grid-template-columns: 1fr; }}
+  .top-barcodes, .barcode {{ display: none; }}
+  .top-center, .top-info {{ text-align: left; }}
+  .pf {{ flex: 1 1 100%; }}
+  .content-box {{ grid-template-columns: 1fr; }}
+  .inner-divider {{ width: 100%; height: 1px; }}
+  .col {{ min-height: unset; }}
+  .sig-footer {{ grid-template-columns: 1fr; }}
+  .sig-right {{ text-align: left; }}
+  .firma-img, .firma-linea {{ margin-left: 0; }}
+  .qr-strip {{ grid-template-columns: 56px 1fr; }}
+  .qr-img {{ width: 56px; height: 56px; }}
+  .strip-badge {{ grid-column: 1 / -1; justify-self: end; }}
 }}
 </style>
 </head>
 <body>
-
-<!-- Toolbar -->
 <div class="no-print">
-  <button onclick="window.print()">🖨 Imprimir / PDF</button>
-  <a href="{ver_url}" target="_blank">🔗 Verificar</a>
+  <button onclick="window.print()">Imprimir / PDF</button>
+  <a href="{ver_url}" target="_blank">Verificar</a>
   {anulada_pill}
   <span class="page-label">Receta #{rec_id}</span>
 </div>
-
-<!-- ═══ PÁGINA 1: ORIGINAL ══════════════════════════════════════════════════ -->
-<div class="page recipe-page">
-  <div class="copies single">
-    {_copy_full("ORIGINAL", "compact recipe-sheet")}
+<div class="page">
+  <div class="sheet">
+    {_copy("Original")}
+    <div class="divider"></div>
+    {_copy("Duplicado", "DUPLICADO")}
   </div>
 </div>
-
-<!-- ═══ PÁGINA 2: COPIA ═════════════════════════════════════════════════════ -->
-<div class="page recipe-page">
-  <div class="copies single">
-    {_copy_full("COPIA", "compact recipe-sheet", "COPIA")}
+<div class="page">
+  <div class="sheet single">
+    {_copy("Indicaciones", only_indications=True)}
   </div>
 </div>
-
 </body>
 </html>"""
 
     return HTMLResponse(html)
+
+
 
 
 # ====================================================
