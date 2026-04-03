@@ -981,6 +981,11 @@ async def asignar_consulta_manual(
     - Si forzar_en_camino = False: deja la consulta en estado 'aceptada'.
     - Si forzar_en_camino = True: deja la consulta en estado 'en_camino' para reflejar "consulta en curso".
     """
+    try:
+        from main import active_medicos
+    except Exception:
+        active_medicos = {}
+
     cur = db.cursor(cursor_factory=RealDictCursor)
 
     # 1) Validaciones de existencia
@@ -1096,7 +1101,7 @@ async def asignar_consulta_manual(
                     "direccion": consulta["direccion"],
                     "lat": consulta["lat"],
                     "lng": consulta["lng"],
-                    "metodo_pago": consulta["metodo_pago"],
+                    "metodo_pago": "efectivo",
                     "origen": "asignacion_manual_monitoreo",
                 }
             )
@@ -1111,5 +1116,3 @@ async def asignar_consulta_manual(
         "estado": nuevo_estado,
         "modo": "manual_desde_monitoreo",
     }
-
-
