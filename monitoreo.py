@@ -979,7 +979,8 @@ async def asignar_consulta_manual(
     """
     Asignación manual desde monitoreo.
     - Si forzar_en_camino = False: deja la consulta en estado 'aceptada'.
-    - Si forzar_en_camino = True: deja la consulta en estado 'en_camino' para reflejar "consulta en curso".
+    - Si forzar_en_camino = True: deja la consulta en estado 'en_domicilio' para que
+      la app del paciente la trate como consulta en curso.
     """
     try:
         from main import active_medicos
@@ -1021,7 +1022,7 @@ async def asignar_consulta_manual(
             detail=f"No se puede asignar manualmente desde estado '{consulta['estado']}'",
         )
 
-    nuevo_estado = "en_camino" if data.forzar_en_camino else "aceptada"
+    nuevo_estado = "en_domicilio" if data.forzar_en_camino else "aceptada"
 
     # 3) Actualizar consulta y médico
     if data.forzar_en_camino:
@@ -1029,7 +1030,7 @@ async def asignar_consulta_manual(
             """
             UPDATE consultas
             SET medico_id = %s,
-                estado = 'en_camino',
+                estado = 'en_domicilio',
                 asignada_en = NOW(),
                 aceptada_en = CASE
                     WHEN estado = 'cancelada' THEN NOW()
