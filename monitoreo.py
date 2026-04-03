@@ -1009,7 +1009,7 @@ async def asignar_consulta_manual(
         raise HTTPException(status_code=404, detail="Consulta no encontrada")
 
     # 2) Solo permitimos reasignación manual desde estados operables
-    estados_permitidos = {"pendiente", "aceptada", "en_camino"}
+    estados_permitidos = {"pendiente", "aceptada", "en_camino", "cancelada"}
     if consulta["estado"] not in estados_permitidos:
         raise HTTPException(
             status_code=400,
@@ -1026,8 +1026,15 @@ async def asignar_consulta_manual(
             SET medico_id = %s,
                 estado = 'en_camino',
                 asignada_en = NOW(),
-                aceptada_en = COALESCE(aceptada_en, NOW()),
-                inicio_atencion = COALESCE(inicio_atencion, NOW()),
+                aceptada_en = CASE
+                    WHEN estado = 'cancelada' THEN NOW()
+                    ELSE COALESCE(aceptada_en, NOW())
+                END,
+                inicio_atencion = CASE
+                    WHEN estado = 'cancelada' THEN NOW()
+                    ELSE COALESCE(inicio_atencion, NOW())
+                END,
+                metodo_pago = 'efectivo',
                 expira_en = NULL
             WHERE id = %s
             RETURNING id
@@ -1041,7 +1048,11 @@ async def asignar_consulta_manual(
             SET medico_id = %s,
                 estado = 'aceptada',
                 asignada_en = NOW(),
-                aceptada_en = COALESCE(aceptada_en, NOW()),
+                aceptada_en = CASE
+                    WHEN estado = 'cancelada' THEN NOW()
+                    ELSE COALESCE(aceptada_en, NOW())
+                END,
+                metodo_pago = 'efectivo',
                 expira_en = NULL
             WHERE id = %s
             RETURNING id
