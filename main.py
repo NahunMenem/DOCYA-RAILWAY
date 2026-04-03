@@ -2444,7 +2444,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         JOIN medicos m ON c.medico_id = m.id
         LEFT JOIN users u ON c.paciente_uuid = u.id
         WHERE c.medico_id = %s
-          AND c.estado = 'pendiente'
+          AND c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio', 'en_curso')          
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (medico_id,))
