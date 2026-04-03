@@ -966,4 +966,135 @@ def profesionales_conectados(db=Depends(get_db)):
         "profesionales": profesionales
     }
 
+@router.post("/consultas/{consulta_id}/asignar_manual")
+async def asignar_consulta_manual(
+    consulta_id: int,
+    data: AsignacionManualIn,
+    db=Depends(get_db)
+):
+    """
+    Asignación manual desde monitoreo.
+    - Si forzar_en_camino = False: deja la consulta en estado 'aceptada'.
+    - Si forzar_en_camino = True: deja la consulta en estado 'en_camino' para reflejar "consulta en curso".
+    """
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    # 1) Validaciones de existencia
+    cur.execute(
+        """
+        SELECT id, full_name, disponible
+        FROM medicos
+        WHERE id = %s
+        """,
+        (data.medico_id,),
+    )
+    medico = cur.fetchone()
+    if not medico:
+        raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+    cur.execute(
+        """
+        SELECT id, estado, paciente_uuid, motivo, direccion, lat, lng, metodo_pago
+        FROM consultas
+        WHERE id = %s
+        """,
+        (consulta_id,),
+    )
+    consulta = cur.fetchone()
+    if not consulta:
+        raise HTTPException(status_code=404, detail="Consulta no encontrada")
+
+    # 2) Solo permitimos reasignación manual desde estados operables
+    estados_permitidos = {"pendiente", "aceptada", "en_camino"}
+    if consulta["estado"] not in estados_permitidos:
+        raise HTTPException(
+            status_code=400,
+            detail=f"No se puede asignar manualmente desde estado '{consulta['estado']}'",
+        )
+
+    nuevo_estado = "en_camino" if data.forzar_en_camino else "aceptada"
+
+    # 3) Actualizar consulta y médico
+    if data.forzar_en_camino:
+        cur.execute(
+            """
+            UPDATE consultas
+            SET medico_id = %s,
+                estado = 'en_camino',
+                asignada_en = NOW(),
+                aceptada_en = COALESCE(aceptada_en, NOW()),
+                inicio_atencion = COALESCE(inicio_atencion, NOW()),
+                expira_en = NULL
+            WHERE id = %s
+            RETURNING id
+            """,
+            (data.medico_id, consulta_id),
+        )
+    else:
+        cur.execute(
+            """
+            UPDATE consultas
+            SET medico_id = %s,
+                estado = 'aceptada',
+                asignada_en = NOW(),
+                aceptada_en = COALESCE(aceptada_en, NOW()),
+                expira_en = NULL
+            WHERE id = %s
+            RETURNING id
+            """,
+            (data.medico_id, consulta_id),
+        )
+
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=400, detail="No se pudo actualizar la consulta")
+
+    cur.execute(
+        """
+        UPDATE medicos
+        SET disponible = FALSE
+        WHERE id = %s
+        """,
+        (data.medico_id,),
+    )
+
+    # Registro administrativo del intento/asignación
+    cur.execute(
+        """
+        INSERT INTO intentos_asignacion (consulta_id, medico_id)
+        VALUES (%s, %s)
+        """,
+        (consulta_id, data.medico_id),
+    )
+
+    db.commit()
+
+    # 4) Aviso en tiempo real al médico (si está conectado por WS)
+    if data.medico_id in active_medicos:
+        try:
+            await active_medicos[data.medico_id]["ws"].send_json(
+                {
+                    "tipo": "consulta_nueva",
+                    "consulta_id": consulta_id,
+                    "paciente_uuid": str(consulta["paciente_uuid"]) if consulta["paciente_uuid"] else None,
+                    "motivo": consulta["motivo"],
+                    "direccion": consulta["direccion"],
+                    "lat": consulta["lat"],
+                    "lng": consulta["lng"],
+                    "metodo_pago": consulta["metodo_pago"],
+                    "origen": "asignacion_manual_monitoreo",
+                }
+            )
+        except Exception as e:
+            print("⚠️ Error enviando WS de asignación manual:", e)
+
+    cur.close()
+    return {
+        "ok": True,
+        "consulta_id": consulta_id,
+        "medico_id": data.medico_id,
+        "estado": nuevo_estado,
+        "modo": "manual_desde_monitoreo",
+    }
+
 
