@@ -37,6 +37,10 @@ class MedicoUpdate(BaseModel):
     provincia: str
     localidad: str
 
+class AsignacionManualIn(BaseModel):
+    medico_id: int
+    forzar_en_camino: bool = False
+
 
 @router.get("/liquidaciones/preview_semana_actual")
 def preview_semana_actual(db=Depends(get_db)):
