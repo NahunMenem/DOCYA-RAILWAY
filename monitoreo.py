@@ -983,9 +983,10 @@ async def asignar_consulta_manual(
       la app del paciente la trate como consulta en curso.
     """
     try:
-        from main import active_medicos
+        from main import active_medicos, enviar_push
     except Exception:
         active_medicos = {}
+        enviar_push = None
 
     cur = db.cursor(cursor_factory=RealDictCursor)
 
@@ -1090,7 +1091,7 @@ async def asignar_consulta_manual(
 
     db.commit()
 
-    # 4) Aviso en tiempo real al médico (si está conectado por WS)
+    # 4) Aviso en tiempo real al médico (WS + push inmediato)
     if data.medico_id in active_medicos:
         try:
             await active_medicos[data.medico_id]["ws"].send_json(
@@ -1108,6 +1109,34 @@ async def asignar_consulta_manual(
             )
         except Exception as e:
             print("⚠️ Error enviando WS de asignación manual:", e)
+
+    cur.execute(
+        """
+        SELECT fcm_token
+        FROM medicos
+        WHERE id = %s
+        """,
+        (data.medico_id,),
+    )
+    row_push = cur.fetchone()
+
+    if enviar_push and row_push and row_push.get("fcm_token"):
+        try:
+            enviar_push(
+                row_push["fcm_token"],
+                "Nueva consulta asignada",
+                consulta["motivo"] or "Tenes una consulta asignada",
+                {
+                    "tipo": "consulta_nueva",
+                    "consulta_id": str(consulta_id),
+                    "medico_id": str(data.medico_id),
+                    "origen": "asignacion_manual_monitoreo",
+                    "estado": nuevo_estado,
+                },
+            )
+            print("📤 PUSH enviado (asignación manual)")
+        except Exception as e:
+            print("⚠️ Error enviando push de asignación manual:", e)
 
     cur.close()
     return {
