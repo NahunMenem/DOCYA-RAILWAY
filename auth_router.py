@@ -498,13 +498,14 @@ def auth_google(data: GoogleAuthIn, db=Depends(get_db)):
         google_sub = payload.get("sub")
         email = (payload.get("email") or "").lower().strip()
         full_name = payload.get("name") or "Usuario DocYa"
+        google_picture = (payload.get("picture") or "").strip() or None
         if not google_sub or not email:
             raise HTTPException(status_code=400, detail="Google no devolvió identidad suficiente")
 
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute(
             """
-            SELECT id, full_name, email, role, validado, perfil_completo
+            SELECT id, full_name, email, role, validado, perfil_completo, foto_url
             FROM users
             WHERE google_id = %s OR lower(email) = %s
             LIMIT 1
@@ -520,23 +521,24 @@ def auth_google(data: GoogleAuthIn, db=Depends(get_db)):
                 SET google_id = %s,
                     email = %s,
                     full_name = COALESCE(NULLIF(full_name, ''), %s),
+                    foto_url = COALESCE(NULLIF(foto_url, ''), %s),
                     validado = TRUE
                 WHERE id = %s
-                RETURNING id, full_name, email, role, validado, perfil_completo
+                RETURNING id, full_name, email, role, validado, perfil_completo, foto_url
                 """,
-                (google_sub, email, full_name, user["id"]),
+                (google_sub, email, full_name, google_picture, user["id"]),
             )
             user = cur.fetchone()
         else:
             cur.execute(
                 """
                 INSERT INTO users (
-                    email, full_name, google_id, validado, role, acepta_terminos, perfil_completo
+                    email, full_name, google_id, foto_url, validado, role, acepta_terminos, perfil_completo
                 )
-                VALUES (%s, %s, %s, TRUE, 'patient', FALSE, FALSE)
-                RETURNING id, full_name, email, role, validado, perfil_completo
+                VALUES (%s, %s, %s, %s, TRUE, 'patient', FALSE, FALSE)
+                RETURNING id, full_name, email, role, validado, perfil_completo, foto_url
                 """,
-                (email, full_name, google_sub),
+                (email, full_name, google_sub, google_picture),
             )
             user = cur.fetchone()
 
@@ -555,6 +557,7 @@ def auth_google(data: GoogleAuthIn, db=Depends(get_db)):
                 "role": user["role"],
                 "validado": bool(user["validado"]),
                 "perfil_completo": bool(user["perfil_completo"]),
+                "foto_url": user.get("foto_url"),
             },
             "perfil_completo": bool(user["perfil_completo"]),
         }
