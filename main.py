@@ -121,7 +121,13 @@ app.include_router(medicamentos_router)
 from recetario import router as recetario_router
 app.include_router(recetario_router)
 
-from auth_router import router as auth_router
+from auth_router import (
+    LoginIn,
+    LoginMedicoIn,
+    RegisterIn,
+    RegisterMedicoIn,
+    router as auth_router,
+)
 app.include_router(auth_router)
 
 from payments_router import router as payments_router
