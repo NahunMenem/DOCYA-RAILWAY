@@ -30,6 +30,7 @@ MP_TEST_MODE = os.getenv("MP_TEST_MODE", "false").strip().lower() in ("1", "true
 MP_TEST_PAYER_EMAIL = os.getenv("MP_TEST_PAYER_EMAIL", "test_user_123456@testuser.com").strip()
 MP_TEST_IDENTIFICATION_TYPE = os.getenv("MP_TEST_IDENTIFICATION_TYPE", "DNI").strip().upper()
 MP_TEST_IDENTIFICATION_NUMBER = os.getenv("MP_TEST_IDENTIFICATION_NUMBER", "12345678").strip()
+DOCYA_FORCE_CONSULTA_PRICE = os.getenv("DOCYA_FORCE_CONSULTA_PRICE", "").strip()
 
 # Telegram.
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
@@ -72,3 +73,14 @@ def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES
     expire = now_argentina() + timedelta(minutes=expires_minutes)
     to_encode.update({"exp": expire})
     return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
+
+
+def get_forced_consulta_price() -> int | None:
+    """Devuelve un monto temporal de prueba si fue configurado por entorno."""
+    if not DOCYA_FORCE_CONSULTA_PRICE:
+        return None
+    try:
+        value = int(float(DOCYA_FORCE_CONSULTA_PRICE))
+    except ValueError:
+        return None
+    return value if value >= 0 else None

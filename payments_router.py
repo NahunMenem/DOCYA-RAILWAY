@@ -21,6 +21,7 @@ from psycopg2.extras import RealDictCursor
 
 from database import get_db
 from settings import (
+    get_forced_consulta_price,
     MP_ACCESS_TOKEN,
     MP_COUNTRY_CODE,
     MP_PUBLIC_KEY,
@@ -323,6 +324,8 @@ def autorizar_pago_embebido(data: EmbeddedPaymentIn, db=Depends(get_db)):
     payer_email = data.payer_email or user["email"]
     identification_number = data.identification_number or (user.get("dni") or "")
     identification_type = data.identification_type or "DNI"
+    forced_price = get_forced_consulta_price()
+    monto = float(forced_price if forced_price is not None else data.monto)
 
     if _is_mp_test_mode():
         payer_email = MP_TEST_PAYER_EMAIL or payer_email
@@ -330,7 +333,7 @@ def autorizar_pago_embebido(data: EmbeddedPaymentIn, db=Depends(get_db)):
         identification_number = MP_TEST_IDENTIFICATION_NUMBER or identification_number
 
     payload = {
-        "transaction_amount": float(data.monto),
+        "transaction_amount": monto,
         "token": data.token,
         "description": data.motivo or f"Consulta {data.tipo or 'medico'} DocYa",
         "installments": max(1, int(data.installments or 1)),
@@ -393,6 +396,7 @@ def autorizar_pago_embebido(data: EmbeddedPaymentIn, db=Depends(get_db)):
         "status": payment.get("status"),
         "authorized": authorized,
         "payment_id": payment.get("id"),
+        "amount": monto,
         "detail": payment,
     }
 
@@ -408,6 +412,8 @@ def formulario_pago_embebido(
     """Sirve el card form de Mercado Pago embebido dentro de la app."""
     if not MP_PUBLIC_KEY:
         raise HTTPException(500, "MP_PUBLIC_KEY no configurada")
+    forced_price = get_forced_consulta_price()
+    monto = float(forced_price if forced_price is not None else monto)
 
     safe_motivo = json.dumps(motivo)
     return f"""
@@ -644,7 +650,8 @@ def consultas_reembolsadas(db=Depends(get_db)):
 def crear_preference(data: dict, db=Depends(get_db)):
     """Flujo legacy de Checkout Pro con redirect externo a MP."""
     consulta_id = str(data["consulta_id"])
-    monto = float(data["monto"])
+    forced_price = get_forced_consulta_price()
+    monto = float(forced_price if forced_price is not None else data["monto"])
     email = data["email"]
 
     payload = {

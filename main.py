@@ -49,6 +49,7 @@ from settings import (
     TELEGRAM_GRUPO_ID,
     create_access_token,
     format_datetime_arg,
+    get_forced_consulta_price,
     now_argentina,
     pwd_context,
 )
@@ -6692,6 +6693,14 @@ def medicos_mapa(db=Depends(get_db)):
 
 @app.get("/tarifas/consulta-medico")
 def get_tarifa_consulta_medico(conn=Depends(get_db)):
+    forced_price = get_forced_consulta_price()
+    if forced_price is not None:
+        return {
+            "tipo": "prueba",
+            "monto": forced_price,
+            "descripcion": "Monto temporal de prueba configurado desde backend.",
+        }
+
     ahora = now_argentina()
     h = ahora.hour
     nocturno = h >= 22 or h < 6
@@ -6718,6 +6727,14 @@ def get_tarifa_consulta_medico(conn=Depends(get_db)):
 
 @app.get("/tarifas/consulta-enfermero")
 def get_tarifa_consulta_enfermero(conn=Depends(get_db)):
+    forced_price = get_forced_consulta_price()
+    if forced_price is not None:
+        return {
+            "tipo": "prueba",
+            "monto": forced_price,
+            "descripcion": "Monto temporal de prueba configurado desde backend.",
+        }
+
     ahora = now_argentina()
     h = ahora.hour
     nocturno = h >= 22 or h < 6
