@@ -1199,7 +1199,7 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
 
     # 1️⃣ Traer estado actual
     cur.execute("""
-        SELECT estado, medico_id
+        SELECT estado, medico_id, mp_payment_id, mp_status
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
@@ -1208,7 +1208,7 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
     if not row:
         raise HTTPException(404, "Consulta no encontrada")
 
-    estado, medico_id = row
+    estado, medico_id, mp_payment_id, mp_status = row
 
     # 2️⃣ Solo se puede cancelar si está pendiente
     if estado != "pendiente":
@@ -1236,6 +1236,29 @@ def cancelar_busqueda(consulta_id: int, db=Depends(get_db)):
             expira_en = NULL
         WHERE id = %s
     """, (consulta_id,))
+
+    if mp_payment_id and mp_status in ("preautorizado", "authorized", "in_process", "pending"):
+        try:
+            cancel_resp = requests.put(
+                f"https://api.mercadopago.com/v1/payments/{mp_payment_id}",
+                headers={
+                    "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+                    "X-Idempotency-Key": str(uuid.uuid4()),
+                    "Content-Type": "application/json"
+                },
+                json={"status": "cancelled"},
+                timeout=20,
+            )
+            print(f"⏱️ Cancelación por timeout {consulta_id}: {cancel_resp.status_code} {cancel_resp.text}")
+            if cancel_resp.ok:
+                cur.execute("""
+                    UPDATE consultas
+                    SET mp_status = 'cancelled',
+                        mp_preautorizado = FALSE
+                    WHERE id = %s
+                """, (consulta_id,))
+        except Exception as e:
+            print(f"⚠️ Error cancelando preautorización por timeout: {e}")
 
     db.commit()
 
@@ -1856,90 +1879,26 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
 
         # NO HAY PROFESIONAL → REFUND
         if not row:
-            print("⚠️ No hay profesionales → refund automático")
+            print("⚠️ No hay profesionales inmediatos → mantener búsqueda por 60s")
 
-            cur.execute("SELECT mp_payment_id, mp_status FROM consultas WHERE id=%s", (consulta_id_previa,))
-            r = cur.fetchone()
-            payment_id = r[0] if r else None
-            mp_status = r[1] if r else None
+            cur.execute("""
+                UPDATE consultas
+                SET estado='pendiente',
+                    medico_id = NULL,
+                    metodo_pago='tarjeta',
+                    tipo=%s,
+                    asignada_en = NOW(),
+                    expira_en = NOW() + INTERVAL '60 seconds'
+                WHERE id=%s
+            """, (data.tipo, consulta_id_previa))
+            db.commit()
 
-            if not payment_id or payment_id == "pending":
-                cur.execute("""
-                    UPDATE consultas
-                    SET estado='pendiente_de_refund'
-                    WHERE id=%s
-                """, (consulta_id_previa,))
-                db.commit()
-                asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, False))
-                return {
-                    "consulta_id": consulta_id_previa,
-                    "estado": "pendiente_de_refund",
-                    "mensaje": "Esperando confirmación de MP",
-                    "profesional": None
-                }
-
-            try:
-                if mp_status in ("preautorizado", "authorized", "in_process", "pending"):
-                    cancel_resp = requests.put(
-                        f"https://api.mercadopago.com/v1/payments/{payment_id}",
-                        headers={
-                            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
-                            "X-Idempotency-Key": str(uuid.uuid4()),
-                            "Content-Type": "application/json"
-                        },
-                        json={"status": "cancelled"},
-                        timeout=20,
-                    )
-                    print("Cancel authorization:", cancel_resp.status_code, cancel_resp.text)
-
-                    cur.execute("""
-                        UPDATE consultas
-                        SET estado='cancelada', mp_status='cancelled', mp_preautorizado=FALSE
-                        WHERE id=%s
-                    """, (consulta_id_previa,))
-                    db.commit()
-                    asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, False))
-
-                    return {
-                        "consulta_id": consulta_id_previa,
-                        "estado": "cancelada",
-                        "cancelled": True,
-                        "mensaje": "No encontramos profesionales. La preautorizacion fue cancelada automaticamente.",
-                        "profesional": None
-                    }
-
-                refund_resp = requests.post(
-                    f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
-                    headers={
-                        "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
-                        "X-Idempotency-Key": str(uuid.uuid4())
-                    },
-                    timeout=20,
-                )
-                print("Refund:", refund_resp.status_code, refund_resp.text)
-
-                if not refund_resp.ok:
-                    raise HTTPException(500, "Error refund")
-
-                cur.execute("""
-                    UPDATE consultas
-                    SET estado='cancelada', mp_status='refunded'
-                    WHERE id=%s
-                """, (consulta_id_previa,))
-                db.commit()
-                asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, False))
-
-                return {
-                    "consulta_id": consulta_id_previa,
-                    "estado": "cancelada",
-                    "refunded": True,
-                    "mensaje": "Pago devuelto automaticamente.",
-                    "profesional": None
-                }
-            except HTTPException:
-                raise
-            except:
-                raise HTTPException(500, "Error refund")
+            return {
+                "consulta_id": consulta_id_previa,
+                "estado": "pendiente",
+                "mensaje": "Seguimos buscando profesionales disponibles durante los próximos segundos.",
+                "profesional": None
+            }
 
         # =============================
         # ✔ Hay profesional disponible
@@ -4659,6 +4618,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
             c.lat, 
             c.lng, 
             c.creado_en,
+            c.mp_status,
             m.full_name, 
             m.matricula,
             m.tipo,
@@ -4681,6 +4641,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
     (
         cid, paciente_uuid, medico_id, estado,
         motivo, direccion, lat, lng, creado_en,
+        mp_status,
         medico_nombre, medico_matricula, tipo,
         tiempo_estimado_raw,
         medico_lat, medico_lng,
@@ -4727,6 +4688,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "lat": lat,
         "lng": lng,
         "creado_en": format_datetime_arg(creado_en),
+        "mp_status": mp_status,
         "medico_nombre": medico_nombre,
         "medico_matricula": medico_matricula,
         "tipo": tipo,
