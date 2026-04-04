@@ -148,6 +148,22 @@ def _ensure_tables(db) -> None:
         """
     )
     cur.execute(
+        """
+        DELETE FROM tomas a
+        USING tomas b
+        WHERE a.ctid < b.ctid
+          AND a.medicacion_id = b.medicacion_id
+          AND a.fecha = b.fecha
+          AND a.horario_programado = b.horario_programado
+        """
+    )
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tomas_unique_slot
+        ON tomas(medicacion_id, fecha, horario_programado)
+        """
+    )
+    cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_medicaciones_paciente ON medicaciones(paciente_uuid);"
     )
     cur.execute(
@@ -510,3 +526,4 @@ def confirmar_toma_legacy(data: TomaConfirmarIn, db=Depends(get_db)):
         TomaActualizarIn(toma_id=data.toma_id, estado="tomado"),
         db=db,
     )
+
