@@ -6,6 +6,7 @@ from psycopg2.extras import RealDictCursor
 import json
 import asyncio
 from database import get_db
+from settings import pwd_context
 import psycopg2
 from os import getenv
 from datetime import datetime, timedelta
@@ -273,15 +274,22 @@ def listar_usuarios(
                 email,
                 dni,
                 telefono,
+                foto_url,
+                google_id,
                 validado,
                 role,
+                perfil_completo,
+                acepta_terminos,
                 created_at
             FROM users
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s;
         """, (limit, offset))
 
-        usuarios = cur.fetchall()
+        usuarios = []
+        for row in cur.fetchall():
+            row["auth_provider"] = "google" if row.get("google_id") else "email"
+            usuarios.append(row)
         cur.close()
 
         return {
@@ -296,6 +304,90 @@ def listar_usuarios(
     except Exception as e:
         print("❌ Error listando usuarios:", e)
         return {"ok": False, "error": str(e)}
+
+
+class UsuarioCreateIn(BaseModel):
+    full_name: str
+    email: str
+    dni: str | None = None
+    telefono: str | None = None
+    password: str
+
+
+@router.post("/usuarios")
+def crear_usuario(data: UsuarioCreateIn, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id FROM users WHERE lower(email) = %s", (data.email.lower(),))
+    if cur.fetchone():
+        raise HTTPException(status_code=400, detail="Ya existe un usuario con ese email")
+
+    hashed_password = pwd_context.hash(data.password)
+    cur.execute(
+        """
+        INSERT INTO users (
+            email, full_name, dni, telefono, password_hash, role, validado
+        )
+        VALUES (%s, %s, %s, %s, %s, 'patient', FALSE)
+        RETURNING id, full_name, email, dni, telefono, role, validado, created_at
+        """,
+        (
+            data.email.lower(),
+            data.full_name.strip(),
+            (data.dni or "").strip() or None,
+            (data.telefono or "").strip() or None,
+            hashed_password,
+        ),
+    )
+    usuario = cur.fetchone()
+    db.commit()
+    cur.close()
+    return {"ok": True, "usuario": usuario}
+
+
+@router.put("/usuarios/{user_id}/validar")
+def validar_usuario(user_id: str, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id, validado FROM users WHERE id = %s", (user_id,))
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    nuevo_estado = not bool(row["validado"])
+    cur.execute(
+        "UPDATE users SET validado = %s WHERE id = %s RETURNING id, validado",
+        (nuevo_estado, user_id),
+    )
+    usuario = cur.fetchone()
+    db.commit()
+    cur.close()
+    return {
+        "ok": True,
+        "user_id": usuario["id"],
+        "validado": bool(usuario["validado"]),
+    }
+
+
+@router.delete("/usuarios/{user_id}")
+def borrar_usuario_monitoreo(user_id: str, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id FROM users WHERE id = %s", (user_id,))
+    if not cur.fetchone():
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    cur.execute(
+        """
+        DELETE FROM pagos_consulta
+        WHERE consulta_id IN (
+            SELECT id FROM consultas WHERE paciente_uuid = %s
+        )
+        """,
+        (user_id,),
+    )
+    cur.execute("DELETE FROM consultas WHERE paciente_uuid = %s", (user_id,))
+    cur.execute("DELETE FROM users WHERE id = %s", (user_id,))
+    db.commit()
+    cur.close()
+    return {"ok": True, "message": "Usuario eliminado permanentemente"}
 
 
 @router.get("/liquidaciones")
@@ -817,8 +909,8 @@ async def tiempo_promedio_consultas(db=Depends(get_db)):
         return {"tiempo_promedio_min": 0}
 
 
-@router.get("/usuarios")
-async def listar_usuarios(db=Depends(get_db)):
+@router.get("/usuarios_legado")
+async def listar_usuarios_legado(db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
