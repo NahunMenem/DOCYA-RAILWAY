@@ -24,6 +24,7 @@ from settings import (
     MP_ACCESS_TOKEN,
     MP_COUNTRY_CODE,
     MP_PUBLIC_KEY,
+    MP_TEST_MODE,
     MP_TEST_IDENTIFICATION_NUMBER,
     MP_TEST_IDENTIFICATION_TYPE,
     MP_TEST_PAYER_EMAIL,
@@ -34,6 +35,8 @@ router = APIRouter()
 
 def _is_mp_test_mode() -> bool:
     """Detecta si DocYa está usando credenciales sandbox de Mercado Pago."""
+    if MP_TEST_MODE:
+        return True
     return (MP_ACCESS_TOKEN or "").strip().upper().startswith("TEST-")
 
 
