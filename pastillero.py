@@ -527,6 +527,7 @@ def listar_medicaciones(paciente_uuid: str, db=Depends(get_db)):
         FROM medicaciones m
         LEFT JOIN tomas t ON t.medicacion_id = m.id
         WHERE m.paciente_uuid = %s
+          AND m.activa = TRUE
         GROUP BY m.id
         ORDER BY m.activa DESC, m.created_at DESC
         """,
