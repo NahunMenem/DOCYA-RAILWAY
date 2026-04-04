@@ -26,6 +26,9 @@ MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN", "").strip()
 MP_PUBLIC_KEY = os.getenv("MP_PUBLIC_KEY", "").strip()
 MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "").strip()
 MP_COUNTRY_CODE = os.getenv("MP_COUNTRY_CODE", "ARG").strip().upper()
+MP_TEST_PAYER_EMAIL = os.getenv("MP_TEST_PAYER_EMAIL", "test_user_123456@testuser.com").strip()
+MP_TEST_IDENTIFICATION_TYPE = os.getenv("MP_TEST_IDENTIFICATION_TYPE", "DNI").strip().upper()
+MP_TEST_IDENTIFICATION_NUMBER = os.getenv("MP_TEST_IDENTIFICATION_NUMBER", "12345678").strip()
 
 # Telegram.
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

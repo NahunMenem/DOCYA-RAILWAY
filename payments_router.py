@@ -20,9 +20,21 @@ from pydantic import BaseModel
 from psycopg2.extras import RealDictCursor
 
 from database import get_db
-from settings import MP_ACCESS_TOKEN, MP_COUNTRY_CODE, MP_PUBLIC_KEY
+from settings import (
+    MP_ACCESS_TOKEN,
+    MP_COUNTRY_CODE,
+    MP_PUBLIC_KEY,
+    MP_TEST_IDENTIFICATION_NUMBER,
+    MP_TEST_IDENTIFICATION_TYPE,
+    MP_TEST_PAYER_EMAIL,
+)
 
 router = APIRouter()
+
+
+def _is_mp_test_mode() -> bool:
+    """Detecta si DocYa está usando credenciales sandbox de Mercado Pago."""
+    return (MP_ACCESS_TOKEN or "").strip().upper().startswith("TEST-")
 
 
 def _ensure_mp_access_token():
@@ -307,6 +319,12 @@ def autorizar_pago_embebido(data: EmbeddedPaymentIn, db=Depends(get_db)):
     user = _get_user_profile(db, data.paciente_uuid)
     payer_email = data.payer_email or user["email"]
     identification_number = data.identification_number or (user.get("dni") or "")
+    identification_type = data.identification_type or "DNI"
+
+    if _is_mp_test_mode():
+        payer_email = MP_TEST_PAYER_EMAIL or payer_email
+        identification_type = MP_TEST_IDENTIFICATION_TYPE or identification_type
+        identification_number = MP_TEST_IDENTIFICATION_NUMBER or identification_number
 
     payload = {
         "transaction_amount": float(data.monto),
@@ -319,7 +337,7 @@ def autorizar_pago_embebido(data: EmbeddedPaymentIn, db=Depends(get_db)):
         "payer": {
             "email": payer_email,
             "identification": {
-                "type": data.identification_type or "DNI",
+                "type": identification_type,
                 "number": identification_number,
             },
         },
@@ -338,6 +356,15 @@ def autorizar_pago_embebido(data: EmbeddedPaymentIn, db=Depends(get_db)):
         raise HTTPException(400, payment)
 
     authorized = _update_consulta_payment_state(db, data.consulta_id, payment)
+    if payment.get("status") == "rejected":
+        raise HTTPException(
+            400,
+            {
+                "message": payment.get("status_detail") or "Mercado Pago rechazó la tarjeta.",
+                "status": payment.get("status"),
+                "detail": payment,
+            },
+        )
 
     if data.save_card:
         try:
