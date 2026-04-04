@@ -25,6 +25,7 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN", "").strip()
 MP_PUBLIC_KEY = os.getenv("MP_PUBLIC_KEY", "").strip()
 MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "").strip()
+MP_COUNTRY_CODE = os.getenv("MP_COUNTRY_CODE", "ARG").strip().upper()
 
 # Telegram.
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")

@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from psycopg2.extras import RealDictCursor
 
 from database import get_db
-from settings import MP_ACCESS_TOKEN, MP_PUBLIC_KEY
+from settings import MP_ACCESS_TOKEN, MP_COUNTRY_CODE, MP_PUBLIC_KEY
 
 router = APIRouter()
 
@@ -219,6 +219,17 @@ def confirmar_pago(data: dict, db=Depends(get_db)):
     consulta_id = data.get("consulta_id")
     print(f"Usuario volvió del pago -> consulta {consulta_id}")
     return {"status": "ok"}
+
+
+@router.get("/pagos/public-config")
+def pagos_public_config():
+    """ConfiguraciÃ³n pÃºblica para tokenizaciÃ³n segura dentro de la app."""
+    if not MP_PUBLIC_KEY:
+        raise HTTPException(500, "MP_PUBLIC_KEY no configurada")
+    return {
+        "public_key": MP_PUBLIC_KEY,
+        "country_code": MP_COUNTRY_CODE or "ARG",
+    }
 
 
 @router.get("/pagos/metodos/{paciente_uuid}")
