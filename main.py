@@ -17,7 +17,7 @@ from typing import Optional, Dict
 from unidecode import unidecode
 from zoneinfo import ZoneInfo
 from fastapi import (
-    FastAPI, HTTPException, Depends, Query,
+    FastAPI, HTTPException, Depends, Query, BackgroundTasks,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
 )
 from fastapi.responses import HTMLResponse
@@ -1795,8 +1795,37 @@ def _validar_perfil_paciente_completo(db, paciente_uuid: str):
         )
 
 
+async def worker_busqueda_consulta_pendiente(
+    consulta_id: int,
+    tipo: str,
+    espera_segundos: int = 4,
+    max_ciclos: int = 15,
+):
+    """Mantiene la búsqueda de profesionales durante una ventana corta."""
+    print(
+        f"🔎 Worker de búsqueda extendida iniciado para consulta {consulta_id} ({tipo})"
+    )
+    db_worker = get_db_worker()
+    try:
+        await intentar_reasignar(
+            consulta_id,
+            db_worker,
+            excluir_medico_id=None,
+            max_ciclos=max_ciclos,
+            espera_segundos=espera_segundos,
+        )
+    except Exception as e:
+        print(f"⚠️ Error en worker_busqueda_consulta_pendiente: {e}")
+    finally:
+        db_worker.close()
+
+
 @app.post("/consultas/solicitar")
-async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
+async def solicitar_consulta(
+    data: SolicitarConsultaIn,
+    background_tasks: BackgroundTasks,
+    db=Depends(get_db),
+):
     cur = db.cursor()
     _validar_perfil_paciente_completo(db, str(data.paciente_uuid))
 
@@ -1892,6 +1921,12 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 WHERE id=%s
             """, (data.tipo, consulta_id_previa))
             db.commit()
+
+            background_tasks.add_task(
+                worker_busqueda_consulta_pendiente,
+                consulta_id_previa,
+                data.tipo,
+            )
 
             return {
                 "consulta_id": consulta_id_previa,
@@ -2588,7 +2623,6 @@ def aceptar_consulta(
 
 
 
-from fastapi import BackgroundTasks, HTTPException, Depends
 from datetime import datetime
 import asyncio
 
@@ -2744,7 +2778,7 @@ async def timeout_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
     reasignado = await intentar_reasignar(
         consulta_id,
         db,
-        excluir_medico_id=None  # ⬅️ CLAVE
+        excluir_medico_id=medico_id
     )
 
 
