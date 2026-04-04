@@ -69,6 +69,8 @@ def _ensure_payment_method_tables(db):
             paciente_uuid TEXT NOT NULL,
             mp_customer_id TEXT NOT NULL,
             mp_card_id TEXT NOT NULL,
+            payment_method_id TEXT,
+            issuer_id TEXT,
             brand TEXT,
             last_four TEXT,
             expiration_month INTEGER,
@@ -78,6 +80,12 @@ def _ensure_payment_method_tables(db):
             created_at TIMESTAMP DEFAULT NOW()
         )
         """
+    )
+    cur.execute(
+        "ALTER TABLE payment_methods_docya ADD COLUMN IF NOT EXISTS payment_method_id TEXT"
+    )
+    cur.execute(
+        "ALTER TABLE payment_methods_docya ADD COLUMN IF NOT EXISTS issuer_id TEXT"
     )
     db.commit()
 
@@ -161,15 +169,17 @@ def _save_local_payment_method(
     cur.execute(
         """
         INSERT INTO payment_methods_docya (
-            paciente_uuid, mp_customer_id, mp_card_id, brand, last_four,
-            expiration_month, expiration_year, holder_name, is_default
+            paciente_uuid, mp_customer_id, mp_card_id, payment_method_id, issuer_id,
+            brand, last_four, expiration_month, expiration_year, holder_name, is_default
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         """,
         (
             str(paciente_uuid),
             customer_id,
             str(mp_card.get("id")),
+            (((mp_card.get("payment_method") or {}).get("id")) or mp_card.get("payment_method_id")),
+            (((mp_card.get("issuer") or {}).get("id")) or mp_card.get("issuer_id")),
             ((mp_card.get("payment_method") or {}).get("name") or mp_card.get("payment_method_id") or "Tarjeta"),
             mp_card.get("last_four_digits"),
             mp_card.get("expiration_month"),
@@ -179,6 +189,91 @@ def _save_local_payment_method(
         ),
     )
     db.commit()
+
+
+def _refresh_local_payment_method_from_mp(db, method_row: dict):
+    """Completa datos faltantes de tarjetas guardadas usando la API de Mercado Pago."""
+    customer_id = (method_row.get("mp_customer_id") or "").strip()
+    card_id = (method_row.get("mp_card_id") or "").strip()
+    if not customer_id or not card_id:
+        return method_row
+
+    needs_refresh = not all(
+        [
+            method_row.get("payment_method_id"),
+            method_row.get("issuer_id"),
+            method_row.get("brand"),
+            method_row.get("last_four"),
+        ]
+    )
+    if not needs_refresh:
+        return method_row
+
+    response = requests.get(
+        f"https://api.mercadopago.com/v1/customers/{customer_id}/cards/{card_id}",
+        headers=_mp_headers(),
+        timeout=20,
+    )
+    if not response.ok:
+        return method_row
+
+    mp_card = response.json()
+    payment_method = mp_card.get("payment_method") or {}
+    issuer = mp_card.get("issuer") or {}
+    cardholder = mp_card.get("cardholder") or {}
+
+    cur = db.cursor()
+    cur.execute(
+        """
+        UPDATE payment_methods_docya
+        SET payment_method_id = COALESCE(%s, payment_method_id),
+            issuer_id = COALESCE(%s, issuer_id),
+            brand = COALESCE(%s, brand),
+            last_four = COALESCE(%s, last_four),
+            expiration_month = COALESCE(%s, expiration_month),
+            expiration_year = COALESCE(%s, expiration_year),
+            holder_name = COALESCE(%s, holder_name)
+        WHERE id = %s
+        """,
+        (
+            payment_method.get("id") or mp_card.get("payment_method_id"),
+            str(issuer.get("id") or mp_card.get("issuer_id"))
+            if (issuer.get("id") or mp_card.get("issuer_id"))
+            else None,
+            payment_method.get("name")
+            or mp_card.get("payment_method_id")
+            or method_row.get("brand"),
+            mp_card.get("last_four_digits") or method_row.get("last_four"),
+            mp_card.get("expiration_month") or method_row.get("expiration_month"),
+            mp_card.get("expiration_year") or method_row.get("expiration_year"),
+            (cardholder.get("name") or "").strip() or method_row.get("holder_name"),
+            method_row["id"],
+        ),
+    )
+    db.commit()
+
+    method_row.update(
+        {
+            "payment_method_id": payment_method.get("id")
+            or mp_card.get("payment_method_id")
+            or method_row.get("payment_method_id"),
+            "issuer_id": str(issuer.get("id") or mp_card.get("issuer_id"))
+            if (issuer.get("id") or mp_card.get("issuer_id"))
+            else method_row.get("issuer_id"),
+            "brand": payment_method.get("name")
+            or mp_card.get("payment_method_id")
+            or method_row.get("brand"),
+            "last_four": mp_card.get("last_four_digits")
+            or method_row.get("last_four"),
+            "expiration_month": mp_card.get("expiration_month")
+            or method_row.get("expiration_month"),
+            "expiration_year": mp_card.get("expiration_year")
+            or method_row.get("expiration_year"),
+            "holder_name": (cardholder.get("name") or "").strip()
+            or method_row.get("holder_name"),
+        }
+    )
+    return method_row
 
 
 def _update_consulta_payment_state(db, consulta_id: int, payment_data: dict):
@@ -256,14 +351,28 @@ def listar_metodos_pago(paciente_uuid: str, db=Depends(get_db)):
     cur.execute(
         """
         SELECT id, paciente_uuid, mp_customer_id, mp_card_id, brand, last_four,
-               expiration_month, expiration_year, holder_name, is_default, created_at
+               payment_method_id, issuer_id, expiration_month, expiration_year,
+               holder_name, is_default, created_at
         FROM payment_methods_docya
         WHERE paciente_uuid = %s
         ORDER BY is_default DESC, created_at DESC
         """,
         (str(paciente_uuid),),
     )
-    return {"items": cur.fetchall()}
+    items = []
+    for raw_item in cur.fetchall():
+        item = dict(raw_item)
+        item = _refresh_local_payment_method_from_mp(db, item)
+        item["reusable"] = all(
+            [
+                (item.get("mp_card_id") or "").strip(),
+                (item.get("mp_customer_id") or "").strip(),
+                (item.get("payment_method_id") or "").strip(),
+                (item.get("issuer_id") or "").strip(),
+            ]
+        )
+        items.append(item)
+    return {"items": items}
 
 
 @router.delete("/pagos/metodos/{method_id}")
