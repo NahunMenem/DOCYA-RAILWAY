@@ -256,18 +256,42 @@ class MedicoUpdate(BaseModel):
 def listar_usuarios(
     page: int = 1,
     limit: int = 15,
+    q: str | None = None,
     db=Depends(get_db)
 ):
     try:
         offset = (page - 1) * limit
         cur = db.cursor(cursor_factory=RealDictCursor)
+        filtros = []
+        params: list[object] = []
+
+        if q and q.strip():
+            termino = f"%{q.strip().lower()}%"
+            filtros.append("""
+                (
+                    LOWER(COALESCE(full_name, '')) LIKE %s
+                    OR LOWER(COALESCE(email, '')) LIKE %s
+                    OR LOWER(COALESCE(dni, '')) LIKE %s
+                    OR LOWER(COALESCE(telefono, '')) LIKE %s
+                )
+            """)
+            params.extend([termino, termino, termino, termino])
+
+        where_clause = f"WHERE {' AND '.join(filtros)}" if filtros else ""
 
         # Total usuarios
-        cur.execute("SELECT COUNT(*) FROM users;")
+        cur.execute(
+            f"""
+            SELECT COUNT(*) AS count
+            FROM users
+            {where_clause};
+            """,
+            params,
+        )
         total = cur.fetchone()["count"]
 
         # Usuarios paginados
-        cur.execute("""
+        cur.execute(f"""
             SELECT
                 id,
                 full_name,
@@ -282,9 +306,10 @@ def listar_usuarios(
                 acepta_terminos,
                 created_at
             FROM users
+            {where_clause}
             ORDER BY created_at DESC
             LIMIT %s OFFSET %s;
-        """, (limit, offset))
+        """, [*params, limit, offset])
 
         usuarios = []
         for row in cur.fetchall():
@@ -296,6 +321,7 @@ def listar_usuarios(
             "ok": True,
             "page": page,
             "limit": limit,
+            "q": q or "",
             "total": total,
             "pages": (total + limit - 1) // limit,
             "usuarios": usuarios
