@@ -1858,9 +1858,10 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
         if not row:
             print("⚠️ No hay profesionales → refund automático")
 
-            cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s", (consulta_id_previa,))
+            cur.execute("SELECT mp_payment_id, mp_status FROM consultas WHERE id=%s", (consulta_id_previa,))
             r = cur.fetchone()
             payment_id = r[0] if r else None
+            mp_status = r[1] if r else None
 
             if not payment_id or payment_id == "pending":
                 cur.execute("""
@@ -1878,14 +1879,47 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                 }
 
             try:
+                if mp_status in ("preautorizado", "authorized", "in_process", "pending"):
+                    cancel_resp = requests.put(
+                        f"https://api.mercadopago.com/v1/payments/{payment_id}",
+                        headers={
+                            "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
+                            "X-Idempotency-Key": str(uuid.uuid4()),
+                            "Content-Type": "application/json"
+                        },
+                        json={"status": "cancelled"},
+                        timeout=20,
+                    )
+                    print("Cancel authorization:", cancel_resp.status_code, cancel_resp.text)
+
+                    cur.execute("""
+                        UPDATE consultas
+                        SET estado='cancelada', mp_status='cancelled', mp_preautorizado=FALSE
+                        WHERE id=%s
+                    """, (consulta_id_previa,))
+                    db.commit()
+                    asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id_previa, False))
+
+                    return {
+                        "consulta_id": consulta_id_previa,
+                        "estado": "cancelada",
+                        "cancelled": True,
+                        "mensaje": "No encontramos profesionales. La preautorizacion fue cancelada automaticamente.",
+                        "profesional": None
+                    }
+
                 refund_resp = requests.post(
                     f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
                     headers={
-                        "Authorization": f"Bearer {ACCESS_TOKEN}",
+                        "Authorization": f"Bearer {MP_ACCESS_TOKEN}",
                         "X-Idempotency-Key": str(uuid.uuid4())
-                    }
+                    },
+                    timeout=20,
                 )
-                print("Refund:", refund_resp.status_code)
+                print("Refund:", refund_resp.status_code, refund_resp.text)
+
+                if not refund_resp.ok:
+                    raise HTTPException(500, "Error refund")
 
                 cur.execute("""
                     UPDATE consultas
@@ -1899,9 +1933,11 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
                     "consulta_id": consulta_id_previa,
                     "estado": "cancelada",
                     "refunded": True,
-                    "mensaje": "Pago devuelto automáticamente.",
+                    "mensaje": "Pago devuelto automaticamente.",
                     "profesional": None
                 }
+            except HTTPException:
+                raise
             except:
                 raise HTTPException(500, "Error refund")
 
