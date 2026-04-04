@@ -298,12 +298,23 @@ def listar_usuarios(
                 email,
                 dni,
                 telefono,
+                pais,
+                provincia,
+                localidad,
+                fecha_nacimiento,
+                sexo,
+                tipo_documento,
+                numero_documento,
+                direccion,
                 foto_url,
                 google_id,
                 validado,
                 role,
                 perfil_completo,
                 acepta_terminos,
+                acepto_condiciones,
+                fecha_aceptacion,
+                version_texto,
                 created_at
             FROM users
             {where_clause}
