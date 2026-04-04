@@ -40,6 +40,26 @@ class TomaConfirmarIn(BaseModel):
     toma_id: int
 
 
+class MedicacionPatchIn(BaseModel):
+    paciente_uuid: Optional[str] = None
+    consulta_id: Optional[int] = None
+    medico_id: Optional[int] = None
+    nombre: str
+    dosis: str
+    frecuencia: Optional[str] = None
+    horarios: List[time]
+    fecha_inicio: date
+    fecha_fin: Optional[date] = None
+    observaciones: Optional[str] = None
+
+    @field_validator("horarios")
+    @classmethod
+    def validar_horarios(cls, horarios: List[time]) -> List[time]:
+        if not horarios:
+            raise ValueError("Debes indicar al menos un horario")
+        return sorted(horarios)
+
+
 def _dict_cur(db):
     return db.cursor(cursor_factory=RealDictCursor)
 
@@ -214,6 +234,23 @@ def _iter_dates(desde: date, hasta: date):
         actual += timedelta(days=1)
 
 
+def _fetch_medicacion(db, medicacion_id: int):
+    cur = _dict_cur(db)
+    cur.execute(
+        """
+        SELECT *
+        FROM medicaciones
+        WHERE id = %s
+        """,
+        (medicacion_id,),
+    )
+    medicacion = cur.fetchone()
+    cur.close()
+    if not medicacion:
+        raise HTTPException(status_code=404, detail="Medicacion no encontrada")
+    return medicacion
+
+
 def _sincronizar_tomas(
     db,
     paciente_uuid: str,
@@ -256,6 +293,21 @@ def _sincronizar_tomas(
 
     db.commit()
     insert_cur.close()
+    cur.close()
+
+
+def _borrar_tomas_futuras(db, medicacion_id: int, desde: date) -> None:
+    cur = db.cursor()
+    cur.execute(
+        """
+        DELETE FROM tomas
+        WHERE medicacion_id = %s
+          AND fecha >= %s
+          AND estado = 'pendiente'
+        """,
+        (medicacion_id, desde),
+    )
+    db.commit()
     cur.close()
 
 
@@ -321,6 +373,136 @@ def crear_medicacion(data: MedicacionIn, db=Depends(get_db)):
             ),
         )
         return {"ok": True, "medicacion_id": medicacion_id}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+
+
+@router.put("/medicacion/{medicacion_id}")
+def editar_medicacion(
+    medicacion_id: int,
+    data: MedicacionPatchIn,
+    db=Depends(get_db),
+):
+    _ensure_tables(db)
+
+    if data.fecha_fin is not None and data.fecha_fin < data.fecha_inicio:
+        raise HTTPException(
+            status_code=400,
+            detail="fecha_fin no puede ser anterior a fecha_inicio",
+        )
+
+    actual = _fetch_medicacion(db, medicacion_id)
+    paciente_uuid = data.paciente_uuid or str(actual["paciente_uuid"])
+    consulta_id = data.consulta_id if data.consulta_id is not None else actual.get("consulta_id")
+
+    if data.consulta_id is not None or data.medico_id is not None:
+        paciente_uuid, consulta_id = _resolve_paciente_uuid(
+            MedicacionIn(
+                paciente_uuid=data.paciente_uuid,
+                consulta_id=data.consulta_id,
+                medico_id=data.medico_id,
+                nombre=data.nombre,
+                dosis=data.dosis,
+                frecuencia=data.frecuencia,
+                horarios=data.horarios,
+                fecha_inicio=data.fecha_inicio,
+                fecha_fin=data.fecha_fin,
+                observaciones=data.observaciones,
+            ),
+            db,
+        )
+
+    cur = db.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE medicaciones
+            SET paciente_uuid = %s,
+                consulta_id = %s,
+                medico_id = %s,
+                nombre = %s,
+                dosis = %s,
+                frecuencia = %s,
+                horarios = %s,
+                fecha_inicio = %s,
+                fecha_fin = %s,
+                observaciones = %s,
+                activa = TRUE,
+                updated_at = NOW()
+            WHERE id = %s
+            RETURNING id
+            """,
+            (
+                paciente_uuid,
+                consulta_id,
+                data.medico_id if data.medico_id is not None else actual.get("medico_id"),
+                data.nombre.strip(),
+                data.dosis.strip(),
+                (data.frecuencia or "").strip() or None,
+                data.horarios,
+                data.fecha_inicio,
+                data.fecha_fin,
+                (data.observaciones or "").strip() or None,
+                medicacion_id,
+            ),
+        )
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Medicacion no encontrada")
+        db.commit()
+        _borrar_tomas_futuras(db, medicacion_id, now_argentina().date())
+        _sincronizar_tomas(
+            db,
+            paciente_uuid,
+            min(data.fecha_inicio, now_argentina().date()),
+            min(
+                data.fecha_fin or (now_argentina().date() + timedelta(days=14)),
+                now_argentina().date() + timedelta(days=14),
+            ),
+        )
+        return {"ok": True, "medicacion_id": medicacion_id}
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cur.close()
+
+
+@router.delete("/medicacion/{medicacion_id}")
+def eliminar_medicacion(medicacion_id: int, db=Depends(get_db)):
+    _ensure_tables(db)
+    medicacion = _fetch_medicacion(db, medicacion_id)
+    cur = db.cursor()
+    try:
+        cur.execute(
+            """
+            UPDATE medicaciones
+            SET activa = FALSE,
+                updated_at = NOW()
+            WHERE id = %s
+            """,
+            (medicacion_id,),
+        )
+        cur.execute(
+            """
+            DELETE FROM tomas
+            WHERE medicacion_id = %s
+              AND fecha >= %s
+              AND estado = 'pendiente'
+            """,
+            (medicacion_id, now_argentina().date()),
+        )
+        db.commit()
+        return {
+            "ok": True,
+            "medicacion_id": medicacion_id,
+            "paciente_uuid": str(medicacion["paciente_uuid"]),
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
