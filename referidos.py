@@ -19,7 +19,8 @@ from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
 from psycopg2.extras import RealDictCursor
 
-from main import get_db, pwd_context, JWT_SECRET, JWT_EXPIRE_MINUTES, now_argentina, create_access_token
+from database import get_db
+from settings import JWT_SECRET, create_access_token, now_argentina, pwd_context
 
 router = APIRouter(prefix="/referidos", tags=["referidos"])
 

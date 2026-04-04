@@ -7,7 +7,8 @@ from typing import List, Optional
 from datetime import date, time, datetime
 from psycopg2.extras import RealDictCursor
 
-from main import get_db, now_argentina
+from database import get_db
+from settings import now_argentina
 
 router = APIRouter(prefix="/pastillero", tags=["Pastillero"])
 
@@ -145,4 +146,3 @@ def confirmar_toma(data: TomaConfirmarIn, db=Depends(get_db)):
 
     db.commit()
     return {"ok": True}
-
