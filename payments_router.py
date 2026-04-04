@@ -491,7 +491,7 @@ def formulario_pago_embebido(
           const mp = new MercadoPago("{MP_PUBLIC_KEY}", {{ locale: "es-AR" }});
           const form = mp.cardForm({{
             amount: "{monto:.0f}",
-            iframe: true,
+            iframe: false,
             form: {{
               id: "form-checkout",
               cardNumber: {{ id: "form-checkout__cardNumber", placeholder: "5031 4332 1540 6351" }},
