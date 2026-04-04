@@ -6,18 +6,16 @@ import os
 import json
 import math
 import jwt
+from urllib.parse import quote
 from datetime import datetime, timedelta, date, time
 import asyncio
-from datetime import datetime
 import psycopg2
 import requests
 import uuid
 from uuid import UUID
 from typing import Optional, Dict
-from datetime import datetime, timedelta, date
 from unidecode import unidecode
 from zoneinfo import ZoneInfo
-from fastapi import Request
 from fastapi import (
     FastAPI, HTTPException, Depends, Query,
     File, UploadFile, WebSocket, WebSocketDisconnect, Request
@@ -27,7 +25,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, EmailStr
 from passlib.context import CryptContext
-from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
 # Google & Email
@@ -41,44 +38,25 @@ from sib_api_v3_sdk.rest import ApiException
 import cloudinary
 import cloudinary.uploader
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from database import get_db, get_db_worker
+from settings import (
+    ALLOWED_ORIGINS,
+    DATABASE_URL,
+    JWT_SECRET,
+    MP_ACCESS_TOKEN,
+    TELEGRAM_ADMIN_ID,
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_GRUPO_ID,
+    create_access_token,
+    format_datetime_arg,
+    now_argentina,
+    pwd_context,
+)
 # ====================================================
 # 🌐 VARIABLES GLOBALES Y CONFIGURACIONES
 # ====================================================
 active_medicos: Dict[int, WebSocket] = {}
 active_chats: Dict[int, list[WebSocket]] = {}
-
-load_dotenv()
-DATABASE_URL = os.getenv("DATABASE_URL")
-JWT_SECRET = os.getenv("JWT_SECRET", "change_me")
-JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
-ALLOWED_ORIGINS = [o.strip() for o in os.getenv("ALLOWED_ORIGINS", "*").split(",")]
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-TELEGRAM_BOT_TOKEN   = os.getenv("TELEGRAM_BOT_TOKEN")   # token del bot
-TELEGRAM_ADMIN_ID    = os.getenv("TELEGRAM_ADMIN_ID")     # tu chat_id privado
-TELEGRAM_GRUPO_ID    = os.getenv("TELEGRAM_GRUPO_ID")     # id del grupo de médicos
-
-
-# ====================================================
-# ⚙️ FUNCIONES UTILITARIAS
-# ====================================================
-def now_argentina():
-    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
-
-def format_datetime_arg(dt):
-    if not dt:
-        return None
-    dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
-    return dt.strftime("%d/%m/%Y %H:%M")
-
-def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES):
-    to_encode = payload.copy()
-    expire = now_argentina() + timedelta(minutes=expires_minutes)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
-
-
 
 # ====================================================
 # ☁️ CONFIGURACIÓN CLOUDINARY / FIREBASE
@@ -100,33 +78,6 @@ def get_access_token():
     credentials.refresh(request)
     return credentials.token
 
-
-# ====================================================
-# 🚀 CREAR APP FASTAPI
-# ====================================================
-from fastapi import FastAPI
-
-
-# ====================================================
-# 🌍 CORS – ORÍGENES PERMITIDOS
-# ====================================================
-ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://localhost:3001",
-
-    # Frontend en Vercel
-    "https://centrodemonitoreodocya.vercel.app",
-    "https://docya-monitoreo-omwg.vercel.app",
-    "https://docya-monitoreo.vercel.app",
-    "https://comunidaddocya-tfq8.vercel.app",
-    "https://www.docya.com.ar",
-    "https://docyarecetario.vercel.app",
-    "https://monitoreodocyasas-ua4l-gsyz2umjm.vercel.app/",
-    "https://monitoreodocyasas-git-988b6f-nahundeveloper-gmailcoms-projects.vercel.app",
-    "https://www.docya.online",
-    "https://docyacomunidad-7ii3.vercel.app",
-]
-
 # ====================================================
 # 🚀 CREAR APP FASTAPI
 # ====================================================
@@ -146,20 +97,6 @@ app.add_middleware(
 
 
 
-
-# ====================================================
-# 🧩 CONEXIÓN BASE DE DATOS
-# ====================================================
-def get_db():
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-    
-def get_db_worker():
-    return psycopg2.connect(DATABASE_URL, sslmode="require")
 
 # ====================================================
 # 🩺 INCLUIR RUTA DE MONITOREO
@@ -183,39 +120,15 @@ app.include_router(medicamentos_router)
 
 from recetario import router as recetario_router
 app.include_router(recetario_router)
+
+from auth_router import router as auth_router
+app.include_router(auth_router)
+
+from payments_router import router as payments_router
+app.include_router(payments_router)
 # ====================================================
 # 🔑 MODELOS Pydantic (Auth y Valoraciones)
 # ====================================================
-class RegisterIn(BaseModel):
-    email: EmailStr
-    password: str
-    full_name: str
-    dni: Optional[str] = None
-    telefono: Optional[str] = None
-    pais: Optional[str] = None
-    provincia: Optional[str] = None
-    localidad: Optional[str] = None
-    fecha_nacimiento: Optional[date] = None
-    sexo: Optional[str] = None
-    acepto_condiciones: bool = False
-
-class LoginIn(BaseModel):
-    email: str   # ahora acepta DNI O email sin validar formato
-    password: str
-
-
-class GoogleIn(BaseModel):
-    id_token: str
-
-class UserOut(BaseModel):
-    id: str
-    full_name: str
-
-class AuthResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserOut
-
 class ValoracionIn(BaseModel):
     paciente_uuid: str
     medico_id: Optional[int] = None
@@ -302,7 +215,7 @@ def health():
     return {"ok": True, "service": "docya-auth"}
 
 
-@app.post("/auth/register")
+# movido a auth_router.py
 def register(request: Request, data: RegisterIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("SELECT id FROM users WHERE email=%s", (data.email.lower(),))
@@ -367,10 +280,10 @@ def register(request: Request, data: RegisterIn, db=Depends(get_db)):
     }
 #esto es para referidos
 from fastapi.responses import RedirectResponse
-@app.get("/registro/paciente")
+# movido a auth_router.py
 def registro(request: Request):
     return templates.TemplateResponse("registro.html", {"request": request})
-@app.get("/r")
+# movido a auth_router.py
 def referido(request: Request):
     ref = request.query_params.get("ref")
 
@@ -391,7 +304,7 @@ def referido(request: Request):
 class FcmTokenIn(BaseModel):
     fcm_token: str
 
-@app.get("/users/{user_id}")
+# movido a auth_router.py
 def get_user_by_id(user_id: str, db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
@@ -425,7 +338,7 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/users/{user_id}/fcm_token")
+# movido a auth_router.py
 def guardar_fcm_token_paciente(user_id: str, data: dict, db=Depends(get_db)):
     fcm_token = data.get("fcm_token")
     if not fcm_token:
@@ -449,7 +362,7 @@ def guardar_fcm_token_paciente(user_id: str, data: dict, db=Depends(get_db)):
 # ====================================================
 # 📸 ENDPOINT: Subir foto de perfil del paciente
 # ====================================================
-@app.post("/users/{user_id}/foto")
+# movido a auth_router.py
 async def subir_foto_paciente(user_id: str, file: UploadFile = File(...), db=Depends(get_db)):
     try:
         if not file.content_type or not file.content_type.startswith("image/"):
@@ -512,7 +425,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
 # --- Activación paciente ---
-@app.get("/auth/activar_paciente", response_class=HTMLResponse)
+# movido a auth_router.py
 def activar_paciente(token: str, request: Request, db=Depends(get_db)):
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
@@ -600,7 +513,7 @@ def enviar_email_validacion_paciente(email: str, user_id: int, full_name: str):
 
 
 
-@app.post("/auth/login", response_model=AuthResponse)
+# movido a auth_router.py
 def login(data: LoginIn, db=Depends(get_db)):
     cur = db.cursor()
 
@@ -714,7 +627,7 @@ class RegisterMedicoIn(BaseModel):
 
 
 
-@app.post("/auth/register_medico")
+# movido a auth_router.py
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
 
@@ -810,7 +723,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
 
 
 
-@app.get("/auth/activar_medico", response_class=HTMLResponse)
+# movido a auth_router.py
 def activar_medico(token: str, request: Request, db=Depends(get_db)):
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=["HS256"])
@@ -936,7 +849,7 @@ class LoginMedicoIn(BaseModel):
     email: str   # 👈 antes era EmailStr
     password: str
 
-@app.post("/auth/login_medico")
+# movido a auth_router.py
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     cur = db.cursor()
 
@@ -993,7 +906,7 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     }
 
 
-@app.post("/auth/validar_medico/{medico_id}")
+# movido a auth_router.py
 def validar_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
@@ -1009,7 +922,7 @@ def validar_medico(medico_id: int, db=Depends(get_db)):
 
 
 
-@app.post("/auth/medico/{medico_id}/foto")
+# movido a auth_router.py
 def actualizar_foto(medico_id: int, file: UploadFile = File(...), db=Depends(get_db)):
     try:
         upload_result = cloudinary.uploader.upload(
@@ -1048,7 +961,7 @@ class AliasIn(BaseModel):
 # ================================
 # ENDPOINT FINAL
 # ================================
-@app.patch("/auth/medico/{medico_id}/alias")
+# movido a auth_router.py
 def actualizar_alias(
     medico_id: int,
     data: AliasIn,
@@ -1074,7 +987,7 @@ def actualizar_alias(
 
 
 
-@app.post("/auth/medico/{medico_id}/disponibilidad")
+# movido a auth_router.py
 def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
@@ -1092,7 +1005,7 @@ def actualizar_disponibilidad(medico_id: int, disponible: bool, db=Depends(get_d
 from datetime import date, timedelta
 from fastapi import HTTPException, Depends
 
-@app.get("/auth/medico/{medico_id}/stats")
+# movido a auth_router.py
 def medico_stats(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
 
@@ -1228,7 +1141,7 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
 
 
 
-@app.post("/auth/medico/{medico_id}/fcm_token")
+# movido a auth_router.py
 def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
@@ -1243,7 +1156,7 @@ def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
     return {"ok": True, "medico_id": medico_id, "fcm_token": data.fcm_token}
 
 
-@app.get("/auth/medico/{medico_id}")
+# movido a auth_router.py
 def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
@@ -1265,7 +1178,7 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "matricula": row[6],
         "foto_perfil": row[7],
         "tipo": row[8],
-        "firma_url": row[9],
+        "firma_url": row[9],  # ✅ ahora sí existe
     }
 
 
@@ -1832,9 +1745,30 @@ def get_db_direct():
     return conn
 
 
+def _validar_perfil_paciente_completo(db, paciente_uuid: str):
+    """Bloquea la solicitud si el paciente todavía no completó su perfil global."""
+    cur = db.cursor()
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS perfil_completo BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS acepta_terminos BOOLEAN DEFAULT FALSE")
+    db.commit()
+    cur.execute(
+        "SELECT COALESCE(perfil_completo, FALSE), COALESCE(acepta_terminos, FALSE) FROM users WHERE id = %s",
+        (str(paciente_uuid),),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+    if not row[0] or not row[1]:
+        raise HTTPException(
+            status_code=403,
+            detail="Debes completar tu perfil antes de solicitar un profesional.",
+        )
+
+
 @app.post("/consultas/solicitar")
 async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     cur = db.cursor()
+    _validar_perfil_paciente_completo(db, str(data.paciente_uuid))
 
     # NORMALIZAR MÉTODO DE PAGO
     data.metodo_pago = (
@@ -1842,6 +1776,40 @@ async def solicitar_consulta(data: SolicitarConsultaIn, db=Depends(get_db)):
     )
 
     consulta_id_previa = data.consulta_id
+
+    # Evita crear duplicados cuando el cliente reintenta o hace doble tap
+    # sobre el flujo de efectivo. Si ya existe una consulta abierta muy reciente
+    # del mismo paciente con los mismos datos, devolvemos esa.
+    if data.metodo_pago == "efectivo":
+        cur.execute("""
+            SELECT id, estado, medico_id
+            FROM consultas
+            WHERE paciente_uuid = %s
+              AND tipo = %s
+              AND metodo_pago = 'efectivo'
+              AND motivo = %s
+              AND direccion = %s
+              AND estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
+              AND creado_en >= NOW() - INTERVAL '2 minutes'
+            ORDER BY creado_en DESC
+            LIMIT 1
+        """, (
+            str(data.paciente_uuid),
+            data.tipo,
+            data.motivo,
+            data.direccion,
+        ))
+        consulta_existente = cur.fetchone()
+
+        if consulta_existente:
+            consulta_existente_id, estado_existente, medico_existente_id = consulta_existente
+            print(f"♻️ Reutilizando consulta existente {consulta_existente_id} para paciente {data.paciente_uuid}")
+            return {
+                "consulta_id": consulta_existente_id,
+                "estado": estado_existente,
+                "profesional": {"id": medico_existente_id} if medico_existente_id else None,
+                "duplicado": True,
+            }
 
     # ============================================================
     # 🔵 TARJETA (ACTUALIZA CONSULTA EXISTENTE)
@@ -2444,7 +2412,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         JOIN medicos m ON c.medico_id = m.id
         LEFT JOIN users u ON c.paciente_uuid = u.id
         WHERE c.medico_id = %s
-          AND c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')          
+          AND c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (medico_id,))
@@ -2598,7 +2566,7 @@ def aceptar_consulta(
         try:
             url = f"https://api.mercadopago.com/v1/payments/{payment_id}/capture"
             headers = {
-                "Authorization": f"Bearer {MERCADO_PAGO_TOKEN}",
+                "Authorization": f"Bearer {ACCESS_TOKEN}",
                 "Content-Type": "application/json"
             }
 
@@ -4483,7 +4451,8 @@ async def hay_profesional(
 
 import mercadopago
 
-sdk = mercadopago.SDK(os.getenv("MP_ACCESS_TOKEN").strip())
+ACCESS_TOKEN = MP_ACCESS_TOKEN
+sdk = mercadopago.SDK(MP_ACCESS_TOKEN) if MP_ACCESS_TOKEN else None
 
 
 @app.post("/pagos/crear_preferencia")
@@ -5109,7 +5078,7 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
     cur = db.cursor()
     cur.execute("""
         SELECT id, full_name, email, especialidad, telefono,
-               alias_cbu, matricula, foto_perfil
+               alias_cbu, matricula, foto_perfil, tipo, firma_url
         FROM medicos
         WHERE id=%s
     """, (medico_id,))
@@ -5127,6 +5096,8 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "alias_cbu": row[5],
         "matricula": row[6],
         "foto_perfil": row[7],
+        "tipo": row[8],
+        "firma_url": row[9],
     }
 
 
@@ -5188,7 +5159,7 @@ class ForgotPasswordIn(BaseModel):
     identificador: str  # email o dni/pasaporte
 
 
-@app.post("/auth/forgot_password")
+# movido a auth_router.py
 def forgot_password(data: ForgotPasswordIn, db=Depends(get_db)):
     cur = db.cursor()
     identificador = data.identificador.strip().lower()
@@ -5298,7 +5269,7 @@ class ResetPasswordIn(BaseModel):
 
 
 
-@app.post("/auth/reset_password")
+# movido a auth_router.py
 def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
     """
     Permite al médico restablecer su contraseña desde el enlace recibido por email.
@@ -5385,7 +5356,7 @@ def reset_password(data: ResetPasswordIn, db=Depends(get_db)):
 # ====================================================
 # 🌐 Página pública: Restablecer contraseña (HTML)
 # ====================================================
-@app.get("/auth/reset_password", response_class=HTMLResponse)
+# movido a auth_router.py
 def render_reset_password_page(request: Request, token: str = None):
     """
     Renderiza la página profesional de restablecer contraseña DocYa Pro.
@@ -5405,7 +5376,7 @@ class ForgotPasswordIn(BaseModel):
     identificador: str  # puede ser email o DNI
 
 
-@app.post("/auth/forgot_password_paciente")
+# movido a auth_router.py
 def forgot_password_paciente(data: ForgotPasswordIn, db=Depends(get_db)):
     cur = db.cursor()
     identificador = data.identificador.strip().lower()
@@ -5520,7 +5491,7 @@ def forgot_password_paciente(data: ForgotPasswordIn, db=Depends(get_db)):
 # ====================================================
 # 🔒 Restablecer contraseña (PACIENTE)
 # ====================================================
-@app.post("/auth/reset_password_paciente")
+# movido a auth_router.py
 def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
     """
     Permite al paciente restablecer su contraseña desde el enlace recibido por email.
@@ -5621,7 +5592,7 @@ def reset_password_paciente(data: ResetPasswordIn, db=Depends(get_db)):
 
 from fastapi.responses import HTMLResponse
 
-@app.get("/cambio_exitoso", response_class=HTMLResponse)
+# movido a auth_router.py
 def cambio_exitoso():
     html = """
     <!DOCTYPE html>
@@ -5737,7 +5708,7 @@ def cambio_exitoso():
 # ====================================================
 # 🌐 Página pública: Restablecer contraseña Paciente (HTML)
 # ====================================================
-@app.get("/auth/reset_password_paciente", response_class=HTMLResponse)
+# movido a auth_router.py
 def render_reset_password_paciente_page(request: Request, token: str = None):
     """
     Renderiza la página pública de restablecer contraseña para pacientes DocYa.
@@ -6321,7 +6292,7 @@ def obtener_localidades(provincia: str, db=Depends(get_db)):
         print(f"⚠️ Error al obtener localidades de {provincia}: {e}")
         raise HTTPException(status_code=500, detail=f"No se pudieron cargar las localidades de {provincia}")
 
-@app.post("/auth/medico/{medico_id}/firma")
+# movido a auth_router.py
 def subir_firma_digital(medico_id: int, file: UploadFile = File(...), db=Depends(get_db)):
     """
     Sube una imagen de firma digital del médico a Cloudinary y la guarda en la base.
@@ -6437,320 +6408,6 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
     return archivos
 
 # --------------------------------------------------------------------------------
-# ============================================================
-# DOCYA - SISTEMA DE PAGOS COMPLETO (Checkout Pro + Webhook) MERCADO PAGO
-# ============================================================
-
-import uuid
-import requests
-import psycopg2
-from fastapi import APIRouter, HTTPException, Depends, Request
-
-router = APIRouter()
-
-ACCESS_TOKEN = "APP_USR-3994751004650593-120308-10836059a11ea7ee383226aab5aba42e-3016724569"   # PRODUCCIÓN
-
-# ============================================================
-# 🔌 USAMOS TU MÉTODO DE CONEXIÓN ORIGINAL
-# ============================================================
-def get_db():
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
-    try:
-        yield conn
-    finally:
-        conn.close()
-
-
-# ============================================================
-# 🔵 1) USUARIO VUELVE DEL PAGO — NO MARCAMOS NADA
-# ============================================================
-@app.post("/consultas/confirmar_pago")
-def confirmar_pago(data: dict, db=Depends(get_db)):
-    consulta_id = data.get("consulta_id")
-    print(f"📩 Usuario volvió del pago → consulta {consulta_id}")
-    return {"status": "ok"}
-
-
-# ============================================================
-# LISTAR REEMBOLSADAS (no tocar)
-# ============================================================
-@app.get("/consultas/reembolsadas")
-def consultas_reembolsadas(db=Depends(get_db)):
-    cur = db.cursor()
-
-    cur.execute("""
-        SELECT 
-            c.id,
-            c.paciente_uuid,
-            u.full_name,
-            u.telefono,
-            c.motivo,
-            c.direccion,
-            c.creado_en,
-            c.mp_payment_id,
-            c.mp_status,
-            c.metodo_pago
-        FROM consultas c
-        LEFT JOIN users u ON u.id = c.paciente_uuid
-        WHERE c.estado = 'cancelada'
-          AND c.mp_payment_id IS NOT NULL
-          AND c.mp_status = 'refunded'
-        ORDER BY c.creado_en DESC
-    """)
-
-    rows = cur.fetchall()
-
-    resultados = []
-    for r in rows:
-        resultados.append({
-            "consulta_id": r[0],
-            "paciente_uuid": r[1],
-            "paciente_nombre": r[2],
-            "paciente_telefono": r[3],
-            "motivo": r[4],
-            "direccion": r[5],
-            "fecha": str(r[6]),
-            "mp_payment_id": r[7],
-            "status": r[8],
-            "metodo_pago": r[9]
-        })
-
-    return {"total": len(resultados), "reembolsos": resultados}
-
-
-# ============================================================
-# 🔵 2) PREAUTORIZAR PAGO (Checkout)
-# ============================================================
-@app.post("/pagos/preautorizar")
-def crear_preference(data: dict, db=Depends(get_db)):
-
-    consulta_id = str(data["consulta_id"])
-    monto = float(data["monto"])
-    email = data["email"]
-
-    url = "https://api.mercadopago.com/checkout/preferences"
-    headers = {
-        "Authorization": f"Bearer {ACCESS_TOKEN}",
-        "Content-Type": "application/json",
-    }
-
-    # ⚠ auto_return debe ser "all" (NO approved)
-    payload = {
-        "items": [{
-            "title": "Consulta médica a domicilio - DOCYA",
-            "quantity": 1,
-            "currency_id": "ARS",
-            "unit_price": monto
-        }],
-        "payer": {"email": email},
-        "external_reference": consulta_id,
-        "back_urls": {
-            "success": "docya://pago_exitoso",
-            "failure": "docya://pago_fallido",
-            "pending": "docya://pago_pendiente"
-        },
-        "auto_return": "all"
-    }
-
-    r = requests.post(url, headers=headers, json=payload).json()
-
-    if "id" not in r:
-        raise HTTPException(400, r)
-
-    return {
-        "status": "preference_ok",
-        "preference_id": r["id"],
-        "init_point": r["init_point"]
-    }
-
-
-# ============================================================
-# 🔔 3) WEBHOOK — **NO MARCA APPROVED**
-# Marca SOLO "preautorizado"
-# ============================================================
-@app.post("/webhook/mp")
-def webhook_mp(request: Request, db=Depends(get_db)):
-    data_id = request.query_params.get("data.id")
-    tipo = request.query_params.get("type")
-
-    if not data_id:
-        print("⚠ Webhook sin data.id")
-        return {"ok": True}
-
-    cur = db.cursor()
-
-    # ============================================================
-    # 🟦 PAYMENT EVENTO IMPORTANTE
-    # ============================================================
-    if tipo == "payment":
-        print(f"🔔 Webhook PAYMENT {data_id}")
-
-        try:
-            r = requests.get(
-                f"https://api.mercadopago.com/v1/payments/{data_id}",
-                headers={"Authorization": f"Bearer {ACCESS_TOKEN}"}
-            ).json()
-
-            payment_id = r.get("id")
-            status = r.get("status")
-            consulta_id = r.get("external_reference")
-
-            if not consulta_id:
-                print("⚠ PAYMENT sin external_reference → ignorado")
-                return {"ok": True}
-
-            consulta_id = int(consulta_id)
-
-            print(f"💾 Webhook → consulta {consulta_id} status={status}")
-
-            # 🔥 Cualquier estado menos rejected → preautorizado verdadero
-            if status in ["authorized", "in_process", "pending", "approved"]:
-                cur.execute("""
-                    UPDATE consultas
-                    SET 
-                        mp_status='preautorizado',
-                        mp_preautorizado=TRUE,
-                        mp_payment_id=%s
-                    WHERE id=%s
-                """, (payment_id, consulta_id))
-                db.commit()
-
-            # ======================================================
-            # 🔄 REFUND DIFERIDO
-            # ======================================================
-            cur.execute("SELECT estado FROM consultas WHERE id=%s", (consulta_id,))
-            row = cur.fetchone()
-
-            if row and row[0] == "pendiente_de_refund":
-                print(f"🔁 Ejecutando refund diferido para consulta {consulta_id}")
-
-                refund_resp = requests.post(
-                    f"https://api.mercadopago.com/v1/payments/{payment_id}/refunds",
-                    headers={
-                        "Authorization": f"Bearer {ACCESS_TOKEN}",
-                        "X-Idempotency-Key": str(uuid.uuid4())
-                    }
-                )
-
-                print("🔄 Refund:", refund_resp.status_code, refund_resp.text)
-
-                cur.execute("""
-                    UPDATE consultas
-                    SET estado='cancelada', mp_status='refunded'
-                    WHERE id=%s
-                """, (consulta_id,))
-                db.commit()
-
-        except Exception as e:
-            print("❌ Error procesando webhook:", e)
-
-        return {"ok": True}
-
-    # Merchant order info
-    print(f"ℹ Webhook merchant order {data_id}")
-    return {"ok": True}
-
-
-# ============================================================
-# ESTADO CONSULTA
-# ============================================================
-@app.get("/consultas/{consulta_id}/estado")
-def estado_consulta(consulta_id: int, db=Depends(get_db)):
-    cur = db.cursor()
-    cur.execute("""
-        SELECT id, estado, mp_status, mp_preautorizado, mp_payment_id 
-        FROM consultas
-        WHERE id=%s
-    """, (consulta_id,))
-
-    row = cur.fetchone()
-
-    if not row:
-        raise HTTPException(404, "Consulta no encontrada")
-
-    return {
-        "consulta_id": row[0],
-        "estado": row[1],
-        "mp_status": row[2],
-        "mp_preautorizado": row[3],
-        "payment_id": row[4]
-    }
-
-
-# ============================================================
-# 🟢 4) CAPTURAR (solo cuando médico acepta)
-# ============================================================
-@app.post("/pagos/capturar")
-def capturar_pago(data: dict, db=Depends(get_db)):
-
-    consulta_id = data["consulta_id"]
-
-    cur = db.cursor()
-    cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s", (consulta_id,))
-    row = cur.fetchone()
-
-    if not row or not row[0]:
-        raise HTTPException(400, "Payment no encontrado")
-
-    payment_id = row[0]
-
-    # 🔥 CAPTURAR EL PAGO
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    payload = {"capture": True}
-
-    r = requests.put(url, headers=headers, json=payload).json()
-    status = r.get("status")
-
-    if status != "approved":
-        raise HTTPException(400, r)
-
-    cur.execute("""
-        UPDATE consultas
-        SET mp_status='approved', pagado=TRUE
-        WHERE id=%s
-    """, (consulta_id,))
-    db.commit()
-
-    return {"status": "capturado", "payment_status": "approved"}
-
-
-
-# ============================================================
-# 🔴 5) CANCELAR (si no hay médicos)
-# ============================================================
-@app.post("/pagos/cancelar")
-def cancelar_pago(data: dict, db=Depends(get_db)):
-
-    consulta_id = data["consulta_id"]
-
-    cur = db.cursor()
-    cur.execute("SELECT mp_payment_id FROM consultas WHERE id=%s", (consulta_id,))
-    row = cur.fetchone()
-
-    if not row or not row[0]:
-        raise HTTPException(400, "Payment no encontrado")
-
-    payment_id = row[0]
-
-    # 🔥 CANCELAR LA PREAUTORIZACIÓN
-    url = f"https://api.mercadopago.com/v1/payments/{payment_id}"
-    headers = {"Authorization": f"Bearer {ACCESS_TOKEN}"}
-    payload = {"status": "cancelled"}
-
-    requests.put(url, headers=headers, json=payload)
-
-    cur.execute("""
-        UPDATE consultas
-        SET mp_status='cancelled'
-        WHERE id=%s
-    """, (consulta_id,))
-    db.commit()
-
-    return {"status": "cancelado"}
-
-
-
 #MANEJO DE VERSIONES PARA OBLIGAR A ACTUALIZAR LA APP --------------------------------------------
 @app.get("/app/check_update")
 def check_update(version: str, app: str = "paciente", db=Depends(get_db)):
@@ -6803,6 +6460,7 @@ def crear_consulta_previa(data: dict, db = Depends(get_db)):
     cur = db.cursor()
 
     paciente_uuid = data.get("paciente_uuid")
+    _validar_perfil_paciente_completo(db, str(paciente_uuid))
     motivo = data.get("motivo", "")
     direccion = data.get("direccion", "")
     lat = data.get("lat")

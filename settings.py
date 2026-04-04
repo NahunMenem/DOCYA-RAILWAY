@@ -1,0 +1,69 @@
+"""
+Configuración central del backend.
+
+Este archivo concentra variables de entorno, helpers de fecha y utilidades
+de autenticación para que `main.py` no tenga que definir todo eso en línea.
+"""
+
+import os
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+import jwt
+from dotenv import load_dotenv
+from passlib.context import CryptContext
+
+load_dotenv()
+
+# Base de datos y auth.
+DATABASE_URL = os.getenv("DATABASE_URL")
+JWT_SECRET = os.getenv("JWT_SECRET", "change_me")
+JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+# Mercado Pago.
+MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN", "").strip()
+MP_PUBLIC_KEY = os.getenv("MP_PUBLIC_KEY", "").strip()
+MP_WEBHOOK_SECRET = os.getenv("MP_WEBHOOK_SECRET", "").strip()
+
+# Telegram.
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+TELEGRAM_ADMIN_ID = os.getenv("TELEGRAM_ADMIN_ID")
+TELEGRAM_GRUPO_ID = os.getenv("TELEGRAM_GRUPO_ID")
+
+# Orígenes permitidos para CORS.
+ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://centrodemonitoreodocya.vercel.app",
+    "https://docya-monitoreo-omwg.vercel.app",
+    "https://docya-monitoreo.vercel.app",
+    "https://comunidaddocya-tfq8.vercel.app",
+    "https://www.docya.com.ar",
+    "https://docyarecetario.vercel.app",
+    "https://monitoreodocyasas-ua4l-gsyz2umjm.vercel.app/",
+    "https://monitoreodocyasas-git-988b6f-nahundeveloper-gmailcoms-projects.vercel.app",
+    "https://www.docya.online",
+    "https://docyacomunidad-7ii3.vercel.app",
+]
+
+
+def now_argentina():
+    """Devuelve la fecha/hora actual en la zona horaria de Argentina."""
+    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+
+
+def format_datetime_arg(dt):
+    """Formatea fechas para respuestas legibles en frontend."""
+    if not dt:
+        return None
+    dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    return dt.strftime("%d/%m/%Y %H:%M")
+
+
+def create_access_token(payload: dict, expires_minutes: int = JWT_EXPIRE_MINUTES):
+    """Firma JWTs de DocYa usando la clave configurada en entorno."""
+    to_encode = payload.copy()
+    expire = now_argentina() + timedelta(minutes=expires_minutes)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, JWT_SECRET, algorithm="HS256")
