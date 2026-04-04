@@ -68,6 +68,48 @@ def _ensure_tables(db) -> None:
     )
     cur.execute(
         """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS consulta_id INTEGER NULL REFERENCES consultas(id) ON DELETE SET NULL
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS medico_id INTEGER NULL REFERENCES medicos(id) ON DELETE SET NULL
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS frecuencia TEXT NULL
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS observaciones TEXT NULL
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS activa BOOLEAN NOT NULL DEFAULT TRUE
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE medicaciones
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        """
+    )
+    cur.execute(
+        """
         CREATE TABLE IF NOT EXISTS tomas (
             id SERIAL PRIMARY KEY,
             medicacion_id INTEGER NOT NULL REFERENCES medicaciones(id) ON DELETE CASCADE,
@@ -79,6 +121,30 @@ def _ensure_tables(db) -> None:
             updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
             UNIQUE(medicacion_id, fecha, horario_programado)
         );
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE tomas
+        ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'pendiente'
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE tomas
+        ADD COLUMN IF NOT EXISTS hora_toma TIMESTAMP NULL
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE tomas
+        ADD COLUMN IF NOT EXISTS created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE tomas
+        ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP NOT NULL DEFAULT NOW()
         """
     )
     cur.execute(
