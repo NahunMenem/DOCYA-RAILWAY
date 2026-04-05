@@ -412,10 +412,6 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
     """Detalle de paciente con métricas básicas para perfil."""
     try:
         _ensure_user_profile_columns(db)
-        google_password_hash = get_password_hash(
-            f"google-medico::{google_sub}::{email}"
-        )
-
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         user = cur.fetchone()
@@ -754,6 +750,7 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
         google_password_hash = get_password_hash(
             f"google-medico::{google_sub or 'sin-sub'}::{email or 'sin-email'}"
         )
+        provisional_matricula = f"GOOGLE-{(google_sub or email or 'PRO').upper()[:40]}"
         if not google_sub or not email:
             raise HTTPException(
                 status_code=400,
@@ -801,10 +798,10 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
             cur.execute(
                 """
                 INSERT INTO medicos (
-                    full_name, email, password_hash, google_id, foto_perfil, tipo,
+                    full_name, email, password_hash, google_id, foto_perfil, tipo, matricula,
                     validado, matricula_validada, perfil_completo, acepta_terminos
                 )
-                VALUES (%s, %s, %s, %s, %s, 'medico', TRUE, FALSE, FALSE, FALSE)
+                VALUES (%s, %s, %s, %s, %s, 'medico', %s, TRUE, FALSE, FALSE, FALSE)
                 RETURNING id, full_name, email, tipo, validado, matricula_validada,
                           perfil_completo, foto_perfil
                 """,
@@ -814,6 +811,7 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
                     google_password_hash,
                     google_sub,
                     google_picture,
+                    provisional_matricula,
                 ),
             )
             medico = cur.fetchone()
