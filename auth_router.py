@@ -778,8 +778,7 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
                     email = %s,
                     full_name = COALESCE(NULLIF(full_name, ''), %s),
                     foto_perfil = COALESCE(NULLIF(foto_perfil, ''), %s),
-                    password_hash = COALESCE(password_hash, %s),
-                    validado = TRUE
+                    password_hash = COALESCE(password_hash, %s)
                 WHERE id = %s
                 RETURNING id, full_name, email, tipo, validado, matricula_validada,
                           perfil_completo, foto_perfil
@@ -801,7 +800,7 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
                     full_name, email, password_hash, google_id, foto_perfil, tipo, matricula,
                     validado, matricula_validada, perfil_completo, acepta_terminos
                 )
-                VALUES (%s, %s, %s, %s, %s, 'medico', %s, TRUE, FALSE, FALSE, FALSE)
+                VALUES (%s, %s, %s, %s, %s, 'medico', %s, FALSE, FALSE, FALSE, FALSE)
                 RETURNING id, full_name, email, tipo, validado, matricula_validada,
                           perfil_completo, foto_perfil
                 """,
@@ -914,7 +913,7 @@ def completar_perfil_medico(data: CompletarPerfilMedicoIn, db=Depends(get_db)):
             selfie_dni = %s,
             acepta_terminos = %s,
             perfil_completo = TRUE,
-            validado = TRUE,
+            validado = FALSE,
             updated_at = NOW()
         WHERE id = %s
         RETURNING id, full_name, email, tipo, validado, matricula_validada, perfil_completo
@@ -996,7 +995,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             provincia, localidad, dni, tipo_documento, numero_documento, direccion,
             acepta_terminos, perfil_completo, validado
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE)
         RETURNING id, full_name, tipo
         """,
         (
@@ -1062,14 +1061,20 @@ def activar_medico(token: str, request: Request, db=Depends(get_db)):
         medico_id = int(payload.get("sub"))
         cur = db.cursor()
         cur.execute(
-            "UPDATE medicos SET validado=TRUE, updated_at=NOW() WHERE id=%s RETURNING id, full_name",
+            "SELECT id, full_name FROM medicos WHERE id=%s",
             (medico_id,),
         )
         row = cur.fetchone()
-        db.commit()
         if not row:
             raise HTTPException(status_code=404, detail="Médico no encontrado")
-        return templates.TemplateResponse("activar_medico.html", {"request": request, "nombre": row[1]})
+        return templates.TemplateResponse(
+            "activar_medico.html",
+            {
+                "request": request,
+                "nombre": row[1],
+                "mensaje_extra": "Tu correo fue confirmado. Tu cuenta seguirá bloqueada hasta que DocYa valide tu matrícula y habilite el acceso.",
+            },
+        )
     except jwt.ExpiredSignatureError:
         return HTMLResponse("<h1>El enlace de activación expiró</h1>", status_code=400)
     except Exception as exc:
