@@ -46,6 +46,16 @@ def cursor(conn):
     return conn.cursor(cursor_factory=RealDictCursor)
 
 
+def _ensure_extended_schema(conn) -> None:
+    cur = cursor(conn)
+    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS codigo_alfabeta INTEGER")
+    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS presentacion TEXT")
+    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS pvp_pami DOUBLE PRECISION")
+    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS cobertura_pct INTEGER")
+    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS importe_afiliado DOUBLE PRECISION")
+    conn.commit()
+
+
 def _find_csv_source_path() -> str:
     csv_files: list[str] = []
     for source_dir in MEDICAMENTOS_DIRS:
@@ -227,11 +237,7 @@ def setup_tabla(conn=Depends(get_db)):
         );
     """)
 
-    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS codigo_alfabeta INTEGER")
-    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS presentacion TEXT")
-    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS pvp_pami DOUBLE PRECISION")
-    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS cobertura_pct INTEGER")
-    cur.execute("ALTER TABLE medicamentos ADD COLUMN IF NOT EXISTS importe_afiliado DOUBLE PRECISION")
+    _ensure_extended_schema(conn)
 
     # Extensión trigram para autocompletar con tolerancia a errores
     cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
@@ -274,6 +280,7 @@ def importar_medicamentos(vaciar: bool = False, conn=Depends(get_db)):
     Importa medicamentos priorizando el CSV real de la carpeta /medicamentos.
     Si no existe, usa meds_clean.json como fallback.
     """
+    _ensure_extended_schema(conn)
     cur = cursor(conn)
 
     if vaciar:
@@ -348,6 +355,7 @@ def buscar_medicamentos(
     Prioriza coincidencias que empiezan con el texto buscado.
     Ideal para autocompletar mientras el médico escribe.
     """
+    _ensure_extended_schema(conn)
     cur = cursor(conn)
 
     filtros = ["(nombre_comercial ILIKE %s OR principio_activo_str ILIKE %s)"]
@@ -400,6 +408,7 @@ def detalle_medicamento(med_id: int, conn=Depends(get_db)):
     Devuelve todos los datos del medicamento.
     Llamar al hacer click en el resultado del autocompletar.
     """
+    _ensure_extended_schema(conn)
     cur = cursor(conn)
     cur.execute("SELECT * FROM medicamentos WHERE id = %s", (med_id,))
     med = cur.fetchone()
@@ -423,6 +432,7 @@ def por_principio_activo(
     Devuelve todas las marcas y genéricos que contienen ese principio activo.
     Útil para mostrar alternativas al médico.
     """
+    _ensure_extended_schema(conn)
     cur = cursor(conn)
     cur.execute("""
         SELECT id, nombre_comercial, forma, concentracion,
@@ -446,6 +456,7 @@ def por_principio_activo(
 # ====================================================
 @router.get("/utils/categorias", summary="Listar categorías disponibles")
 def listar_categorias(conn=Depends(get_db)):
+    _ensure_extended_schema(conn)
     cur = cursor(conn)
     cur.execute("""
         SELECT categoria, COUNT(*) as total
