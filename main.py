@@ -274,23 +274,26 @@ async def auto_importar_medicamentos():
             print(f"💊 Combinando con CSV: {csv_path}")
             csv_rows = _build_csv_rows(csv_path)
 
-            # Cargar pares (nombre_comercial, presentacion) ya existentes
-            cur.execute("SELECT LOWER(nombre_comercial), LOWER(COALESCE(presentacion,'')) FROM medicamentos")
-            existentes = set(cur.fetchall())
+            # Usar codigo_alfabeta como clave única (es el identificador oficial del vademécum)
+            # Solo cargamos enteros — mucho más liviano que texto completo
+            cur.execute("SELECT codigo_alfabeta FROM medicamentos WHERE codigo_alfabeta IS NOT NULL")
+            alfabetas_existentes = {row[0] for row in cur.fetchall()}
 
+            # Filas del CSV con codigo_alfabeta nuevo
             nuevos = [
                 row for row in csv_rows
-                if (str(row[0]).lower(), str(row[12] or "").lower()) not in existentes
+                if row[11] is not None and int(row[11]) not in alfabetas_existentes
             ]
 
             if nuevos:
                 BATCH = 500
+                cur2 = conn.cursor()
                 for i in range(0, len(nuevos), BATCH):
-                    cur.executemany(SQL_INSERT, nuevos[i:i + BATCH])
+                    cur2.executemany(SQL_INSERT, nuevos[i:i + BATCH])
                 conn.commit()
                 print(f"✅ CSV combinado: {len(nuevos)} nuevos medicamentos agregados (total CSV: {len(csv_rows)})")
             else:
-                print(f"💊 CSV ya combinado: todos los {len(csv_rows)} registros del CSV ya estaban en DB")
+                print(f"💊 CSV ya combinado: todos los {len(csv_rows)} registros ya estaban en DB")
 
         except Exception as exc:
             print(f"⚠️ auto_importar_medicamentos error: {exc}")

@@ -355,7 +355,6 @@ def buscar_medicamentos(
     Ordena: nombre inicia > nombre contiene > principio inicia > principio contiene.
     Agrega 'match_field' para que la UI pueda distinguir el motivo del resultado.
     """
-    _ensure_extended_schema(conn)
     cur = cursor(conn)
 
     q_like    = f"%{q}%"
@@ -420,7 +419,6 @@ def detalle_medicamento(med_id: int, conn=Depends(get_db)):
     Devuelve todos los datos del medicamento.
     Llamar al hacer click en el resultado del autocompletar.
     """
-    _ensure_extended_schema(conn)
     cur = cursor(conn)
     cur.execute("SELECT * FROM medicamentos WHERE id = %s", (med_id,))
     med = cur.fetchone()
@@ -444,7 +442,6 @@ def por_principio_activo(
     Devuelve todas las marcas y genéricos que contienen ese principio activo.
     Útil para mostrar alternativas al médico.
     """
-    _ensure_extended_schema(conn)
     cur = cursor(conn)
     cur.execute("""
         SELECT id, nombre_comercial, forma, concentracion,
@@ -468,7 +465,6 @@ def por_principio_activo(
 # ====================================================
 @router.get("/utils/categorias", summary="Listar categorías disponibles")
 def listar_categorias(conn=Depends(get_db)):
-    _ensure_extended_schema(conn)
     cur = cursor(conn)
     cur.execute("""
         SELECT categoria, COUNT(*) as total
