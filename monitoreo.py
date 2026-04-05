@@ -776,10 +776,37 @@ def editar_medico(medico_id: int, data: MedicoUpdate, db=Depends(get_db)):
 def borrar_medico(medico_id: int, db=Depends(get_db)):
     try:
         cur = db.cursor()
+        cur.execute("SELECT id FROM medicos WHERE id = %s", (medico_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Médico no encontrado")
+
+        cur.execute(
+            """
+            UPDATE consultas
+            SET medico_id = NULL
+            WHERE medico_id = %s
+            """,
+            (medico_id,),
+        )
+        cur.execute("DELETE FROM pagos_consulta WHERE medico_id = %s", (medico_id,))
+        cur.execute("DELETE FROM liquidaciones_semanales WHERE medico_id = %s", (medico_id,))
+        cur.execute("DELETE FROM saldo_medico WHERE medico_id = %s", (medico_id,))
+        cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
+        cur.execute(
+            """
+            UPDATE medicaciones
+            SET medico_id = NULL
+            WHERE medico_id = %s
+            """,
+            (medico_id,),
+        )
         cur.execute("DELETE FROM medicos WHERE id = %s", (medico_id,))
         db.commit()
         cur.close()
         return {"ok": True}
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
         return {"ok": False, "error": str(e)}
@@ -864,9 +891,15 @@ def medicos_ubicacion(db=Depends(get_db)):
 def listar_consultas(
     desde: str | None = None,
     hasta: str | None = None,
+    page: int = 1,
+    limit: int = 10,
     db=Depends(get_db)
 ):
     cur = db.cursor(cursor_factory=RealDictCursor)
+
+    page = max(page, 1)
+    limit = max(1, min(limit, 100))
+    offset = (page - 1) * limit
 
     filtros = []
     params = []
@@ -879,6 +912,16 @@ def listar_consultas(
         params.append(hasta)
 
     where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
+
+    cur.execute(
+        f"""
+        SELECT COUNT(*) AS total
+        FROM consultas c
+        {where_clause}
+        """,
+        params,
+    )
+    total = cur.fetchone()["total"]
 
     cur.execute(f"""
         SELECT
@@ -906,14 +949,19 @@ def listar_consultas(
         LEFT JOIN users u ON u.id = c.paciente_uuid
         LEFT JOIN medicos m ON m.id = c.medico_id
         {where_clause}
-        ORDER BY c.creado_en DESC;
-    """, params)
+        ORDER BY c.creado_en DESC
+        LIMIT %s OFFSET %s;
+    """, [*params, limit, offset])
 
     consultas = cur.fetchall()
     cur.close()
 
     return {
-        "consultas": consultas
+        "consultas": consultas,
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "pages": (total + limit - 1) // limit,
     }
 
 
