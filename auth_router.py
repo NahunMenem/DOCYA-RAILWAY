@@ -751,6 +751,9 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
         email = (payload.get("email") or "").lower().strip()
         full_name = (payload.get("name") or "Profesional DocYa").strip()
         google_picture = (payload.get("picture") or "").strip() or None
+        google_password_hash = get_password_hash(
+            f"google-medico::{google_sub or 'sin-sub'}::{email or 'sin-email'}"
+        )
         if not google_sub or not email:
             raise HTTPException(
                 status_code=400,
