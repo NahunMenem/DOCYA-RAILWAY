@@ -570,6 +570,9 @@ def auth_google(data: GoogleAuthIn, db=Depends(get_db)):
         email = (payload.get("email") or "").lower().strip()
         full_name = payload.get("name") or "Usuario DocYa"
         google_picture = (payload.get("picture") or "").strip() or None
+        google_password_hash = get_password_hash(
+            f"google-medico::{google_sub or 'sin-sub'}::{email or 'sin-email'}"
+        )
         if not google_sub or not email:
             raise HTTPException(status_code=400, detail="Google no devolvió identidad suficiente")
 
