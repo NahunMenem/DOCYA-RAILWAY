@@ -20,6 +20,9 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 JWT_SECRET = os.getenv("JWT_SECRET", "change_me")
 JWT_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+ARG_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
+CURRENT_ARGENTINA_DATE_SQL = "(CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires')::date"
+CURRENT_ARGENTINA_WEEK_SQL = "date_trunc('week', (CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'))"
 
 # Mercado Pago.
 MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN", "").strip()
@@ -58,14 +61,25 @@ ALLOWED_ORIGINS = [
 
 def now_argentina():
     """Devuelve la fecha/hora actual en la zona horaria de Argentina."""
-    return datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+    return datetime.now(ARG_TZ)
+
+
+def today_argentina():
+    """Devuelve la fecha actual en Argentina."""
+    return now_argentina().date()
+
+
+def start_of_week_argentina():
+    """Devuelve el inicio de semana local de Argentina."""
+    today = today_argentina()
+    return today - timedelta(days=today.weekday())
 
 
 def format_datetime_arg(dt):
     """Formatea fechas para respuestas legibles en frontend."""
     if not dt:
         return None
-    dt = dt.astimezone(ZoneInfo("America/Argentina/Buenos_Aires"))
+    dt = dt.astimezone(ARG_TZ)
     return dt.strftime("%d/%m/%Y %H:%M")
 
 

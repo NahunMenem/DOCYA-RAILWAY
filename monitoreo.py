@@ -6,7 +6,12 @@ from psycopg2.extras import RealDictCursor
 import json
 import asyncio
 from database import get_db
-from settings import pwd_context
+from settings import (
+    CURRENT_ARGENTINA_DATE_SQL,
+    CURRENT_ARGENTINA_WEEK_SQL,
+    pwd_context,
+    today_argentina,
+)
 import psycopg2
 from os import getenv
 from datetime import datetime, timedelta
@@ -47,7 +52,7 @@ class AsignacionManualIn(BaseModel):
 def preview_semana_actual(db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
 
-    cur.execute("""
+    cur.execute(f"""
         SELECT
             m.id AS medico_id,
             m.full_name AS medico,
@@ -58,8 +63,8 @@ def preview_semana_actual(db=Depends(get_db)):
         FROM consultas c
         JOIN medicos m ON m.id = c.medico_id
         WHERE c.estado = 'finalizada'
-          AND c.inicio_atencion >= date_trunc('week', CURRENT_DATE)
-          AND c.inicio_atencion < date_trunc('week', CURRENT_DATE) + INTERVAL '7 days'
+          AND c.inicio_atencion >= {CURRENT_ARGENTINA_WEEK_SQL}
+          AND c.inicio_atencion < {CURRENT_ARGENTINA_WEEK_SQL} + INTERVAL '7 days'
     """)
 
     rows = cur.fetchall()
@@ -140,7 +145,7 @@ MP_FEE_RATE = 0.0761
 def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
     cur = db.cursor()
 
-    hoy = date.today()
+    hoy = today_argentina()
     inicio = hoy - timedelta(days=hoy.weekday() + 7)
     fin = inicio + timedelta(days=7)
 
@@ -560,10 +565,10 @@ def resumen_monitoreo(db=Depends(get_db)):
         consultas_en_curso = cur.fetchone()[0]
 
         # 📅 Consultas de hoy
-        cur.execute("""
+        cur.execute(f"""
             SELECT COUNT(*)
             FROM consultas 
-            WHERE DATE(creado_en) = CURRENT_DATE;
+            WHERE DATE(creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires') = {CURRENT_ARGENTINA_DATE_SQL};
         """)
         consultas_hoy = cur.fetchone()[0]
 
@@ -676,11 +681,11 @@ def obtener_estado_general(db):
     """)
     consultas_en_curso = cur.fetchone()[0]
 
-    cur.execute("""
+    cur.execute(f"""
         SELECT COUNT(*)
         FROM consultas
-        WHERE creado_en >= CURRENT_DATE
-          AND creado_en < CURRENT_DATE + INTERVAL '1 day';
+        WHERE (creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires') >= {CURRENT_ARGENTINA_DATE_SQL}
+          AND (creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires') < {CURRENT_ARGENTINA_DATE_SQL} + INTERVAL '1 day';
     """)
     consultas_hoy = cur.fetchone()[0]
 

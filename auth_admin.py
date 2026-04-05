@@ -1,13 +1,14 @@
 from fastapi import APIRouter, HTTPException, Depends
 from psycopg2.extras import RealDictCursor
 from passlib.context import CryptContext
-from datetime import datetime, timedelta
+from datetime import timedelta
 from os import getenv
 import jwt
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 
 from database import get_db
+from settings import now_argentina
 
 router = APIRouter(
     prefix="/auth/admin",
@@ -37,7 +38,7 @@ def _build_admin_token(admin_id: str, email: str, full_name: str, role: str):
         "email": email,
         "role": role,
         "type": "admin",
-        "exp": datetime.utcnow() + timedelta(minutes=EXP_MINUTES),
+        "exp": now_argentina() + timedelta(minutes=EXP_MINUTES),
     }
 
     token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)

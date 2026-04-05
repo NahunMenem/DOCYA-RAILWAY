@@ -93,6 +93,7 @@ class PacienteIn(BaseModel):
     nro_credencial:  Optional[str] = None
     cuil:            Optional[str] = None
     observaciones:   Optional[str] = None
+    paciente_uuid:   Optional[str] = None
 
 class MedicamentoItem(BaseModel):
     nombre:         str                       # nombre_comercial o principio activo
@@ -113,6 +114,19 @@ class AnularIn(BaseModel):
     motivo: Optional[str] = None
 
 
+def _ensure_recetario_patient_columns(db) -> None:
+    """Agrega compatibilidad opcional con pacientes DocYa sin romper la web."""
+    cur = db.cursor()
+    cur.execute("ALTER TABLE recetario_pacientes ADD COLUMN IF NOT EXISTS paciente_uuid UUID")
+    cur.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_recetario_pacientes_paciente_uuid
+        ON recetario_pacientes (paciente_uuid)
+        """
+    )
+    db.commit()
+
+
 # ====================================================
 # 👤 PACIENTES
 # ====================================================
@@ -124,6 +138,7 @@ def crear_paciente(
     db=Depends(get_db)
 ):
     """Registra un nuevo paciente vinculado al médico autenticado."""
+    _ensure_recetario_patient_columns(db)
     if data.tipo_documento not in TIPOS_DOC:
         raise HTTPException(400, f"tipo_documento inválido. Opciones: {TIPOS_DOC}")
     if data.sexo not in SEXOS:
@@ -143,8 +158,8 @@ def crear_paciente(
         INSERT INTO recetario_pacientes
             (medico_id, nombre, apellido, tipo_documento, nro_documento,
              sexo, fecha_nacimiento, telefono, email,
-             obra_social, plan, nro_credencial, cuil, observaciones)
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+             obra_social, plan, nro_credencial, cuil, observaciones, paciente_uuid)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
         RETURNING id, creado_en
     """, (
         medico_id,
@@ -160,7 +175,8 @@ def crear_paciente(
         data.plan,
         data.nro_credencial,
         data.cuil,
-        data.observaciones
+        data.observaciones,
+        data.paciente_uuid
     ))
     row = cur.fetchone()
     db.commit()
@@ -174,13 +190,14 @@ def listar_pacientes(
     db=Depends(get_db)
 ):
     """Lista todos los pacientes del médico. Filtra por nombre/documento con ?q="""
+    _ensure_recetario_patient_columns(db)
     cur = db.cursor()
     if q:
         filtro = f"%{q.strip()}%"
         cur.execute("""
             SELECT id, nombre, apellido, tipo_documento, nro_documento,
                    sexo, fecha_nacimiento, telefono, email,
-                   obra_social, plan, nro_credencial, cuil, observaciones, creado_en
+                   obra_social, plan, nro_credencial, cuil, observaciones, creado_en, paciente_uuid
             FROM recetario_pacientes
             WHERE medico_id=%s
               AND (
@@ -195,7 +212,7 @@ def listar_pacientes(
         cur.execute("""
             SELECT id, nombre, apellido, tipo_documento, nro_documento,
                    sexo, fecha_nacimiento, telefono, email,
-                   obra_social, plan, nro_credencial, cuil, observaciones, creado_en
+                   obra_social, plan, nro_credencial, cuil, observaciones, creado_en, paciente_uuid
             FROM recetario_pacientes
             WHERE medico_id=%s
             ORDER BY apellido, nombre
@@ -203,7 +220,7 @@ def listar_pacientes(
 
     cols = ["id","nombre","apellido","tipo_documento","nro_documento",
             "sexo","fecha_nacimiento","telefono","email",
-            "obra_social","plan","nro_credencial","cuil","observaciones","creado_en"]
+            "obra_social","plan","nro_credencial","cuil","observaciones","creado_en","paciente_uuid"]
     pacientes = []
     for row in cur.fetchall():
         p = dict(zip(cols, row))
@@ -221,11 +238,12 @@ def ver_paciente(
     medico_id: int = Depends(get_medico_id),
     db=Depends(get_db)
 ):
+    _ensure_recetario_patient_columns(db)
     cur = db.cursor()
     cur.execute("""
         SELECT id, nombre, apellido, tipo_documento, nro_documento,
                sexo, fecha_nacimiento, telefono, email,
-               obra_social, plan, nro_credencial, cuil, observaciones, creado_en
+               obra_social, plan, nro_credencial, cuil, observaciones, creado_en, paciente_uuid
         FROM recetario_pacientes
         WHERE id=%s AND medico_id=%s
     """, (paciente_id, medico_id))
@@ -235,7 +253,7 @@ def ver_paciente(
 
     cols = ["id","nombre","apellido","tipo_documento","nro_documento",
             "sexo","fecha_nacimiento","telefono","email",
-            "obra_social","plan","nro_credencial","cuil","observaciones","creado_en"]
+            "obra_social","plan","nro_credencial","cuil","observaciones","creado_en","paciente_uuid"]
     p = dict(zip(cols, row))
     if p["fecha_nacimiento"]:
         p["fecha_nacimiento"] = str(p["fecha_nacimiento"])
@@ -250,6 +268,7 @@ def editar_paciente(
     medico_id: int = Depends(get_medico_id),
     db=Depends(get_db)
 ):
+    _ensure_recetario_patient_columns(db)
     if data.tipo_documento not in TIPOS_DOC:
         raise HTTPException(400, f"tipo_documento inválido. Opciones: {TIPOS_DOC}")
     if data.sexo not in SEXOS:
@@ -261,7 +280,7 @@ def editar_paciente(
             nombre=%s, apellido=%s, tipo_documento=%s, nro_documento=%s,
             sexo=%s, fecha_nacimiento=%s, telefono=%s, email=%s,
             obra_social=%s, plan=%s, nro_credencial=%s, cuil=%s,
-            observaciones=%s, updated_at=NOW()
+            observaciones=%s, paciente_uuid=%s, updated_at=NOW()
         WHERE id=%s AND medico_id=%s
         RETURNING id
     """, (
@@ -278,6 +297,7 @@ def editar_paciente(
         data.nro_credencial,
         data.cuil,
         data.observaciones,
+        data.paciente_uuid,
         paciente_id,
         medico_id
     ))

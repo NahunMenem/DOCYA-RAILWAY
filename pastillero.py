@@ -9,6 +9,7 @@ from database import get_db
 from settings import now_argentina
 
 router = APIRouter(prefix="/pastillero", tags=["Pastillero"])
+_tables_ready = False
 
 
 class MedicacionIn(BaseModel):
@@ -65,6 +66,10 @@ def _dict_cur(db):
 
 
 def _ensure_tables(db) -> None:
+    global _tables_ready
+    if _tables_ready:
+        return
+
     cur = db.cursor()
     cur.execute(
         """
@@ -169,6 +174,18 @@ def _ensure_tables(db) -> None:
     )
     cur.execute(
         """
+        ALTER TABLE tomas
+        ADD COLUMN IF NOT EXISTS recordatorio_push_enviado BOOLEAN NOT NULL DEFAULT FALSE
+        """
+    )
+    cur.execute(
+        """
+        ALTER TABLE tomas
+        ADD COLUMN IF NOT EXISTS recordatorio_push_enviado_en TIMESTAMP NULL
+        """
+    )
+    cur.execute(
+        """
         DELETE FROM tomas a
         USING tomas b
         WHERE a.ctid < b.ctid
@@ -191,6 +208,85 @@ def _ensure_tables(db) -> None:
     )
     db.commit()
     cur.close()
+    _tables_ready = True
+
+
+def procesar_recordatorios_push_pastillero(db, enviar_push_fn) -> int:
+    """Envía pushes de tomas pendientes cercanas para reforzar alarmas locales."""
+    _ensure_tables(db)
+
+    ahora = now_argentina().replace(tzinfo=None)
+    desde = ahora - timedelta(seconds=90)
+    hasta = ahora + timedelta(seconds=30)
+
+    cur = _dict_cur(db)
+    cur.execute(
+        """
+        SELECT
+            t.id,
+            t.fecha,
+            t.horario_programado,
+            m.nombre,
+            m.dosis,
+            u.full_name,
+            u.fcm_token
+        FROM tomas t
+        JOIN medicaciones m ON m.id = t.medicacion_id
+        JOIN users u ON u.id = m.paciente_uuid
+        WHERE t.estado = 'pendiente'
+          AND COALESCE(u.fcm_token, '') <> ''
+          AND COALESCE(t.recordatorio_push_enviado, FALSE) = FALSE
+          AND (t.fecha + t.horario_programado) BETWEEN %s AND %s
+        ORDER BY t.fecha, t.horario_programado
+        """,
+        (desde, hasta),
+    )
+    rows = cur.fetchall()
+    cur.close()
+
+    enviados = 0
+    update_cur = db.cursor()
+
+    for row in rows:
+        toma_id = row["id"]
+        horario = row["horario_programado"]
+        hora_label = horario.strftime("%H:%M") if horario else ""
+        titulo = "Recordatorio de medicacion"
+        cuerpo = f'{row["nombre"]} - {row["dosis"]} ({hora_label})'.strip()
+
+        try:
+            enviar_push_fn(
+                row["fcm_token"],
+                titulo,
+                cuerpo,
+                {
+                    "tipo": "medication_reminder",
+                    "toma_id": str(toma_id),
+                    "nombre": str(row["nombre"] or ""),
+                    "dosis": str(row["dosis"] or ""),
+                    "horario": hora_label,
+                },
+                android_channel_id="medication_reminders_v2",
+                android_sound="alerta",
+                apns_sound="default",
+            )
+            update_cur.execute(
+                """
+                UPDATE tomas
+                SET recordatorio_push_enviado = TRUE,
+                    recordatorio_push_enviado_en = NOW(),
+                    updated_at = NOW()
+                WHERE id = %s
+                """,
+                (toma_id,),
+            )
+            enviados += 1
+        except Exception as exc:
+            print(f"⚠️ Error enviando push pastillero toma {toma_id}: {exc}")
+
+    db.commit()
+    update_cur.close()
+    return enviados
 
 
 def _resolve_paciente_uuid(data: MedicacionIn, db) -> tuple[str, Optional[int]]:

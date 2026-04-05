@@ -40,7 +40,9 @@ import cloudinary.uploader
 import httpx
 from database import get_db, get_db_worker
 from settings import (
+    ARG_TZ,
     ALLOWED_ORIGINS,
+    CURRENT_ARGENTINA_WEEK_SQL,
     DATABASE_URL,
     JWT_SECRET,
     MP_ACCESS_TOKEN,
@@ -109,7 +111,10 @@ app.include_router(monitoreo_router)
 from auth_admin import router as auth_admin_router
 
 app.include_router(auth_admin_router)
-from pastillero import router as pastillero_router
+from pastillero import (
+    procesar_recordatorios_push_pastillero,
+    router as pastillero_router,
+)
 app.include_router(pastillero_router)
 
 from referidos import router as referidos_router
@@ -190,6 +195,12 @@ async def timeout_worker():
             while True:
                 # 1. Procesar lógica
                 await procesar_timeouts(db)
+                enviados_pastillero = procesar_recordatorios_push_pastillero(
+                    db,
+                    enviar_push,
+                )
+                if enviados_pastillero:
+                    print(f"💊 Recordatorios push enviados: {enviados_pastillero}")
                 
                 # 2. Respiro para la CPU y la DB
                 await asyncio.sleep(5) 
@@ -325,7 +336,9 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
         meses = 0
         if user.get("created_at"):
             try:
-                meses = (datetime.utcnow() - user["created_at"]).days // 30
+                created_at = user["created_at"]
+                created_at_arg = created_at.replace(tzinfo=ARG_TZ) if created_at.tzinfo is None else created_at.astimezone(ARG_TZ)
+                meses = (now_argentina() - created_at_arg).days // 30
             except Exception:
                 meses = 0
 
@@ -1027,16 +1040,17 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     tipo = row[0].lower().strip()
 
     # 2️⃣ Calcular semana actual
-    inicio_semana = date.today() - timedelta(days=date.today().weekday())
+    hoy_arg = now_argentina().date()
+    inicio_semana = hoy_arg - timedelta(days=hoy_arg.weekday())
     fin_semana = inicio_semana + timedelta(days=6)
 
     # 3️⃣ Consultas finalizadas esta semana
-    cur.execute("""
+    cur.execute(f"""
         SELECT id, fin_atencion, metodo_pago
         FROM consultas
         WHERE medico_id = %s
         AND estado = 'finalizada'
-        AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
+        AND DATE_TRUNC('week', fin_atencion) = {CURRENT_ARGENTINA_WEEK_SQL}
     """, (medico_id,))
 
     consultas_finalizadas = cur.fetchall()
@@ -1098,14 +1112,14 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     metodo_frecuente = max(metodo_contador, key=metodo_contador.get) if metodo_contador else None
 
     # 7️⃣ Pagos reales registrados (pie chart)
-    cur.execute("""
+    cur.execute(f"""
         SELECT 
             COALESCE(metodo_pago, 'efectivo') AS metodo_pago,
             COUNT(*) AS cantidad,
             COALESCE(SUM(medico_neto), 0) AS total
         FROM pagos_consulta
         WHERE medico_id = %s
-        AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
+        AND DATE_TRUNC('week', fecha) = {CURRENT_ARGENTINA_WEEK_SQL}
         GROUP BY metodo_pago
     """, (medico_id,))
     
@@ -1306,6 +1320,14 @@ async def _telegram_send(chat_id: str, text: str, reply_markup: dict = None):
         print(f"⚠️ Telegram error: {e}")
 
 
+def _telegram_group_for_tipo(tipo: str) -> str | None:
+    """Devuelve el grupo objetivo según el tipo de consulta."""
+    tipo_norm = (tipo or "").strip().lower()
+    if tipo_norm == "enfermero":
+        return TELEGRAM_GRUPO_ENFERMEROS_ID or TELEGRAM_GRUPO_ID
+    return TELEGRAM_GRUPO_MEDICOS_ID or TELEGRAM_GRUPO_ID
+
+
 def _wa_link(telefono: str, texto: str) -> str:
     """Genera un link de WhatsApp con texto pre-escrito para Argentina."""
     from urllib.parse import quote
@@ -1360,7 +1382,7 @@ async def notificar_sin_medico(consulta_id: int, db):
             texto_encontrado = (
                 f"Hola {nombre_str}, buenas noticias desde DocYa 🎉\n\n"
                 f"Encontramos un profesional disponible cerca tuyo. "
-                f"Por favor, volvé a solicitar la consulta desde la app y te lo asignamos de inmediato. ¡Te esperamos! 👩‍⚕️"
+                f"Por favor, mantene la App abierta y te lo asignamos de inmediato. ¡Te esperamos! 👩‍⚕️"
             )
             wa_buscando  = _wa_link(telefono, texto_buscando)
             wa_encontrado = _wa_link(telefono, texto_encontrado)
@@ -1513,7 +1535,7 @@ async def notificar_sin_medico(consulta_id: int, db):
             return
 
         cid, motivo, direccion, tipo, nombre, telefono, email, lat, lng = row
-        tipo_label = "Medico" if tipo == "medico" else "Enfermero/a"
+        tipo_label = "Médico" if tipo == "medico" else "Enfermero/a"
         maps_url = (
             f"https://maps.google.com/?q={lat},{lng}"
             if lat is not None and lng is not None
@@ -1531,7 +1553,7 @@ async def notificar_sin_medico(consulta_id: int, db):
             texto_encontrado = (
                 f"Hola {nombre_str}, te escribimos desde DocYa.\n\n"
                 f"Encontramos un profesional disponible cerca tuyo. "
-                f"Volve a solicitar la consulta desde la app y te lo asignamos de inmediato."
+                f"Volvé a solicitar la consulta desde la app y te lo asignamos de inmediato."
             )
             wa_buscando = _wa_link(telefono, texto_buscando)
             wa_encontrado = _wa_link(telefono, texto_encontrado)
@@ -1546,9 +1568,9 @@ async def notificar_sin_medico(consulta_id: int, db):
             f"🚨 <b>Sin {tipo_label} disponible</b>\n\n"
             f"📋 <b>Consulta #{cid}</b>\n"
             f"👤 Paciente: <b>{nombre or 'N/D'}</b>\n"
-            f"📞 Telefono: {telefono or 'N/D'}\n"
+            f"📞 Teléfono: {telefono or 'N/D'}\n"
             f"📧 Email: {email or 'N/D'}\n"
-            f"🏠 Direccion: {direccion}\n"
+            f"🏠 Dirección: {direccion}\n"
             f"📍 Mapa: {maps_url}\n"
             f"📝 Motivo: {motivo}"
             f"{wa_lineas}"
@@ -1559,11 +1581,10 @@ async def notificar_sin_medico(consulta_id: int, db):
             f"🚨 Consulta sin asignar - DocYa\n\n"
             f"📋 #{cid} | {tipo_label}\n"
             f"👤 Paciente: {nombre or 'N/D'}\n"
-            f"📞 {telefono or 'Sin telefono'}\n"
             f"🏠 {direccion}\n"
             f"📍 {maps_url}\n"
             f"📝 {motivo}\n\n"
-            f"¿Algun/a {tipo_label.lower()} disponible puede tomar esta consulta? "
+            f"¿Algún/a {tipo_label.lower()} disponible puede tomar esta consulta? "
             f"Respondan por este grupo o al admin."
         )
         grupo_chat_id = _telegram_group_for_tipo(tipo)
@@ -1582,7 +1603,7 @@ async def notificar_sin_medico(consulta_id: int, db):
 
 
 async def notificar_consulta_nueva_telegram(consulta_id: int, medico_asignado: bool):
-    """Envia aviso al admin y, si no hay asignacion, al grupo correcto."""
+    """Envía aviso al admin y, si no hay asignación, al grupo correcto."""
     db = get_db_worker()
     cur = db.cursor()
     try:
@@ -1603,21 +1624,21 @@ async def notificar_consulta_nueva_telegram(consulta_id: int, medico_asignado: b
             return
 
         cid, motivo, direccion, tipo, nombre, telefono, email, lat, lng, metodo_pago = row
-        tipo_label = "Medico" if tipo == "medico" else "Enfermero/a"
+        tipo_label = "Médico" if tipo == "medico" else "Enfermero/a"
         maps_url = (
             f"https://maps.google.com/?q={lat},{lng}"
             if lat is not None and lng is not None
             else "Sin coordenadas"
         )
-        estado_str = "✅ Profesional asignado" if medico_asignado else "⚠️ Sin profesional disponible aun"
+        estado_str = "✅ Profesional asignado" if medico_asignado else "⚠️ Sin profesional disponible aún"
 
         msg_admin = (
             f"📥 <b>Nueva consulta ingresada</b>\n\n"
             f"📋 <b>Consulta #{cid}</b>\n"
             f"👤 Paciente: <b>{nombre or 'N/D'}</b>\n"
-            f"📞 Telefono: {telefono or 'N/D'}\n"
+            f"📞 Teléfono: {telefono or 'N/D'}\n"
             f"📧 Email: {email or 'N/D'}\n"
-            f"🏠 Direccion: {direccion}\n"
+            f"🏠 Dirección: {direccion}\n"
             f"📍 Mapa: {maps_url}\n"
             f"📝 Motivo: {motivo}\n"
             f"💳 Pago: {metodo_pago}\n"
@@ -1631,12 +1652,11 @@ async def notificar_consulta_nueva_telegram(consulta_id: int, medico_asignado: b
                 f"🔔 Nueva consulta disponible - DocYa\n\n"
                 f"📋 #{cid} | {tipo_label}\n"
                 f"👤 Paciente: {nombre or 'N/D'}\n"
-                f"📞 {telefono or 'Sin telefono'}\n"
                 f"🏠 {direccion}\n"
                 f"📍 {maps_url}\n"
                 f"📝 {motivo}\n"
                 f"💳 Pago: {metodo_pago}\n\n"
-                f"¿Algun/a {tipo_label.lower()} disponible puede tomar esta consulta? "
+                f"¿Algún/a {tipo_label.lower()} disponible puede tomar esta consulta? "
                 f"Respondan por este grupo o al admin."
             )
             grupo_chat_id = _telegram_group_for_tipo(tipo)
@@ -2919,7 +2939,12 @@ async def timeout_consulta(consulta_id: int, data: dict, db=Depends(get_db)):
         return {"ok": True, "reasignado": False}
 
     # Si ya expiró, el worker backend ya se encargó
-    if expira_en and expira_en < datetime.utcnow():
+    if expira_en:
+        expira_en_arg = expira_en.replace(tzinfo=ARG_TZ) if expira_en.tzinfo is None else expira_en.astimezone(ARG_TZ)
+    else:
+        expira_en_arg = None
+
+    if expira_en_arg and expira_en_arg < now_argentina():
         print("ℹ️ Timeout ya procesado por backend")
         return {"ok": True, "reasignado": False}
 
@@ -2974,7 +2999,14 @@ def medico_encamino(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
 @app.post("/consultas/{consulta_id}/llego")
 def medico_llego(consulta_id: int, data: MedicoAccion, db=Depends(get_db)):
     cur = db.cursor()
-    cur.execute("UPDATE consultas SET estado='en_domicilio' WHERE id=%s AND medico_id=%s AND estado='aceptada' RETURNING id", (consulta_id, data.medico_id))
+    cur.execute("""
+        UPDATE consultas
+        SET estado = 'en_domicilio'
+        WHERE id = %s
+          AND medico_id = %s
+          AND estado IN ('aceptada', 'en_camino')
+        RETURNING id
+    """, (consulta_id, data.medico_id))
     row = cur.fetchone(); db.commit()
     if not row: raise HTTPException(status_code=404, detail="Consulta no encontrada")
     return {"ok": True, "consulta_id": row[0], "estado": "en_domicilio"}
@@ -3057,7 +3089,7 @@ def finalizar_consulta(consulta_id: int, db=Depends(get_db)):
     # ============================================================
     # 🕒 HORARIO ARGENTINA
     # ============================================================
-    ahora_ar = datetime.utcnow() - timedelta(hours=3)
+    ahora_ar = now_argentina()
     hora = ahora_ar.hour
     es_nocturno = hora >= 22 or hora < 6
 
@@ -3218,7 +3250,15 @@ def historia_clinica(paciente_uuid: str, db=Depends(get_db)):
 
 
 # --- Función para enviar notificaciones push ---
-def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
+def enviar_push(
+    fcm_token: str,
+    titulo: str,
+    cuerpo: str,
+    data: dict = {},
+    android_channel_id: str = "default_channel_id",
+    android_sound: str | None = None,
+    apns_sound: str = "default",
+):
     project_id = service_account_info["project_id"]
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 
@@ -3245,9 +3285,8 @@ def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
             "android": {
                 "priority": "high",
                 "notification": {
-                    # Sonido personalizado (alerta.mp3 en /res/raw/)
-                    "sound": "alerta",
-                    "channel_id": "default_channel_id",
+                    "channel_id": android_channel_id,
+                    **({"sound": android_sound} if android_sound else {}),
                 }
             },
 
@@ -3261,7 +3300,7 @@ def enviar_push(fcm_token: str, titulo: str, cuerpo: str, data: dict = {}):
                 "payload": {
                     "aps": {
                         "alert": {"title": titulo, "body": cuerpo},
-                        "sound": "alert.caf",   # tu sonido convertido
+                        "sound": apns_sound,
                         "badge": 1
                     }
                 }
@@ -3991,7 +4030,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     # ============================================================
     active_medicos[medico_id] = {"ws": websocket}
 
-    now = datetime.now()
+    now = now_argentina().replace(tzinfo=None)
     last_message_times[medico_id] = now
     last_ping_times[medico_id] = now
 
@@ -4018,7 +4057,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     async def monitor_ws(local_ws):
         while True:
             await asyncio.sleep(5)
-            now = datetime.now()
+            now = now_argentina().replace(tzinfo=None)
 
             # Si este WS ya no es el activo → salir sin tocar nada
             if active_medicos.get(medico_id, {}).get("ws") != local_ws:
@@ -4043,7 +4082,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
     try:
         while True:
             raw = await websocket.receive_text()
-            last_message_times[medico_id] = datetime.now()
+            last_message_times[medico_id] = now_argentina().replace(tzinfo=None)
 
             print(f"📩 WS médico {medico_id}: {raw}")
 
@@ -4057,7 +4096,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
             # 🟢 PING → actualizar estado
             # -------------------------
             if tipo == "ping":
-                last_ping_times[medico_id] = datetime.now()
+                last_ping_times[medico_id] = now_argentina().replace(tzinfo=None)
 
                 try:
                     conn = get_conn()
@@ -4096,13 +4135,9 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
                 cur = conn.cursor()
                 cur.execute("""
                     UPDATE medicos
-                    SET activo = FALSE
+                    SET disponible = FALSE,
+                        activo = FALSE
                     WHERE id = %s
-                      AND id NOT IN (
-                          SELECT medico_id
-                          FROM consultas
-                          WHERE estado IN ('aceptada', 'en_domicilio')
-                      )
                 """, (medico_id,))
 
                 conn.commit()
@@ -4111,7 +4146,7 @@ async def medico_ws(websocket: WebSocket, medico_id: int):
             finally:
                 put_conn(conn)
 
-            print(f"🟡 Médico {medico_id} marcado como OFFLINE (WS finalizado)")
+            print(f"🟡 Médico {medico_id} marcado como OFFLINE y NO disponible (WS finalizado)")
 
         print(f"🔻 Total médicos conectados ahora: {len(active_medicos)}")
 
@@ -5119,7 +5154,7 @@ def calcular_distancia_km(lat1, lon1, lat2, lon2):
     lat1 = math.radians(lat1)
     lat2 = math.radians(lat2)
     dlat = lat2 - lat1
-    dlon = math.radians(lon2 - lon2)
+    dlon = math.radians(lon2 - lon1)
 
     a = math.sin(dlat / 2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2)**2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
@@ -6298,7 +6333,7 @@ def registrar_pago(consulta_id: int, data: PagoConsultaIn, db=Depends(get_db)):
     tipo = row_tipo[0].lower().strip()  # "medico" o "enfermero"
 
     # 3️⃣ Determinar si es diurna o nocturna (22:00 - 06:00)
-    ahora = datetime.now().time()
+    ahora = now_argentina().time()
     es_nocturna = (ahora >= time(22, 0)) or (ahora < time(6, 0))
 
     # 4️⃣ Asignar tarifa según tipo y horario
@@ -6569,6 +6604,22 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
 
     cur = db.cursor()
 
+    cur.execute(
+        """
+        SELECT email,
+               COALESCE(NULLIF(numero_documento, ''), NULLIF(dni, '')) AS documento
+        FROM users
+        WHERE id = %s
+        """,
+        (paciente_uuid,),
+    )
+    paciente_row = cur.fetchone()
+    if not paciente_row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    paciente_email = (paciente_row[0] or "").strip().lower() or None
+    paciente_documento = (paciente_row[1] or "").strip() or None
+
 
     # 🧾 Recetas
     cur.execute("""
@@ -6613,11 +6664,176 @@ def listar_archivos_paciente(paciente_uuid: str, db=Depends(get_db)):
             "url": f"https://docya-railway-production.up.railway.app/consultas/{c[1]}/certificado"
         })
 
+    # Recetas del recetario nuevo
+    cur.execute(
+        """
+        SELECT DISTINCT r.id, r.creado_en, m.full_name, m.especialidad
+        FROM recetario_recetas r
+        JOIN recetario_pacientes p ON p.id = r.paciente_id
+        JOIN medicos m ON m.id = r.medico_id
+        WHERE p.paciente_uuid = %s
+           OR (%s IS NOT NULL AND lower(COALESCE(p.email, '')) = lower(%s))
+           OR (%s IS NOT NULL AND COALESCE(p.nro_documento, '') = %s)
+        """,
+        (
+            paciente_uuid,
+            paciente_email,
+            paciente_email,
+            paciente_documento,
+            paciente_documento,
+        ),
+    )
+    for r in cur.fetchall():
+        fecha = r[1].strftime("%d/%m/%Y %H:%M") if r[1] else "—"
+        recetas.append({
+            "tipo": "Receta",
+            "id": r[0],
+            "consulta_id": None,
+            "fecha": fecha,
+            "doctor": r[2],
+            "especialidad": r[3],
+            "url": f"https://docya-railway-production.up.railway.app/pacientes/{paciente_uuid}/recetario/recetas/{r[0]}",
+        })
+
+    # Certificados del recetario nuevo
+    cur.execute(
+        """
+        SELECT DISTINCT c.id, c.creado_en, m.full_name, m.especialidad
+        FROM recetario_certificados c
+        JOIN recetario_pacientes p ON p.id = c.paciente_id
+        JOIN medicos m ON m.id = c.medico_id
+        WHERE p.paciente_uuid = %s
+           OR (%s IS NOT NULL AND lower(COALESCE(p.email, '')) = lower(%s))
+           OR (%s IS NOT NULL AND COALESCE(p.nro_documento, '') = %s)
+        """,
+        (
+            paciente_uuid,
+            paciente_email,
+            paciente_email,
+            paciente_documento,
+            paciente_documento,
+        ),
+    )
+    for c in cur.fetchall():
+        fecha = c[1].strftime("%d/%m/%Y %H:%M") if c[1] else "—"
+        certificados.append({
+            "tipo": "Certificado",
+            "id": c[0],
+            "consulta_id": None,
+            "fecha": fecha,
+            "doctor": c[2],
+            "especialidad": c[3],
+            "url": f"https://docya-railway-production.up.railway.app/pacientes/{paciente_uuid}/recetario/certificados/{c[0]}",
+        })
+
     # 🔄 Unificar y ordenar por fecha (más recientes primero)
     archivos = recetas + certificados
     archivos.sort(key=lambda x: x["fecha"], reverse=True)
 
     return archivos
+
+
+def _build_recetario_html_redirect_url(
+    medico_id: int,
+    target_path: str,
+) -> str:
+    token = create_access_token(
+        {"sub": str(medico_id), "role": "medico", "tipo": "recetario_html"},
+        expires_minutes=20,
+    )
+    separator = "&" if "?" in target_path else "?"
+    return f"https://docya-railway-production.up.railway.app{target_path}{separator}token={quote(token)}"
+
+
+def _validar_documento_recetario_para_paciente(
+    db,
+    paciente_uuid: str,
+    table_name: str,
+    document_id: int,
+):
+    cur = db.cursor()
+    cur.execute(
+        """
+        SELECT email,
+               COALESCE(NULLIF(numero_documento, ''), NULLIF(dni, '')) AS documento
+        FROM users
+        WHERE id = %s
+        """,
+        (paciente_uuid,),
+    )
+    paciente_row = cur.fetchone()
+    if not paciente_row:
+        raise HTTPException(status_code=404, detail="Paciente no encontrado")
+
+    paciente_email = (paciente_row[0] or "").strip().lower() or None
+    paciente_documento = (paciente_row[1] or "").strip() or None
+
+    cur.execute(
+        f"""
+        SELECT d.medico_id
+        FROM {table_name} d
+        JOIN recetario_pacientes p ON p.id = d.paciente_id
+        WHERE d.id = %s
+          AND (
+            p.paciente_uuid = %s
+            OR (%s IS NOT NULL AND lower(COALESCE(p.email, '')) = lower(%s))
+            OR (%s IS NOT NULL AND COALESCE(p.nro_documento, '') = %s)
+          )
+        LIMIT 1
+        """,
+        (
+            document_id,
+            paciente_uuid,
+            paciente_email,
+            paciente_email,
+            paciente_documento,
+            paciente_documento,
+        ),
+    )
+    row = cur.fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+    return int(row[0])
+
+
+@app.get("/pacientes/{paciente_uuid}/recetario/recetas/{receta_id}")
+def abrir_receta_recetario_paciente(
+    paciente_uuid: str,
+    receta_id: int,
+    db=Depends(get_db),
+):
+    medico_id = _validar_documento_recetario_para_paciente(
+        db,
+        paciente_uuid,
+        "recetario_recetas",
+        receta_id,
+    )
+    return RedirectResponse(
+        url=_build_recetario_html_redirect_url(
+            medico_id,
+            f"/recetario/recetas/{receta_id}/html",
+        )
+    )
+
+
+@app.get("/pacientes/{paciente_uuid}/recetario/certificados/{cert_id}")
+def abrir_certificado_recetario_paciente(
+    paciente_uuid: str,
+    cert_id: int,
+    db=Depends(get_db),
+):
+    medico_id = _validar_documento_recetario_para_paciente(
+        db,
+        paciente_uuid,
+        "recetario_certificados",
+        cert_id,
+    )
+    return RedirectResponse(
+        url=_build_recetario_html_redirect_url(
+            medico_id,
+            f"/recetario/certificados/{cert_id}/html",
+        )
+    )
 
 # --------------------------------------------------------------------------------
 #MANEJO DE VERSIONES PARA OBLIGAR A ACTUALIZAR LA APP --------------------------------------------
@@ -6722,7 +6938,7 @@ import math
 from datetime import datetime, time
 
 def calcular_eta_minutos(distancia_km):
-    ahora = datetime.now().time()
+    ahora = now_argentina().time()
 
     # Definir velocidades según horario
     if time(8, 0) <= ahora <= time(20, 0):

@@ -30,7 +30,15 @@ from sib_api_v3_sdk.rest import ApiException
 from unidecode import unidecode
 
 from database import get_db
-from settings import JWT_SECRET, create_access_token, now_argentina, pwd_context
+from settings import (
+    ARG_TZ,
+    CURRENT_ARGENTINA_WEEK_SQL,
+    JWT_SECRET,
+    create_access_token,
+    now_argentina,
+    pwd_context,
+    start_of_week_argentina,
+)
 
 templates = Jinja2Templates(directory="templates")
 router = APIRouter()
@@ -464,7 +472,9 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
         meses = 0
         if user.get("created_at"):
             try:
-                meses = (datetime.utcnow() - user["created_at"]).days // 30
+                created_at = user["created_at"]
+                created_at_arg = created_at.replace(tzinfo=ARG_TZ) if created_at.tzinfo is None else created_at.astimezone(ARG_TZ)
+                meses = (now_argentina() - created_at_arg).days // 30
             except Exception:
                 meses = 0
 
@@ -1304,16 +1314,16 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
         raise HTTPException(status_code=404, detail="Profesional no encontrado")
 
     tipo = row[0].lower().strip()
-    inicio_semana = date.today() - timedelta(days=date.today().weekday())
+    inicio_semana = start_of_week_argentina()
     fin_semana = inicio_semana + timedelta(days=6)
 
     cur.execute(
-        """
+        f"""
         SELECT id, fin_atencion, metodo_pago
         FROM consultas
         WHERE medico_id = %s
         AND estado = 'finalizada'
-        AND DATE_TRUNC('week', fin_atencion) = DATE_TRUNC('week', CURRENT_DATE)
+        AND DATE_TRUNC('week', fin_atencion) = {CURRENT_ARGENTINA_WEEK_SQL}
         """,
         (medico_id,),
     )
@@ -1356,13 +1366,13 @@ def medico_stats(medico_id: int, db=Depends(get_db)):
     metodo_frecuente = max(metodo_contador, key=metodo_contador.get) if metodo_contador else None
 
     cur.execute(
-        """
+        f"""
         SELECT COALESCE(metodo_pago, 'efectivo') AS metodo_pago,
                COUNT(*) AS cantidad,
                COALESCE(SUM(medico_neto), 0) AS total
         FROM pagos_consulta
         WHERE medico_id = %s
-        AND DATE_TRUNC('week', fecha) = DATE_TRUNC('week', CURRENT_DATE)
+        AND DATE_TRUNC('week', fecha) = {CURRENT_ARGENTINA_WEEK_SQL}
         GROUP BY metodo_pago
         """,
         (medico_id,),
