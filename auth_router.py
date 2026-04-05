@@ -321,6 +321,49 @@ def enviar_email_validacion(email: str, medico_id: int, full_name: str):
         print(f"Error enviando email validación profesional: {exc}")
 
 
+def enviar_email_matricula_aprobada(email: str, full_name: str):
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es"><head><meta charset="UTF-8"><title>Matrícula aprobada</title></head>
+    <body style="margin:0; padding:0; background-color:#F4F6F8; font-family: Arial, sans-serif;">
+      <table align="center" border="0" cellpadding="0" cellspacing="0" width="100%" bgcolor="#F4F6F8" style="padding:20px 0;">
+        <tr><td align="center">
+          <table border="0" cellpadding="0" cellspacing="0" width="600" style="background:#ffffff; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.1);">
+            <tr><td align="center" style="padding:34px 28px;">
+              <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/docyapro_1_uxxdjx.png" alt="DocYa Pro" style="max-width:180px; margin-bottom:20px;">
+              <h2 style="color:#00A8A8; font-size:24px; margin:0 0 14px;">Tu matrícula ya fue aprobada</h2>
+              <p style="color:#334155; font-size:16px; line-height:1.6; margin:0 0 14px;">
+                Hola <strong>{full_name}</strong>, revisamos tu documentación y tu cuenta profesional ya quedó habilitada.
+              </p>
+              <p style="color:#334155; font-size:15px; line-height:1.6; margin:0 0 24px;">
+                Desde este momento ya podés ingresar a <strong>DocYa Pro</strong>, acceder a la app y comenzar a usar tus herramientas clínicas.
+              </p>
+              <div style="background:#ECFEFF; border:1px solid #A5F3FC; color:#155E75; border-radius:8px; padding:16px 18px; margin:0 0 24px; text-align:left;">
+                <strong>Importante:</strong> si ya tenés la app instalada, simplemente volvé a abrirla e iniciá sesión con tu cuenta.
+              </div>
+              <a href="https://docya.online" target="_blank" style="background-color:#00A8A8; color:#ffffff; padding:14px 28px; text-decoration:none; border-radius:6px; font-size:15px; font-weight:bold; display:inline-block;">Ingresar a DocYa</a>
+              <p style="color:#64748B; font-size:13px; line-height:1.5; margin:28px 0 0;">
+                Gracias por sumarte a DocYa. Nos alegra tenerte en el equipo.
+              </p>
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+    """
+    email_data = SendSmtpEmail(
+        to=[{"email": email, "name": full_name}],
+        sender={"email": "nahundeveloper@gmail.com", "name": "DocYa Pro"},
+        subject="Tu matrícula fue aprobada y tu acceso a DocYa Pro ya está habilitado",
+        html_content=html_content,
+    )
+    try:
+        _brevo_client().send_transac_email(email_data)
+    except ApiException as exc:
+        print(f"Error enviando email aprobación profesional: {exc}")
+
+
 @router.post("/auth/register")
 def register(request: Request, data: RegisterIn, db=Depends(get_db)):
     """Alta de paciente con envío de mail de activación."""
@@ -1102,9 +1145,15 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     if not pwd_context.verify(password, row[2]):
         raise HTTPException(status_code=400, detail="Contraseña incorrecta")
     if not row[3]:
-        raise HTTPException(status_code=403, detail="Cuenta aún no validada por correo")
+        raise HTTPException(
+            status_code=403,
+            detail="Tu cuenta profesional está en revisión. Te avisaremos por email cuando la matrícula sea aprobada y el acceso quede habilitado.",
+        )
     if not row[7]:
-        raise HTTPException(status_code=403, detail="Matrícula aún no validada por el equipo DocYa")
+        raise HTTPException(
+            status_code=403,
+            detail="Tu matrícula todavía no fue aprobada por el equipo DocYa.",
+        )
 
     token = create_access_token({"sub": str(row[0]), "email": row[5], "role": row[4]})
     return {
@@ -1132,22 +1181,54 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
 
 @router.post("/auth/validar_medico/{medico_id}")
 def validar_medico(medico_id: int, db=Depends(get_db)):
-    """Activa o desactiva el flag de validación del profesional."""
-    cur = db.cursor()
+    """Habilita o bloquea el acceso profesional y sincroniza la aprobación de matrícula."""
+    cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute(
         """
-        UPDATE medicos
-        SET validado = NOT validado, updated_at=NOW()
-        WHERE id=%s
-        RETURNING id, full_name, tipo, validado
+        SELECT id, full_name, email, tipo, validado, matricula_validada
+        FROM medicos
+        WHERE id = %s
         """,
         (medico_id,),
     )
+    medico = cur.fetchone()
+    if not medico:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+    nuevo_estado = not bool(medico["validado"])
+    cur.execute(
+        """
+        UPDATE medicos
+        SET validado = %s,
+            matricula_validada = %s,
+            updated_at = NOW()
+        WHERE id = %s
+        RETURNING id, full_name, email, tipo, validado, matricula_validada
+        """,
+        (nuevo_estado, nuevo_estado, medico_id),
+    )
     row = cur.fetchone()
     db.commit()
-    if not row:
-        raise HTTPException(status_code=404, detail="Profesional no encontrado")
-    return {"ok": True, "medico_id": row[0], "nombre": row[1], "tipo": row[2], "validado": row[3]}
+
+    email_enviado = False
+    if row["validado"]:
+        enviar_email_matricula_aprobada(row["email"], row["full_name"])
+        email_enviado = True
+
+    return {
+        "ok": True,
+        "medico_id": row["id"],
+        "nombre": row["full_name"],
+        "tipo": row["tipo"],
+        "validado": bool(row["validado"]),
+        "matricula_validada": bool(row["matricula_validada"]),
+        "email_enviado": email_enviado,
+        "mensaje": (
+            "Acceso habilitado, matrícula aprobada y correo enviado al profesional."
+            if row["validado"]
+            else "Acceso bloqueado y matrícula marcada como no aprobada."
+        ),
+    }
 
 
 @router.post("/auth/medico/{medico_id}/foto")
