@@ -412,6 +412,10 @@ def get_user_by_id(user_id: str, db=Depends(get_db)):
     """Detalle de paciente con métricas básicas para perfil."""
     try:
         _ensure_user_profile_columns(db)
+        google_password_hash = get_password_hash(
+            f"google-medico::{google_sub}::{email}"
+        )
+
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT * FROM users WHERE id = %s", (user_id,))
         user = cur.fetchone()
@@ -771,26 +775,40 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
                     email = %s,
                     full_name = COALESCE(NULLIF(full_name, ''), %s),
                     foto_perfil = COALESCE(NULLIF(foto_perfil, ''), %s),
+                    password_hash = COALESCE(password_hash, %s),
                     validado = TRUE
                 WHERE id = %s
                 RETURNING id, full_name, email, tipo, validado, matricula_validada,
                           perfil_completo, foto_perfil
                 """,
-                (google_sub, email, full_name, google_picture, medico["id"]),
+                (
+                    google_sub,
+                    email,
+                    full_name,
+                    google_picture,
+                    google_password_hash,
+                    medico["id"],
+                ),
             )
             medico = cur.fetchone()
         else:
             cur.execute(
                 """
                 INSERT INTO medicos (
-                    full_name, email, google_id, foto_perfil, tipo,
+                    full_name, email, password_hash, google_id, foto_perfil, tipo,
                     validado, matricula_validada, perfil_completo, acepta_terminos
                 )
-                VALUES (%s, %s, %s, %s, 'medico', TRUE, FALSE, FALSE, FALSE)
+                VALUES (%s, %s, %s, %s, %s, 'medico', TRUE, FALSE, FALSE, FALSE)
                 RETURNING id, full_name, email, tipo, validado, matricula_validada,
                           perfil_completo, foto_perfil
                 """,
-                (full_name, email, google_sub, google_picture),
+                (
+                    full_name,
+                    email,
+                    google_password_hash,
+                    google_sub,
+                    google_picture,
+                ),
             )
             medico = cur.fetchone()
 
