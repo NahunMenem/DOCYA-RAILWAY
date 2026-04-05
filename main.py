@@ -179,6 +179,135 @@ class PagoIn(BaseModel):
 background_tasks = set()
 
 @app.on_event("startup")
+async def auto_importar_medicamentos():
+    """
+    Al iniciar, compara la cantidad de filas del CSV con lo que hay en la DB.
+    Si difieren, reimporta automáticamente del CSV para tener el vademécum actualizado.
+    """
+    import csv as _csv
+    from medicamentos import (
+        MEDICAMENTOS_DIRS, DEFAULT_JSON_PATH,
+        _ensure_extended_schema, _build_csv_rows, _build_json_rows,
+    )
+
+    def _run():
+        conn = None
+        try:
+            conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+            cur = conn.cursor()
+
+            # Asegurar que la tabla exista
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS medicamentos (
+                    id                   SERIAL PRIMARY KEY,
+                    nombre_comercial     TEXT NOT NULL,
+                    nombre_completo      TEXT,
+                    principio_activo     TEXT[],
+                    principio_activo_str TEXT,
+                    laboratorio          TEXT,
+                    forma                TEXT,
+                    concentracion        TEXT,
+                    requiere_receta      BOOLEAN DEFAULT TRUE,
+                    categoria            TEXT,
+                    alertas              TEXT[],
+                    envases              TEXT[],
+                    codigo_alfabeta      INTEGER,
+                    presentacion         TEXT,
+                    pvp_pami             DOUBLE PRECISION,
+                    cobertura_pct        INTEGER,
+                    importe_afiliado     DOUBLE PRECISION
+                )
+            """)
+            _ensure_extended_schema(conn)
+            cur.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_med_nombre_trgm ON medicamentos USING gin(nombre_comercial gin_trgm_ops)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_med_pa_trgm ON medicamentos USING gin(principio_activo_str gin_trgm_ops)")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_med_codigo_alfabeta ON medicamentos(codigo_alfabeta)")
+            conn.commit()
+
+            # Buscar CSV disponible
+            csv_path = None
+            for source_dir in MEDICAMENTOS_DIRS:
+                if not os.path.isdir(source_dir):
+                    continue
+                candidates = [
+                    os.path.join(source_dir, f)
+                    for f in os.listdir(source_dir)
+                    if f.lower().endswith(".csv")
+                ]
+                if candidates:
+                    candidates.sort(key=os.path.getmtime, reverse=True)
+                    csv_path = candidates[0]
+                    break
+
+            # Contar filas fuente
+            if csv_path:
+                source_type = "csv"
+                source_path = csv_path
+                csv_count = 0
+                for enc in ("utf-8", "latin-1", "cp1252"):
+                    try:
+                        with open(csv_path, "r", encoding=enc, newline="") as f:
+                            csv_count = sum(1 for _ in _csv.DictReader(f, delimiter=";"))
+                        break
+                    except Exception:
+                        pass
+                expected = csv_count
+            elif os.path.exists(DEFAULT_JSON_PATH):
+                source_type = "json"
+                source_path = DEFAULT_JSON_PATH
+                import json as _json
+                with open(DEFAULT_JSON_PATH, "r", encoding="utf-8") as f:
+                    data = _json.load(f)
+                meds = data["medicamentos"] if isinstance(data, dict) and "medicamentos" in data else data
+                expected = len(meds)
+            else:
+                print("💊 auto_importar: no hay CSV ni JSON, saltando")
+                return
+
+            cur.execute("SELECT COUNT(*) FROM medicamentos")
+            db_count = cur.fetchone()[0]
+
+            if db_count >= expected * 0.95:  # dentro del 5% → ya importado
+                print(f"💊 Medicamentos OK: {db_count} en DB / {expected} en {source_type}")
+                return
+
+            print(f"💊 Reimportando medicamentos: {db_count} en DB, {expected} en {source_type} ({source_path})")
+
+            cur.execute("TRUNCATE medicamentos RESTART IDENTITY")
+            conn.commit()
+
+            rows = _build_csv_rows(source_path) if source_type == "csv" else _build_json_rows(source_path)
+
+            sql = """
+                INSERT INTO medicamentos
+                    (nombre_comercial, nombre_completo, principio_activo, principio_activo_str,
+                     laboratorio, forma, concentracion, requiere_receta, categoria, alertas, envases,
+                     codigo_alfabeta, presentacion, pvp_pami, cobertura_pct, importe_afiliado)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """
+            BATCH = 500
+            cur2 = conn.cursor()
+            for i in range(0, len(rows), BATCH):
+                cur2.executemany(sql, rows[i:i + BATCH])
+            conn.commit()
+            print(f"✅ Medicamentos importados: {len(rows)} desde {source_type}")
+
+        except Exception as exc:
+            print(f"⚠️ auto_importar_medicamentos error: {exc}")
+            if conn:
+                try:
+                    conn.rollback()
+                except Exception:
+                    pass
+        finally:
+            if conn:
+                conn.close()
+
+    await asyncio.to_thread(_run)
+
+
+@app.on_event("startup")
 async def iniciar_worker():
     task = asyncio.create_task(timeout_worker())
     background_tasks.add(task)
