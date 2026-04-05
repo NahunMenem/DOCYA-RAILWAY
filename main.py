@@ -181,14 +181,24 @@ background_tasks = set()
 @app.on_event("startup")
 async def auto_importar_medicamentos():
     """
-    Al iniciar, compara la cantidad de filas del CSV con lo que hay en la DB.
-    Si difieren, reimporta automáticamente del CSV para tener el vademécum actualizado.
+    Al iniciar:
+    1. Si la tabla está vacía → importa desde meds_clean.json (vademécum general).
+    2. Si hay un CSV disponible → combina: inserta los registros del CSV que no
+       existan todavía en la DB (mismo nombre_comercial + presentacion).
+    Así se tienen los 17k del JSON + los específicos del CSV (ej: ACTRON PEDIATRICO).
     """
-    import csv as _csv
     from medicamentos import (
         MEDICAMENTOS_DIRS, DEFAULT_JSON_PATH,
         _ensure_extended_schema, _build_csv_rows, _build_json_rows,
     )
+
+    SQL_INSERT = """
+        INSERT INTO medicamentos
+            (nombre_comercial, nombre_completo, principio_activo, principio_activo_str,
+             laboratorio, forma, concentracion, requiere_receta, categoria, alertas, envases,
+             codigo_alfabeta, presentacion, pvp_pami, cobertura_pct, importe_afiliado)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+    """
 
     def _run():
         conn = None
@@ -196,7 +206,7 @@ async def auto_importar_medicamentos():
             conn = psycopg2.connect(DATABASE_URL, sslmode="require")
             cur = conn.cursor()
 
-            # Asegurar que la tabla exista
+            # ── Asegurar tabla e índices ─────────────────────────────────────
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS medicamentos (
                     id                   SERIAL PRIMARY KEY,
@@ -225,7 +235,24 @@ async def auto_importar_medicamentos():
             cur.execute("CREATE INDEX IF NOT EXISTS idx_med_codigo_alfabeta ON medicamentos(codigo_alfabeta)")
             conn.commit()
 
-            # Buscar CSV disponible
+            # ── Paso 1: si la tabla está vacía, cargar JSON base ─────────────
+            cur.execute("SELECT COUNT(*) FROM medicamentos")
+            db_count = cur.fetchone()[0]
+
+            if db_count == 0:
+                if os.path.exists(DEFAULT_JSON_PATH):
+                    print("💊 DB vacía — importando vademécum base desde meds_clean.json")
+                    rows = _build_json_rows(DEFAULT_JSON_PATH)
+                    BATCH = 500
+                    for i in range(0, len(rows), BATCH):
+                        cur.executemany(SQL_INSERT, rows[i:i + BATCH])
+                    conn.commit()
+                    db_count = len(rows)
+                    print(f"✅ JSON importado: {db_count} medicamentos")
+                else:
+                    print("⚠️ auto_importar: DB vacía y no hay meds_clean.json")
+
+            # ── Paso 2: combinar con el CSV (agrega los que faltan) ──────────
             csv_path = None
             for source_dir in MEDICAMENTOS_DIRS:
                 if not os.path.isdir(source_dir):
@@ -240,58 +267,30 @@ async def auto_importar_medicamentos():
                     csv_path = candidates[0]
                     break
 
-            # Contar filas fuente
-            if csv_path:
-                source_type = "csv"
-                source_path = csv_path
-                csv_count = 0
-                for enc in ("utf-8", "latin-1", "cp1252"):
-                    try:
-                        with open(csv_path, "r", encoding=enc, newline="") as f:
-                            csv_count = sum(1 for _ in _csv.DictReader(f, delimiter=";"))
-                        break
-                    except Exception:
-                        pass
-                expected = csv_count
-            elif os.path.exists(DEFAULT_JSON_PATH):
-                source_type = "json"
-                source_path = DEFAULT_JSON_PATH
-                import json as _json
-                with open(DEFAULT_JSON_PATH, "r", encoding="utf-8") as f:
-                    data = _json.load(f)
-                meds = data["medicamentos"] if isinstance(data, dict) and "medicamentos" in data else data
-                expected = len(meds)
+            if not csv_path:
+                print(f"💊 Medicamentos listos: {db_count} en DB (sin CSV para combinar)")
+                return
+
+            print(f"💊 Combinando con CSV: {csv_path}")
+            csv_rows = _build_csv_rows(csv_path)
+
+            # Cargar pares (nombre_comercial, presentacion) ya existentes
+            cur.execute("SELECT LOWER(nombre_comercial), LOWER(COALESCE(presentacion,'')) FROM medicamentos")
+            existentes = set(cur.fetchall())
+
+            nuevos = [
+                row for row in csv_rows
+                if (str(row[0]).lower(), str(row[12] or "").lower()) not in existentes
+            ]
+
+            if nuevos:
+                BATCH = 500
+                for i in range(0, len(nuevos), BATCH):
+                    cur.executemany(SQL_INSERT, nuevos[i:i + BATCH])
+                conn.commit()
+                print(f"✅ CSV combinado: {len(nuevos)} nuevos medicamentos agregados (total CSV: {len(csv_rows)})")
             else:
-                print("💊 auto_importar: no hay CSV ni JSON, saltando")
-                return
-
-            cur.execute("SELECT COUNT(*) FROM medicamentos")
-            db_count = cur.fetchone()[0]
-
-            if db_count >= expected * 0.95:  # dentro del 5% → ya importado
-                print(f"💊 Medicamentos OK: {db_count} en DB / {expected} en {source_type}")
-                return
-
-            print(f"💊 Reimportando medicamentos: {db_count} en DB, {expected} en {source_type} ({source_path})")
-
-            cur.execute("TRUNCATE medicamentos RESTART IDENTITY")
-            conn.commit()
-
-            rows = _build_csv_rows(source_path) if source_type == "csv" else _build_json_rows(source_path)
-
-            sql = """
-                INSERT INTO medicamentos
-                    (nombre_comercial, nombre_completo, principio_activo, principio_activo_str,
-                     laboratorio, forma, concentracion, requiere_receta, categoria, alertas, envases,
-                     codigo_alfabeta, presentacion, pvp_pami, cobertura_pct, importe_afiliado)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
-            """
-            BATCH = 500
-            cur2 = conn.cursor()
-            for i in range(0, len(rows), BATCH):
-                cur2.executemany(sql, rows[i:i + BATCH])
-            conn.commit()
-            print(f"✅ Medicamentos importados: {len(rows)} desde {source_type}")
+                print(f"💊 CSV ya combinado: todos los {len(csv_rows)} registros del CSV ya estaban en DB")
 
         except Exception as exc:
             print(f"⚠️ auto_importar_medicamentos error: {exc}")
