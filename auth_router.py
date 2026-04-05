@@ -43,11 +43,22 @@ cloudinary.config(
 
 ALGORITHM = "HS256"
 TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
-GOOGLE_CLIENT_IDS = [
-    item.strip()
-    for item in os.getenv("GOOGLE_CLIENT_IDS", os.getenv("GOOGLE_CLIENT_ID", "")).split(",")
-    if item.strip()
+DEFAULT_GOOGLE_CLIENT_IDS = [
+    "117956759164-9q555tbkl8ulrmcapgj4emoqn827ltti.apps.googleusercontent.com",
+    "327572770521-tom99oocat1tcp9pahlejsar4iu62lhg.apps.googleusercontent.com",
 ]
+GOOGLE_CLIENT_IDS = list(
+    dict.fromkeys(
+        DEFAULT_GOOGLE_CLIENT_IDS
+        + [
+            item.strip()
+            for item in os.getenv(
+                "GOOGLE_CLIENT_IDS", os.getenv("GOOGLE_CLIENT_ID", "")
+            ).split(",")
+            if item.strip()
+        ]
+    )
+)
 E164_REGEX = r"^\+[1-9]\d{7,14}$"
 TIPOS_DOCUMENTO = {"dni", "pasaporte", "otro"}
 SEXOS_VALIDOS = {"masculino", "femenino", "otro"}
