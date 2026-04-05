@@ -902,12 +902,13 @@ def listar_consultas(
     hasta: str | None = None,
     page: int = 1,
     limit: int = 10,
+    excluir_estados: str | None = None,
     db=Depends(get_db)
 ):
     cur = db.cursor(cursor_factory=RealDictCursor)
 
     page = max(page, 1)
-    limit = max(1, min(limit, 100))
+    limit = max(1, min(limit, 500))
     offset = (page - 1) * limit
 
     filtros = []
@@ -919,6 +920,12 @@ def listar_consultas(
     if hasta:
         filtros.append("c.creado_en <= %s")
         params.append(hasta)
+    if excluir_estados:
+        estados_list = [e.strip() for e in excluir_estados.split(",") if e.strip()]
+        if estados_list:
+            placeholders = ",".join(["%s"] * len(estados_list))
+            filtros.append(f"c.estado NOT IN ({placeholders})")
+            params.extend(estados_list)
 
     where_clause = "WHERE " + " AND ".join(filtros) if filtros else ""
 
