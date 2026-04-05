@@ -259,10 +259,10 @@ async def auto_importar_medicamentos():
                      codigo_alfabeta, presentacion, pvp_pami, cobertura_pct, importe_afiliado)
                 VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
             """
-            BATCH = 500
+            BATCH = 200
             for i in range(0, len(csv_rows), BATCH):
                 cur.executemany(sql, csv_rows[i:i + BATCH])
-            conn.commit()
+                conn.commit()  # commit por batch → datos visibles de inmediato
             print(f"✅ Medicamentos importados: {len(csv_rows)} desde {csv_path}")
 
         except Exception as exc:
