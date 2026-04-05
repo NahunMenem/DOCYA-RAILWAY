@@ -304,7 +304,8 @@ async def auto_importar_medicamentos():
             if conn:
                 conn.close()
 
-    await asyncio.to_thread(_run)
+    # No bloquear el startup — correr en background para que Railway pueda levantar el servidor
+    asyncio.create_task(asyncio.to_thread(_run))
 
 
 @app.on_event("startup")
