@@ -709,4 +709,3 @@ def confirmar_toma_legacy(data: TomaConfirmarIn, db=Depends(get_db)):
         TomaActualizarIn(toma_id=data.toma_id, estado="tomado"),
         db=db,
     )
-

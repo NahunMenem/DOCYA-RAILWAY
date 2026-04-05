@@ -66,6 +66,41 @@ def _ensure_user_profile_columns(db):
     db.commit()
 
 
+def _ensure_medico_profile_columns(db):
+    """Asegura columnas modernas de perfil para profesionales."""
+    cur = db.cursor()
+    cur.execute("ALTER TABLE medicos ADD COLUMN IF NOT EXISTS google_id TEXT")
+    cur.execute("ALTER TABLE medicos ADD COLUMN IF NOT EXISTS tipo_documento TEXT")
+    cur.execute("ALTER TABLE medicos ADD COLUMN IF NOT EXISTS numero_documento TEXT")
+    cur.execute("ALTER TABLE medicos ADD COLUMN IF NOT EXISTS direccion TEXT")
+    cur.execute("ALTER TABLE medicos ADD COLUMN IF NOT EXISTS acepta_terminos BOOLEAN DEFAULT FALSE")
+    cur.execute("ALTER TABLE medicos ADD COLUMN IF NOT EXISTS perfil_completo BOOLEAN DEFAULT FALSE")
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_medicos_google_id_unique ON medicos (google_id) WHERE google_id IS NOT NULL"
+    )
+    db.commit()
+
+
+def _upload_base64_image(imagen_base64, folder, public_id):
+    if not imagen_base64:
+        return None
+    try:
+        if imagen_base64.startswith("data:image"):
+            res = cloudinary.uploader.upload(
+                imagen_base64,
+                folder=folder,
+                public_id=public_id,
+                overwrite=True,
+                resource_type="image",
+            )
+            return res["secure_url"]
+        if imagen_base64.startswith("http"):
+            return imagen_base64
+    except Exception as exc:
+        print(f"Error subiendo imagen {public_id}: {exc}")
+    return None
+
+
 def _normalize_bool(value) -> bool:
     return bool(value) is True
 
@@ -113,12 +148,16 @@ class RegisterMedicoIn(BaseModel):
     email: EmailStr
     password: str
     matricula: str
-    especialidad: str
+    especialidad: str | None = None
     tipo: str = "medico"
     telefono: str | None = None
     provincia: str | None = None
     localidad: str | None = None
     dni: str | None = None
+    tipo_documento: str | None = None
+    numero_documento: str | None = None
+    direccion: str | None = None
+    acepta_terminos: bool = False
     foto_perfil: str | None = None
     foto_dni_frente: str | None = None
     foto_dni_dorso: str | None = None
@@ -152,6 +191,23 @@ class CompletarPerfilIn(BaseModel):
     direccion: str
     fecha_nacimiento: date
     sexo: str
+    acepta_terminos: bool
+
+
+class CompletarPerfilMedicoIn(BaseModel):
+    medico_id: int
+    tipo: str
+    tipo_documento: str
+    numero_documento: str
+    matricula: str
+    especialidad: str | None = None
+    telefono: str
+    direccion: str
+    provincia: str | None = None
+    localidad: str | None = None
+    foto_dni_frente: str
+    foto_dni_dorso: str
+    selfie_dni: str
     acepta_terminos: bool
 
 
@@ -650,9 +706,226 @@ def completar_perfil(data: CompletarPerfilIn, db=Depends(get_db)):
     }
 
 
+@router.post("/auth/google_medico")
+def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
+    """Login/registro con Google para profesionales."""
+    _ensure_medico_profile_columns(db)
+    try:
+        request_adapter = google_requests.Request()
+        payload = None
+        last_error = None
+        audiences = GOOGLE_CLIENT_IDS or [None]
+        for audience in audiences:
+            try:
+                payload = google_id_token.verify_oauth2_token(
+                    data.id_token, request_adapter, audience
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+
+        if payload is None:
+            raise HTTPException(
+                status_code=401, detail=f"Token Google inválido: {last_error}"
+            )
+
+        google_sub = payload.get("sub")
+        email = (payload.get("email") or "").lower().strip()
+        full_name = (payload.get("name") or "Profesional DocYa").strip()
+        google_picture = (payload.get("picture") or "").strip() or None
+        if not google_sub or not email:
+            raise HTTPException(
+                status_code=400,
+                detail="Google no devolvió identidad suficiente",
+            )
+
+        cur = db.cursor(cursor_factory=RealDictCursor)
+        cur.execute(
+            """
+            SELECT id, full_name, email, tipo, validado, matricula_validada,
+                   perfil_completo, foto_perfil
+            FROM medicos
+            WHERE google_id = %s OR lower(email) = %s
+            LIMIT 1
+            """,
+            (google_sub, email),
+        )
+        medico = cur.fetchone()
+
+        if medico:
+            cur.execute(
+                """
+                UPDATE medicos
+                SET google_id = %s,
+                    email = %s,
+                    full_name = COALESCE(NULLIF(full_name, ''), %s),
+                    foto_perfil = COALESCE(NULLIF(foto_perfil, ''), %s),
+                    validado = TRUE
+                WHERE id = %s
+                RETURNING id, full_name, email, tipo, validado, matricula_validada,
+                          perfil_completo, foto_perfil
+                """,
+                (google_sub, email, full_name, google_picture, medico["id"]),
+            )
+            medico = cur.fetchone()
+        else:
+            cur.execute(
+                """
+                INSERT INTO medicos (
+                    full_name, email, google_id, foto_perfil, tipo,
+                    validado, matricula_validada, perfil_completo, acepta_terminos
+                )
+                VALUES (%s, %s, %s, %s, 'medico', TRUE, FALSE, FALSE, FALSE)
+                RETURNING id, full_name, email, tipo, validado, matricula_validada,
+                          perfil_completo, foto_perfil
+                """,
+                (full_name, email, google_sub, google_picture),
+            )
+            medico = cur.fetchone()
+
+        db.commit()
+
+        token = create_access_token(
+            {"sub": str(medico["id"]), "email": medico["email"], "role": medico["tipo"]}
+        )
+        return {
+            "access_token": token,
+            "token_type": "bearer",
+            "medico_id": medico["id"],
+            "full_name": medico["full_name"],
+            "tipo": medico["tipo"],
+            "validado": bool(medico["validado"]),
+            "matricula_validada": bool(medico["matricula_validada"]),
+            "perfil_completo": bool(medico["perfil_completo"]),
+            "medico": {
+                "id": medico["id"],
+                "full_name": medico["full_name"],
+                "email": medico["email"],
+                "tipo": medico["tipo"],
+                "validado": bool(medico["validado"]),
+                "matricula_validada": bool(medico["matricula_validada"]),
+                "perfil_completo": bool(medico["perfil_completo"]),
+                "foto_perfil": medico.get("foto_perfil"),
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Error en auth Google profesional: {exc}")
+
+
+@router.post("/auth/completar_perfil_medico")
+def completar_perfil_medico(data: CompletarPerfilMedicoIn, db=Depends(get_db)):
+    """Completa el perfil obligatorio del profesional luego de Google."""
+    _ensure_medico_profile_columns(db)
+
+    tipo = unidecode((data.tipo or "").strip().lower())
+    tipo_documento = (data.tipo_documento or "").strip().lower()
+    numero_documento = (data.numero_documento or "").strip()
+    telefono = (data.telefono or "").strip()
+    direccion = (data.direccion or "").strip()
+    matricula = (data.matricula or "").strip()
+
+    if tipo not in {"medico", "enfermero"}:
+        raise HTTPException(status_code=400, detail="Tipo profesional inválido")
+    if tipo_documento not in TIPOS_DOCUMENTO:
+        raise HTTPException(status_code=400, detail="Tipo de documento inválido")
+    if not numero_documento:
+        raise HTTPException(status_code=400, detail="Número de documento obligatorio")
+    if not matricula:
+        raise HTTPException(status_code=400, detail="Matrícula obligatoria")
+    if not re.match(E164_REGEX, telefono):
+        raise HTTPException(status_code=400, detail="El teléfono debe estar en formato internacional E.164")
+    if not direccion:
+        raise HTTPException(status_code=400, detail="Dirección obligatoria")
+    if not data.acepta_terminos:
+        raise HTTPException(status_code=400, detail="Debes aceptar los términos para continuar")
+
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("SELECT id, foto_dni_frente, foto_dni_dorso, selfie_dni FROM medicos WHERE id = %s", (data.medico_id,))
+    medico = cur.fetchone()
+    if not medico:
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+    cur.execute(
+        "SELECT id FROM medicos WHERE matricula = %s AND id <> %s",
+        (matricula, data.medico_id),
+    )
+    if cur.fetchone():
+        raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
+
+    dni_value = numero_documento if tipo_documento == "dni" else None
+    folder = f"docya/medicos/{data.medico_id}"
+    foto_dni_frente_url = _upload_base64_image(data.foto_dni_frente, folder, "dni_frente") or medico.get("foto_dni_frente")
+    foto_dni_dorso_url = _upload_base64_image(data.foto_dni_dorso, folder, "dni_dorso") or medico.get("foto_dni_dorso")
+    selfie_dni_url = _upload_base64_image(data.selfie_dni, folder, "selfie_dni") or medico.get("selfie_dni")
+
+    if not foto_dni_frente_url or not foto_dni_dorso_url or not selfie_dni_url:
+        raise HTTPException(status_code=400, detail="Debes subir frente, dorso y selfie con documento")
+
+    cur.execute(
+        """
+        UPDATE medicos
+        SET tipo = %s,
+            tipo_documento = %s,
+            numero_documento = %s,
+            dni = %s,
+            matricula = %s,
+            especialidad = %s,
+            telefono = %s,
+            direccion = %s,
+            provincia = %s,
+            localidad = %s,
+            foto_dni_frente = %s,
+            foto_dni_dorso = %s,
+            selfie_dni = %s,
+            acepta_terminos = %s,
+            perfil_completo = TRUE,
+            validado = TRUE,
+            updated_at = NOW()
+        WHERE id = %s
+        RETURNING id, full_name, email, tipo, validado, matricula_validada, perfil_completo
+        """,
+        (
+            tipo,
+            tipo_documento,
+            numero_documento,
+            dni_value,
+            matricula,
+            (data.especialidad or "").strip() or None,
+            telefono,
+            direccion,
+            (data.provincia or "").strip() or None,
+            (data.localidad or "").strip() or None,
+            foto_dni_frente_url,
+            foto_dni_dorso_url,
+            selfie_dni_url,
+            data.acepta_terminos,
+            data.medico_id,
+        ),
+    )
+    updated = cur.fetchone()
+    db.commit()
+
+    return {
+        "ok": True,
+        "perfil_completo": bool(updated["perfil_completo"]),
+        "medico": {
+            "id": updated["id"],
+            "full_name": updated["full_name"],
+            "email": updated["email"],
+            "tipo": updated["tipo"],
+            "validado": bool(updated["validado"]),
+            "matricula_validada": bool(updated["matricula_validada"]),
+            "perfil_completo": bool(updated["perfil_completo"]),
+        },
+    }
+
+
 @router.post("/auth/register_medico")
 def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     """Alta profesional con validación por mail y subida inicial de imágenes."""
+    _ensure_medico_profile_columns(db)
     cur = db.cursor()
     cur.execute("SELECT id FROM medicos WHERE email=%s", (data.email.lower(),))
     if cur.fetchone():
@@ -661,17 +934,36 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
     if cur.fetchone():
         raise HTTPException(status_code=409, detail="La matrícula ya está registrada")
 
+    telefono = (data.telefono or "").strip()
+    if not re.match(E164_REGEX, telefono):
+        raise HTTPException(status_code=400, detail="El teléfono debe estar en formato internacional, por ejemplo +5491122334455")
+
+    tipo_documento = (data.tipo_documento or ("dni" if (data.dni or "").strip() else "")).strip().lower()
+    numero_documento = (data.numero_documento or data.dni or "").strip()
+    if tipo_documento not in TIPOS_DOCUMENTO:
+        raise HTTPException(status_code=400, detail="Tipo de documento inválido")
+    if not numero_documento:
+        raise HTTPException(status_code=400, detail="Número de documento obligatorio")
+    if not data.direccion or not data.direccion.strip():
+        raise HTTPException(status_code=400, detail="Dirección obligatoria")
+    if not data.acepta_terminos:
+        raise HTTPException(status_code=400, detail="Debes aceptar los términos para continuar")
+    if not data.foto_dni_frente or not data.foto_dni_dorso or not data.selfie_dni:
+        raise HTTPException(status_code=400, detail="Debes subir frente, dorso y selfie con documento")
+
     password_hash = pwd_context.hash(data.password)
     full_name = data.full_name.strip().title()
     tipo_normalizado = unidecode(data.tipo.strip().lower())
+    dni_value = numero_documento if tipo_documento == "dni" else None
 
     cur.execute(
         """
         INSERT INTO medicos (
             full_name, email, password_hash, matricula, especialidad, tipo, telefono,
-            provincia, localidad, dni, validado
+            provincia, localidad, dni, tipo_documento, numero_documento, direccion,
+            acepta_terminos, perfil_completo, validado
         )
-        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,FALSE)
+        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,TRUE,FALSE)
         RETURNING id, full_name, tipo
         """,
         (
@@ -679,40 +971,25 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
             data.email.lower(),
             password_hash,
             data.matricula,
-            data.especialidad,
+            (data.especialidad or "").strip() or None,
             tipo_normalizado,
-            data.telefono,
-            data.provincia,
-            data.localidad,
-            data.dni,
+            telefono,
+            (data.provincia or "").strip() or None,
+            (data.localidad or "").strip() or None,
+            dni_value,
+            tipo_documento,
+            numero_documento,
+            data.direccion.strip(),
+            data.acepta_terminos,
         ),
     )
     medico_id, full_name, tipo = cur.fetchone()
     db.commit()
 
-    def subir_a_cloudinary(imagen_base64, carpeta):
-        if not imagen_base64:
-            return None
-        try:
-            if imagen_base64.startswith("data:image"):
-                res = cloudinary.uploader.upload(
-                    imagen_base64,
-                    folder=f"docya/medicos/{medico_id}",
-                    public_id=carpeta,
-                    overwrite=True,
-                    resource_type="image",
-                )
-                return res["secure_url"]
-            if imagen_base64.startswith("http"):
-                return imagen_base64
-        except Exception as exc:
-            print(f"Error subiendo {carpeta}: {exc}")
-        return None
-
-    foto_perfil_url = subir_a_cloudinary(data.foto_perfil, "perfil")
-    foto_dni_frente_url = subir_a_cloudinary(data.foto_dni_frente, "dni_frente")
-    foto_dni_dorso_url = subir_a_cloudinary(data.foto_dni_dorso, "dni_dorso")
-    selfie_dni_url = subir_a_cloudinary(data.selfie_dni, "selfie_dni")
+    foto_perfil_url = _upload_base64_image(data.foto_perfil, f"docya/medicos/{medico_id}", "perfil")
+    foto_dni_frente_url = _upload_base64_image(data.foto_dni_frente, f"docya/medicos/{medico_id}", "dni_frente")
+    foto_dni_dorso_url = _upload_base64_image(data.foto_dni_dorso, f"docya/medicos/{medico_id}", "dni_dorso")
+    selfie_dni_url = _upload_base64_image(data.selfie_dni, f"docya/medicos/{medico_id}", "selfie_dni")
 
     cur.execute(
         """
@@ -734,6 +1011,7 @@ def register_medico(data: RegisterMedicoIn, db=Depends(get_db)):
         "medico_id": medico_id,
         "full_name": full_name,
         "tipo": tipo,
+        "perfil_completo": True,
         "fotos": {
             "perfil": foto_perfil_url,
             "dni_frente": foto_dni_frente_url,
@@ -768,12 +1046,13 @@ def activar_medico(token: str, request: Request, db=Depends(get_db)):
 @router.post("/auth/login_medico")
 def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
     """Login profesional por email o DNI."""
+    _ensure_medico_profile_columns(db)
     cur = db.cursor()
     input_value = data.email.strip().lower()
     password = data.password.strip()
     cur.execute(
         """
-        SELECT id, full_name, password_hash, validado, tipo, email, dni, matricula_validada
+        SELECT id, full_name, password_hash, validado, tipo, email, dni, matricula_validada, perfil_completo
         FROM medicos
         WHERE lower(email) = %s OR trim(lower(dni)) = %s
         """,
@@ -799,6 +1078,7 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
         "email": row[5],
         "dni": row[6],
         "matricula_validada": row[7],
+        "perfil_completo": bool(row[8]),
         "medico": {
             "id": row[0],
             "full_name": row[1],
@@ -807,6 +1087,7 @@ def login_medico(data: LoginMedicoIn, db=Depends(get_db)):
             "email": row[5],
             "dni": row[6],
             "matricula_validada": row[7],
+            "perfil_completo": bool(row[8]),
         },
     }
 
@@ -1011,11 +1292,14 @@ def actualizar_fcm_token(medico_id: int, data: FcmTokenIn, db=Depends(get_db)):
 @router.get("/auth/medico/{medico_id}")
 def obtener_medico(medico_id: int, db=Depends(get_db)):
     """Detalle de perfil profesional usado por DocYa Pro."""
+    _ensure_medico_profile_columns(db)
     cur = db.cursor()
     cur.execute(
         """
         SELECT id, full_name, email, especialidad, telefono,
-               alias_cbu, matricula, foto_perfil, tipo, firma_url
+               alias_cbu, matricula, foto_perfil, tipo, firma_url,
+               direccion, tipo_documento, numero_documento, perfil_completo,
+               acepta_terminos, matricula_validada
         FROM medicos
         WHERE id=%s
         """,
@@ -1035,6 +1319,12 @@ def obtener_medico(medico_id: int, db=Depends(get_db)):
         "foto_perfil": row[7],
         "tipo": row[8],
         "firma_url": row[9],
+        "direccion": row[10],
+        "tipo_documento": row[11],
+        "numero_documento": row[12],
+        "perfil_completo": bool(row[13]),
+        "acepta_terminos": bool(row[14]),
+        "matricula_validada": bool(row[15]),
     }
 
 
