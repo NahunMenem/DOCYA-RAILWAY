@@ -352,14 +352,17 @@ def buscar_medicamentos(
 ):
     """
     Busca por nombre comercial O principio activo.
-    Prioriza coincidencias que empiezan con el texto buscado.
-    Ideal para autocompletar mientras el médico escribe.
+    Ordena: nombre inicia > nombre contiene > principio inicia > principio contiene.
+    Agrega 'match_field' para que la UI pueda distinguir el motivo del resultado.
     """
     _ensure_extended_schema(conn)
     cur = cursor(conn)
 
+    q_like    = f"%{q}%"
+    q_starts  = f"{q}%"
+
     filtros = ["(nombre_comercial ILIKE %s OR principio_activo_str ILIKE %s)"]
-    params: list = [f"%{q}%", f"%{q}%"]
+    params: list = [q_like, q_like]
 
     if solo_otc is not None:
         filtros.append("requiere_receta = %s")
@@ -386,14 +389,23 @@ def buscar_medicamentos(
             codigo_alfabeta,
             pvp_pami,
             cobertura_pct,
-            importe_afiliado
+            importe_afiliado,
+            CASE
+                WHEN nombre_comercial ILIKE %s THEN 'nombre_comercial'
+                ELSE 'principio_activo'
+            END AS match_field
         FROM medicamentos
         WHERE {where}
         ORDER BY
-            CASE WHEN nombre_comercial ILIKE %s THEN 0 ELSE 1 END,
+            CASE
+                WHEN nombre_comercial ILIKE %s THEN 0
+                WHEN nombre_comercial ILIKE %s THEN 1
+                WHEN principio_activo_str ILIKE %s THEN 2
+                ELSE 3
+            END,
             nombre_comercial
         LIMIT %s
-    """, [*params, f"{q}%", limit])
+    """, [*params, q_like, q_starts, q_like, q_starts, limit])
 
     resultados = cur.fetchall()
     return {"total": len(resultados), "resultados": [dict(r) for r in resultados]}

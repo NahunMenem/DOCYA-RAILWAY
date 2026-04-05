@@ -3258,6 +3258,7 @@ def enviar_push(
     android_channel_id: str = "default_channel_id",
     android_sound: str | None = None,
     apns_sound: str = "default",
+    time_sensitive: bool = False,
 ):
     project_id = service_account_info["project_id"]
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
@@ -3266,6 +3267,19 @@ def enviar_push(
         "Authorization": f"Bearer {get_access_token()}",
         "Content-Type": "application/json; charset=UTF-8",
     }
+
+    # For time-sensitive pushes (e.g. medication reminders) use interruption-level timeSensitive
+    apns_headers = {
+        "apns-priority": "10",           # immediate delivery
+        "apns-push-type": "alert",       # required for iOS 13+
+    }
+    aps_payload: dict = {
+        "alert": {"title": titulo, "body": cuerpo},
+        "sound": apns_sound,
+        "badge": 1,
+    }
+    if time_sensitive:
+        aps_payload["interruption-level"] = "time-sensitive"
 
     payload = {
         "message": {
@@ -3286,6 +3300,7 @@ def enviar_push(
                 "priority": "high",
                 "notification": {
                     "channel_id": android_channel_id,
+                    "visibility": "public",
                     **({"sound": android_sound} if android_sound else {}),
                 }
             },
@@ -3294,15 +3309,9 @@ def enviar_push(
             # 🍏 iOS / APNS
             # ================================
             "apns": {
-                "headers": {
-                    "apns-priority": "10"  # entrega inmediata
-                },
+                "headers": apns_headers,
                 "payload": {
-                    "aps": {
-                        "alert": {"title": titulo, "body": cuerpo},
-                        "sound": apns_sound,
-                        "badge": 1
-                    }
+                    "aps": aps_payload,
                 }
             },
 

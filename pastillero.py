@@ -269,6 +269,7 @@ def procesar_recordatorios_push_pastillero(db, enviar_push_fn) -> int:
                 android_channel_id="medication_reminders_v2",
                 android_sound="alerta",
                 apns_sound="default",
+                time_sensitive=True,
             )
             update_cur.execute(
                 """
