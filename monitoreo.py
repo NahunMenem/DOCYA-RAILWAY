@@ -877,8 +877,6 @@ def medicos_ubicacion(db=Depends(get_db)):
         WHERE disponible = TRUE
           AND latitud IS NOT NULL
           AND longitud IS NOT NULL
-          AND ultimo_ping IS NOT NULL
-          AND ultimo_ping > NOW() - INTERVAL '5 minutes'
         ORDER BY ultimo_ping DESC NULLS LAST
     """)
     data = cur.fetchall()
