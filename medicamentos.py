@@ -107,6 +107,8 @@ def _parse_presentacion(presentacion: Optional[str]) -> tuple[Optional[str], Opt
         return None, None
     raw = presentacion.strip()
     lower = raw.lower()
+    if any(token in lower for token in (" iv ", " im ", " i/v", " i.m", " f.a.", " solv", " amp.")):
+        return None, raw
     separators = [" comp.", " caps.", " jbe.", " iny.", " crema", " gotas", " amp.", " sobres", " sachet"]
     for token in separators:
         idx = lower.find(token)

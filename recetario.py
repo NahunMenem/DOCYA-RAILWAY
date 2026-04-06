@@ -133,6 +133,26 @@ def _medicamento_campos(m: dict) -> tuple[str, str, str, str, str]:
     return ifa, nombre_comercial, forma, concentracion, presentacion
 
 
+def _detalle_medicamento(forma: str, concentracion: str, presentacion: str) -> str:
+    forma_concentracion = " ".join(part for part in [forma, concentracion] if part).strip()
+    if not presentacion:
+        return forma_concentracion
+    if not forma_concentracion:
+        return presentacion
+
+    presentacion_norm = " ".join(presentacion.lower().split())
+    forma_norm = " ".join(forma_concentracion.lower().split())
+
+    if presentacion_norm == forma_norm:
+        return presentacion
+    if presentacion_norm.startswith(forma_norm):
+        return presentacion
+    if forma_norm.startswith(presentacion_norm):
+        return forma_concentracion
+
+    return f"{forma_concentracion} &mdash; {presentacion}"
+
+
 def _ensure_recetario_patient_columns(db) -> None:
     """Agrega compatibilidad opcional con pacientes DocYa sin romper la web."""
     cur = db.cursor()
@@ -949,15 +969,14 @@ def receta_html(
         indicaciones = m.get("indicaciones", "")
         cantidad_txt = {1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco"}.get(int(cantidad), str(cantidad))
         indicaciones_html = indicaciones if indicaciones else '<em style="color:#aaa">Sin indicaciones</em>'
-        forma_concentracion = " ".join(part for part in [forma, concentracion] if part).strip()
-        detalle_parts = [part for part in [forma_concentracion, presentacion] if part]
+        detalle = _detalle_medicamento(forma, concentracion, presentacion)
         sugerido_html = (
             f'<span class="med-brand">Marca sugerida: {nombre_comercial}</span><br>'
             if nombre_comercial else ""
         )
         detalle_html = (
-            f'<span class="med-det">{" &mdash; ".join(detalle_parts)}</span><br>'
-            if detalle_parts else ""
+            f'<span class="med-det">{detalle}</span><br>'
+            if detalle else ""
         )
         meds_rp_html += (
             f'<div class="med-rp"><span class="med-num">{i})</span> '
