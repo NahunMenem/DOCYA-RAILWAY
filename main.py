@@ -2887,7 +2887,7 @@ def aceptar_consulta(
 
     # 1️⃣ Obtener estado actual y pago
     cur.execute("""
-        SELECT estado, medico_id, mp_payment_id
+        SELECT estado, medico_id, mp_payment_id, paciente_uuid
         FROM consultas
         WHERE id = %s
     """, (consulta_id,))
@@ -2896,7 +2896,7 @@ def aceptar_consulta(
     if not row:
         raise HTTPException(status_code=404, detail="Consulta inexistente")
 
-    estado_actual, medico_actual, payment_id = row
+    estado_actual, medico_actual, payment_id, paciente_uuid = row
 
     # ❌ Consulta ya no disponible para este médico
     if estado_actual != "pendiente" or medico_actual != medico_id:
@@ -2936,7 +2936,39 @@ def aceptar_consulta(
 
     db.commit()
 
-    # 4️⃣ Capturar pago si corresponde
+    # 4️⃣ Avisar al paciente que ya tiene profesional asignado
+    try:
+        cur = db.cursor()
+        cur.execute(
+            """
+            SELECT u.fcm_token, m.full_name, m.tipo
+            FROM consultas c
+            JOIN users u ON u.id = c.paciente_uuid
+            JOIN medicos m ON m.id = c.medico_id
+            WHERE c.id = %s
+            """,
+            (consulta_id,),
+        )
+        paciente_push = cur.fetchone()
+        if paciente_push and paciente_push[0]:
+            enviar_push(
+                paciente_push[0],
+                "Profesional asignado",
+                f'{paciente_push[1] or "Tu profesional"} ya va en camino',
+                {
+                    "tipo": "consulta_asignada",
+                    "consulta_id": str(consulta_id),
+                    "paciente_uuid": str(paciente_uuid) if paciente_uuid else "",
+                    "estado": "aceptada",
+                    "profesional_tipo": (paciente_push[2] or "medico"),
+                },
+                app_kind="paciente",
+            )
+            print("📤 PUSH enviado al paciente (consulta aceptada)")
+    except Exception as e:
+        print("⚠️ Error enviando push al paciente tras aceptación:", e)
+
+    # 5️⃣ Capturar pago si corresponde
     if payment_id:
         try:
             url = f"https://api.mercadopago.com/v1/payments/{payment_id}/capture"

@@ -1331,6 +1331,39 @@ async def asignar_consulta_manual(
         except Exception as e:
             print("⚠️ Error enviando push de asignación manual:", e)
 
+    # 5) Avisar al paciente para que abra la consulta asignada
+    cur.execute(
+        """
+        SELECT u.fcm_token, m.full_name, m.tipo
+        FROM consultas c
+        JOIN users u ON u.id = c.paciente_uuid
+        JOIN medicos m ON m.id = c.medico_id
+        WHERE c.id = %s
+        """,
+        (consulta_id,),
+    )
+    row_patient_push = cur.fetchone()
+
+    if enviar_push and row_patient_push and row_patient_push.get("fcm_token"):
+        try:
+            enviar_push(
+                row_patient_push["fcm_token"],
+                "Profesional asignado",
+                f'{row_patient_push["full_name"] or "Tu profesional"} fue asignado a tu consulta',
+                {
+                    "tipo": "consulta_asignada",
+                    "consulta_id": str(consulta_id),
+                    "paciente_uuid": str(consulta["paciente_uuid"]) if consulta["paciente_uuid"] else "",
+                    "estado": nuevo_estado,
+                    "profesional_tipo": row_patient_push["tipo"] or "medico",
+                    "origen": "asignacion_manual_monitoreo",
+                },
+                app_kind="paciente",
+            )
+            print("📤 PUSH enviado al paciente (asignación manual)")
+        except Exception as e:
+            print("⚠️ Error enviando push al paciente por asignación manual:", e)
+
     cur.close()
     return {
         "ok": True,
