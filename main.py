@@ -72,16 +72,60 @@ cloudinary.config(
     api_secret=os.getenv("CLOUDINARY_API_SECRET")
 )
 
-service_account_info = json.loads(os.getenv("GOOGLE_APPLICATION_CREDENTIALS_JSON"))
-credentials = service_account.Credentials.from_service_account_info(
-    service_account_info,
-    scopes=["https://www.googleapis.com/auth/firebase.messaging"]
+FCM_SCOPE = ["https://www.googleapis.com/auth/firebase.messaging"]
+
+
+def _load_service_account_json(env_name: str) -> Optional[dict]:
+    raw = os.getenv(env_name, "").strip()
+    if not raw:
+        return None
+    return json.loads(raw)
+
+
+service_account_info = _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON") or {}
+service_account_info_pro = (
+    _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON_PRO")
+    or service_account_info
+)
+service_account_info_paciente = (
+    _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON_PACIENTE")
+    or service_account_info_pro
 )
 
-def get_access_token():
+
+def _build_fcm_credentials(service_info: dict | None):
+    if not service_info:
+        return None
+    return service_account.Credentials.from_service_account_info(
+        service_info,
+        scopes=FCM_SCOPE,
+    )
+
+
+fcm_credentials_map = {
+    "pro": _build_fcm_credentials(service_account_info_pro),
+    "paciente": _build_fcm_credentials(service_account_info_paciente),
+}
+
+
+def get_access_token(app_kind: str = "pro"):
+    kind = app_kind if app_kind in fcm_credentials_map else "pro"
+    credentials = fcm_credentials_map.get(kind) or fcm_credentials_map.get("pro")
+    if credentials is None:
+        raise RuntimeError("Firebase service account no configurada")
     request = google_requests.Request()
     credentials.refresh(request)
     return credentials.token
+
+
+def get_fcm_project_id(app_kind: str = "pro") -> str:
+    if app_kind == "paciente" and service_account_info_paciente:
+        return service_account_info_paciente["project_id"]
+    if service_account_info_pro:
+        return service_account_info_pro["project_id"]
+    if service_account_info:
+        return service_account_info["project_id"]
+    raise RuntimeError("Firebase project_id no configurado")
 
 # ====================================================
 # 🚀 CREAR APP FASTAPI
@@ -298,7 +342,7 @@ async def timeout_worker():
                 await procesar_timeouts(db)
                 enviados_pastillero = procesar_recordatorios_push_pastillero(
                     db,
-                    enviar_push,
+                    lambda *args, **kwargs: enviar_push(*args, app_kind="paciente", **kwargs),
                 )
                 if enviados_pastillero:
                     print(f"💊 Recordatorios push enviados: {enviados_pastillero}")
@@ -3360,12 +3404,13 @@ def enviar_push(
     android_sound: str | None = None,
     apns_sound: str = "default",
     time_sensitive: bool = False,
+    app_kind: str = "pro",
 ):
-    project_id = service_account_info["project_id"]
+    project_id = get_fcm_project_id(app_kind)
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 
     headers = {
-        "Authorization": f"Bearer {get_access_token()}",
+        "Authorization": f"Bearer {get_access_token(app_kind)}",
         "Content-Type": "application/json; charset=UTF-8",
     }
 
@@ -6372,7 +6417,8 @@ async def chat_ws(websocket: WebSocket, consulta_id: int, remitente_tipo: str, r
                                 "consulta_id": str(consulta_id),
                                 "remitente_id": str(remitente_id),
                                 "mensaje": mensaje
-                            }
+                            },
+                            app_kind="pro" if remitente_tipo == "paciente" else "paciente",
                         )
 
                 except Exception as e:
