@@ -96,7 +96,10 @@ class PacienteIn(BaseModel):
     paciente_uuid:   Optional[str] = None
 
 class MedicamentoItem(BaseModel):
-    nombre:         str                       # nombre_comercial o principio activo
+    nombre:         Optional[str] = None      # fallback legacy
+    ifa:            Optional[str] = None
+    nombre_comercial: Optional[str] = None
+    forma_farmaceutica: Optional[str] = None
     concentracion:  Optional[str] = None
     presentacion:   Optional[str] = None      # "Envase x 30 comprimidos"
     cantidad:       int = 1
@@ -112,6 +115,22 @@ class RecetaIn(BaseModel):
 
 class AnularIn(BaseModel):
     motivo: Optional[str] = None
+
+
+def _medicamento_campos(m: dict) -> tuple[str, str, str, str, str]:
+    ifa = (m.get("ifa") or m.get("principio_activo_str") or m.get("nombre") or "").strip()
+    nombre_comercial = (m.get("nombre_comercial") or "").strip()
+    forma = (m.get("forma_farmaceutica") or m.get("forma") or "").strip()
+    concentracion = (m.get("concentracion") or "").strip()
+    presentacion = (m.get("presentacion") or "").strip()
+
+    if nombre_comercial and ifa and nombre_comercial.lower() == ifa.lower():
+        nombre_comercial = ""
+
+    if not ifa:
+        ifa = nombre_comercial or "Medicamento"
+
+    return ifa, nombre_comercial, forma, concentracion, presentacion
 
 
 def _ensure_recetario_patient_columns(db) -> None:
@@ -920,17 +939,26 @@ def receta_html(
     meds_rp_html = ""
     meds_com_html = ""
     for i, m in enumerate(medicamentos or [], 1):
-        nombre = m.get("nombre", "")
-        concentracion = m.get("concentracion") or ""
-        presentacion = m.get("presentacion") or ""
+        ifa, nombre_comercial, forma, concentracion, presentacion = _medicamento_campos(m)
         cantidad = m.get("cantidad", 1)
         indicaciones = m.get("indicaciones", "")
         cantidad_txt = {1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco"}.get(int(cantidad), str(cantidad))
         indicaciones_html = indicaciones if indicaciones else '<em style="color:#aaa">Sin indicaciones</em>'
+        forma_concentracion = " ".join(part for part in [forma, concentracion] if part).strip()
+        detalle_parts = [part for part in [forma_concentracion, presentacion] if part]
+        sugerido_html = (
+            f'<span class="med-brand">Marca sugerida: {nombre_comercial}</span><br>'
+            if nombre_comercial else ""
+        )
+        detalle_html = (
+            f'<span class="med-det">{" &mdash; ".join(detalle_parts)}</span><br>'
+            if detalle_parts else ""
+        )
         meds_rp_html += (
             f'<div class="med-rp"><span class="med-num">{i})</span> '
-            f'<strong>{nombre}{(" " + concentracion) if concentracion else ""}</strong>'
-            f'{(" &mdash; " + presentacion) if presentacion else ""}<br>'
+            f'<strong>{ifa}</strong><br>'
+            f'{sugerido_html}'
+            f'{detalle_html}'
             f'<span class="med-cant">Cant: {cantidad} ({cantidad_txt})</span></div>'
         )
         meds_com_html += f'<div class="med-com"><span class="med-num">{i})</span> {indicaciones_html}</div>'
