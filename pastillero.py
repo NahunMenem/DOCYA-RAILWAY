@@ -216,8 +216,8 @@ def procesar_recordatorios_push_pastillero(db, enviar_push_fn) -> int:
     _ensure_tables(db)
 
     ahora = now_argentina().replace(tzinfo=None)
-    desde = ahora - timedelta(seconds=90)
-    hasta = ahora + timedelta(seconds=30)
+    desde = ahora - timedelta(minutes=2)   # 2 min de gracia si el worker estuvo ocupado
+    hasta = ahora + timedelta(minutes=5)   # avisar hasta 5 min antes del horario
 
     cur = _dict_cur(db)
     cur.execute(
