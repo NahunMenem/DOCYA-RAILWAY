@@ -5110,6 +5110,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
             c.mp_status,
             m.full_name, 
             m.matricula,
+            m.foto_perfil,
             m.tipo,
             c.tiempo_estimado_min,
             c.medico_lat,
@@ -5131,7 +5132,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         cid, paciente_uuid, medico_id, estado,
         motivo, direccion, lat, lng, creado_en,
         mp_status,
-        medico_nombre, medico_matricula, tipo,
+        medico_nombre, medico_matricula, medico_foto_perfil, tipo,
         tiempo_estimado_raw,
         medico_lat, medico_lng,
         paciente_nombre, paciente_telefono      # 🔥 NUEVO
@@ -5180,6 +5181,7 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
         "mp_status": mp_status,
         "medico_nombre": medico_nombre,
         "medico_matricula": medico_matricula,
+        "medico_foto_perfil": medico_foto_perfil,
         "tipo": tipo,
         "tiempo_estimado_min": tiempo_estimado_min,
         "distancia_km": round(distancia_km, 2),   # ✔ YA USADO POR PACIENTE
