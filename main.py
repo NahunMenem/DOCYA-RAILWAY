@@ -5191,6 +5191,67 @@ def obtener_consulta(consulta_id: int, db=Depends(get_db)):
 
 
 
+# -----------------------------------------------------------------------
+# 🔍 CONSULTA ACTIVA DEL PACIENTE
+# Permite al splash/home de la app descubrir si hay una consulta en curso
+# sin depender del ID guardado localmente (que puede estar desactualizado).
+# -----------------------------------------------------------------------
+@app.get("/pacientes/{paciente_uuid}/consulta_activa")
+def consulta_activa_paciente(paciente_uuid: str, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT
+            c.id,
+            c.estado,
+            c.motivo,
+            c.direccion,
+            c.lat,
+            c.lng,
+            c.tipo,
+            c.medico_id,
+            m.full_name  AS medico_nombre,
+            m.matricula  AS medico_matricula,
+            m.latitud    AS medico_lat,
+            m.longitud   AS medico_lng,
+            c.tiempo_estimado_min
+        FROM consultas c
+        LEFT JOIN medicos m ON m.id = c.medico_id
+        WHERE c.paciente_uuid = %s
+          AND c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio', 'en_curso')
+        ORDER BY c.creado_en DESC
+        LIMIT 1
+    """, (paciente_uuid,))
+    row = cur.fetchone()
+    if not row:
+        return {"activa": False}
+
+    (cid, estado, motivo, direccion, lat, lng, tipo, medico_id,
+     medico_nombre, medico_matricula, medico_lat, medico_lng,
+     tiempo_estimado_raw) = row
+
+    try:
+        tiempo_estimado_min = int(round(float(tiempo_estimado_raw))) if tiempo_estimado_raw else 0
+    except Exception:
+        tiempo_estimado_min = 0
+
+    return {
+        "activa": True,
+        "id": cid,
+        "estado": estado,
+        "motivo": motivo,
+        "direccion": direccion,
+        "lat": lat,
+        "lng": lng,
+        "tipo": tipo,
+        "medico_id": medico_id,
+        "medico_nombre": medico_nombre,
+        "medico_matricula": medico_matricula,
+        "medico_lat": medico_lat,
+        "medico_lng": medico_lng,
+        "tiempo_estimado_min": tiempo_estimado_min,
+    }
+
+
 #valoraciones medicos -------------------------------------------------------------------------------
 from typing import Optional
 from pydantic import BaseModel
