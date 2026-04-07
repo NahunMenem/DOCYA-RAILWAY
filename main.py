@@ -3815,6 +3815,35 @@ class RecetaIn(BaseModel):
     diagnostico: Optional[str] = None
     medicamentos: list[dict]
 
+
+def _render_consulta_medicamentos_html(medicamentos) -> str:
+    bloques = []
+    for idx, med in enumerate(medicamentos or [], 1):
+        if isinstance(med, dict):
+            nombre = str(med.get("nombre") or "MEDICAMENTO").strip()
+            dosis = str(med.get("dosis") or "").strip()
+            frecuencia = str(med.get("frecuencia") or "").strip()
+            duracion = str(med.get("duracion") or "").strip()
+        else:
+            nombre = str(med[0] or "MEDICAMENTO").strip()
+            dosis = str(med[1] or "").strip()
+            frecuencia = str(med[2] or "").strip()
+            duracion = str(med[3] or "").strip()
+
+        detalle_parts = [part.upper() for part in [dosis, frecuencia, duracion] if part]
+        detalle_html = (
+            f'<span class="med-det">{" &mdash; ".join(detalle_parts)}</span><br>'
+            if detalle_parts else ""
+        )
+        bloques.append(
+            f'<div class="med-rp"><span class="med-num">{idx})</span> '
+            f'<strong>{nombre.upper()}</strong><br>'
+            f'{detalle_html}'
+            f'<span class="med-cant">Cant: 1 (uno)</span></div>'
+        )
+
+    return "".join(bloques) or '<div class="med-rp"><strong>SIN MEDICACIÓN CARGADA</strong></div>'
+
 # --- POST: crear receta ---
 @app.post("/consultas/{consulta_id}/receta")
 def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
@@ -3889,6 +3918,8 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
         WHERE receta_id = %s
     """, (receta_id,))
     medicamentos = cur.fetchall()
+    medicamentos_html = _render_consulta_medicamentos_html(medicamentos)
+    medicamentos_html = _render_consulta_medicamentos_html(medicamentos)
 
     # Asignar variables legibles
     obra_social = receta[1]
@@ -3962,8 +3993,25 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
           margin-bottom: 8px;
         }}
         .label {{ font-weight: bold; }}
-        ul {{ margin-left: 25px; }}
-        li {{ margin-bottom: 8px; }}
+        .med-rp {{
+          margin-bottom: 12px;
+          padding-left: 4px;
+          line-height: 1.6;
+        }}
+        .med-num {{
+          color: #14B8A6;
+          font-weight: 700;
+          margin-right: 6px;
+        }}
+        .med-det {{
+          color: #475569;
+          font-size: 14px;
+        }}
+        .med-cant {{
+          color: #334155;
+          font-size: 14px;
+          font-weight: 600;
+        }}
         .firma img {{ width: 160px; margin-top: 10px; }}
         .qr img {{ width: 90px; }}
         footer {{
@@ -3996,9 +4044,7 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
         <p>{diagnostico or '—'}</p>
 
         <div class="section-title">Rp / Indicaciones</div>
-        <ul>
-          {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
-        </ul>
+        <div>{medicamentos_html}</div>
 
         {firma_html}
 
@@ -4696,6 +4742,7 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         WHERE r.consulta_id = %s
     """, (consulta_id,))
     medicamentos = cur.fetchall()
+    medicamentos_html = _render_consulta_medicamentos_html(medicamentos)
 
     fecha_str = creado_en.strftime("%d/%m/%Y %H:%M")
 
@@ -4734,9 +4781,24 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
                 margin-bottom: 5px;
                 font-size: 15px;
             }}
-            ul {{
-                margin: 0;
-                padding-left: 18px;
+            .med-rp {{
+                margin-bottom: 12px;
+                padding-left: 4px;
+                line-height: 1.6;
+            }}
+            .med-num {{
+                color: #14B8A6;
+                font-weight: 700;
+                margin-right: 6px;
+            }}
+            .med-det {{
+                color: #475569;
+                font-size: 14px;
+            }}
+            .med-cant {{
+                color: #334155;
+                font-size: 14px;
+                font-weight: 600;
             }}
             .firma {{
                 margin-top: 50px;
@@ -4789,9 +4851,7 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         <p>{diagnostico or '—'}</p>
 
         <div class="titulo">Rp / Indicaciones</div>
-        <ul>
-            {''.join([f"<li><b>{m[0]}</b>: {m[1]}, {m[2]}, {m[3]}</li>" for m in medicamentos])}
-        </ul>
+        <div>{medicamentos_html}</div>
 
         <div class="firma">
             <p><b>Firma electrónica del profesional:</b></p>
@@ -6255,11 +6315,24 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         p {{
           margin: 6px 0;
         }}
-        ul {{
-          margin: 10px 0 0 25px;
+        .med-rp {{
+          margin-bottom: 12px;
+          padding-left: 4px;
+          line-height: 1.6;
         }}
-        li {{
-          margin-bottom: 8px;
+        .med-num {{
+          color: #14B8A6;
+          font-weight: 700;
+          margin-right: 6px;
+        }}
+        .med-det {{
+          color: #475569;
+          font-size: 14px;
+        }}
+        .med-cant {{
+          color: #334155;
+          font-size: 14px;
+          font-weight: 600;
         }}
         .firma {{
           margin-top: 45px;
@@ -6310,12 +6383,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         <p>{receta['diagnostico'] or '—'}</p>
 
         <div class="section-title">Rp / Indicaciones</div>
-        <ul>
-          {''.join([
-            f"<li><b>{m['nombre']}</b>: {m['dosis']}, {m['frecuencia']}, {m['duracion']}</li>"
-            for m in medicamentos
-          ])}
-        </ul>
+        <div>{medicamentos_html}</div>
 
         <div class="firma">
           <p><span class="label">Firma digital:</span></p>
