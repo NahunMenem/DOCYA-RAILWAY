@@ -7332,7 +7332,9 @@ def delete_medico(medico_id: int, db=Depends(get_db)):
     """, (medico_id,))
 
     # 3) Eliminar tokens push del médico
-    cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
+    cur.execute("SELECT to_regclass('public.fcm_tokens')")
+    if cur.fetchone()[0]:
+        cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
 
     # 4) Eliminar la cuenta del médico
     cur.execute("DELETE FROM medicos WHERE id = %s", (medico_id,))

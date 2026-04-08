@@ -857,7 +857,9 @@ def borrar_medico(medico_id: int, db=Depends(get_db)):
         cur.execute("DELETE FROM pagos_consulta WHERE medico_id = %s", (medico_id,))
         cur.execute("DELETE FROM liquidaciones_semanales WHERE medico_id = %s", (medico_id,))
         cur.execute("DELETE FROM saldo_medico WHERE medico_id = %s", (medico_id,))
-        cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
+        cur.execute("SELECT to_regclass('public.fcm_tokens')")
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
         cur.execute(
             """
             UPDATE medicaciones
