@@ -48,6 +48,28 @@ class AsignacionManualIn(BaseModel):
     forzar_en_camino: bool = False
 
 
+class RegistrarPagoComisionIn(BaseModel):
+    monto: float | None = None
+    observacion: str | None = None
+
+
+def _ensure_pagos_comision_table(db):
+    cur = db.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pagos_comision_medico (
+            id SERIAL PRIMARY KEY,
+            medico_id INTEGER NOT NULL REFERENCES medicos(id) ON DELETE CASCADE,
+            monto NUMERIC(12,2) NOT NULL CHECK (monto > 0),
+            observacion TEXT,
+            registrado_en TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    db.commit()
+    cur.close()
+
+
 @router.get("/liquidaciones/preview_semana_actual")
 def preview_semana_actual(db=Depends(get_db)):
     cur = db.cursor(cursor_factory=RealDictCursor)
@@ -57,11 +79,15 @@ def preview_semana_actual(db=Depends(get_db)):
             m.id AS medico_id,
             m.full_name AS medico,
             m.telefono,
-            m.tipo,
-            c.metodo_pago,
-            c.inicio_atencion
+            COALESCE(c.metodo_pago, pc.metodo_pago, 'efectivo') AS metodo_pago,
+            COALESCE(pc.monto_total, 0) AS monto_total,
+            COALESCE(pc.medico_neto, 0) AS medico_neto,
+            COALESCE(pc.docya_comision, 0) AS docya_comision,
+            COALESCE(sm.saldo, 0) AS saldo_actual
         FROM consultas c
         JOIN medicos m ON m.id = c.medico_id
+        LEFT JOIN pagos_consulta pc ON pc.consulta_id = c.id
+        LEFT JOIN saldo_medico sm ON sm.medico_id = m.id
         WHERE c.estado = 'finalizada'
           AND c.inicio_atencion >= {CURRENT_ARGENTINA_WEEK_SQL}
           AND c.inicio_atencion < {CURRENT_ARGENTINA_WEEK_SQL} + INTERVAL '7 days'
@@ -74,23 +100,11 @@ def preview_semana_actual(db=Depends(get_db)):
 
     for r in rows:
         mid = r["medico_id"]
-        tipo = r["tipo"]
-        metodo = r["metodo_pago"]
-        hora = r["inicio_atencion"].hour
-        nocturna = hora >= 22 or hora < 6
-
-        # Precio base
-        if tipo == "medico":
-            precio = 40000 if nocturna else 30000
-        else:
-            precio = 30000 if nocturna else 20000
-
-        # MP
-        neto_post_mp = precio * (1 - MP_FEE_RATE) if metodo != "efectivo" else precio
-
-        # DocYa
-        docya = neto_post_mp * 0.20
-        profesional = neto_post_mp - docya
+        metodo = (r["metodo_pago"] or "efectivo").lower().strip()
+        monto_total = float(r["monto_total"] or 0)
+        medico_neto = float(r["medico_neto"] or 0)
+        docya_comision = float(r["docya_comision"] or 0)
+        saldo_actual = float(r["saldo_actual"] or 0)
 
         if mid not in medicos:
             medicos[mid] = {
@@ -99,23 +113,95 @@ def preview_semana_actual(db=Depends(get_db)):
                 "telefono": r["telefono"],  # ✅
                 "resumen": {
                     "cantidad_consultas": 0,
-                    "total_efectivo": 0,
-                    "total_digital": 0,
-                    "docya_comision_total": 0,
-                    "a_pagar_medico": 0,
+                    "efectivo_cobrado": 0,
+                    "comision_efectivo": 0,
+                    "digital_neto_profesional": 0,
+                    "saldo_actual": saldo_actual,
                 },
             }
 
         medicos[mid]["resumen"]["cantidad_consultas"] += 1
-        medicos[mid]["resumen"]["docya_comision_total"] += docya
+        medicos[mid]["resumen"]["saldo_actual"] = saldo_actual
 
         if metodo == "efectivo":
-            medicos[mid]["resumen"]["total_efectivo"] += docya
+            medicos[mid]["resumen"]["efectivo_cobrado"] += monto_total
+            medicos[mid]["resumen"]["comision_efectivo"] += docya_comision
         else:
-            medicos[mid]["resumen"]["total_digital"] += profesional
-            medicos[mid]["resumen"]["a_pagar_medico"] += profesional
+            medicos[mid]["resumen"]["digital_neto_profesional"] += medico_neto
 
     return {"medicos": list(medicos.values())}
+
+
+@router.post("/medicos/{medico_id}/registrar_pago_comision")
+def registrar_pago_comision(medico_id: int, data: RegistrarPagoComisionIn | None = None, db=Depends(get_db)):
+    _ensure_pagos_comision_table(db)
+    cur = db.cursor(cursor_factory=RealDictCursor)
+
+    cur.execute(
+        """
+        SELECT m.id, m.full_name, COALESCE(sm.saldo, 0) AS saldo
+        FROM medicos m
+        LEFT JOIN saldo_medico sm ON sm.medico_id = m.id
+        WHERE m.id = %s
+        """,
+        (medico_id,),
+    )
+    medico = cur.fetchone()
+    if not medico:
+        cur.close()
+        raise HTTPException(status_code=404, detail="Profesional no encontrado")
+
+    saldo_actual = float(medico["saldo"] or 0)
+    deuda_actual = abs(min(saldo_actual, 0))
+    if deuda_actual <= 0:
+        cur.close()
+        raise HTTPException(status_code=400, detail="El profesional no tiene comisión pendiente con DocYa")
+
+    monto_solicitado = float(data.monto) if data and data.monto else deuda_actual
+    monto = min(max(monto_solicitado, 0), deuda_actual)
+    if monto <= 0:
+        cur.close()
+        raise HTTPException(status_code=400, detail="Monto inválido")
+
+    cur.execute("SELECT saldo FROM saldo_medico WHERE medico_id = %s", (medico_id,))
+    row_saldo = cur.fetchone()
+    if row_saldo:
+        cur.execute(
+            "UPDATE saldo_medico SET saldo = saldo + %s WHERE medico_id = %s",
+            (monto, medico_id),
+        )
+    else:
+        cur.execute(
+            "INSERT INTO saldo_medico (medico_id, saldo) VALUES (%s, %s)",
+            (medico_id, monto),
+        )
+
+    cur.execute(
+        """
+        INSERT INTO pagos_comision_medico (medico_id, monto, observacion)
+        VALUES (%s, %s, %s)
+        """,
+        (
+            medico_id,
+            monto,
+            (data.observacion.strip() if data and data.observacion else "Pago registrado desde monitoreo"),
+        ),
+    )
+    db.commit()
+
+    cur.execute("SELECT COALESCE(saldo, 0) AS saldo FROM saldo_medico WHERE medico_id = %s", (medico_id,))
+    saldo_nuevo = float(cur.fetchone()["saldo"] or 0)
+    cur.close()
+
+    return {
+        "ok": True,
+        "medico_id": medico_id,
+        "medico": medico["full_name"],
+        "monto_registrado": monto,
+        "saldo_anterior": saldo_actual,
+        "saldo_nuevo": saldo_nuevo,
+        "mensaje": "Pago de comisión registrado correctamente",
+    }
 
 
 @router.delete("/consultas/{consulta_id}")
@@ -151,7 +237,7 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
 
     cur.execute("""
         INSERT INTO liquidaciones_semanales (
-            medico_id,
+            c.medico_id,
             semana_inicio,
             semana_fin,
             neto_mp,
@@ -160,71 +246,42 @@ def generar_liquidaciones_semana_anterior(db=Depends(get_db)):
             estado
         )
         SELECT
-            medico_id,
+            c.medico_id,
             %s,
             %s,
 
-            -- Neto digital real (post MP y post DocYa)
-            SUM(
-              CASE WHEN metodo_pago != 'efectivo' THEN
-                (
-                  (
-                    CASE
-                      WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
-                      WHEN tipo='medico' THEN 30000
-                      WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
-                      ELSE 20000
-                    END
-                  ) * (1 - %s)
-                ) * 0.80
+            COALESCE(SUM(
+              CASE WHEN COALESCE(c.metodo_pago, pc.metodo_pago, 'efectivo') != 'efectivo'
+                THEN COALESCE(pc.medico_neto, 0)
               ELSE 0 END
-            ),
+            ), 0),
 
             -- Comisión efectivo (solo DocYa)
-            SUM(
-              CASE WHEN metodo_pago='efectivo' THEN
-                (
-                  CASE
-                    WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
-                    WHEN tipo='medico' THEN 30000
-                    WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
-                    ELSE 20000
-                  END
-                ) * 0.20
+            COALESCE(SUM(
+              CASE WHEN COALESCE(c.metodo_pago, pc.metodo_pago, 'efectivo') = 'efectivo'
+                THEN COALESCE(pc.docya_comision, 0)
               ELSE 0 END
-            ),
+            ), 0),
 
             -- Monto final
-            SUM(
-              CASE WHEN metodo_pago!='efectivo' THEN
-                (
-                  (
-                    CASE
-                      WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
-                      WHEN tipo='medico' THEN 30000
-                      WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
-                      ELSE 20000
-                    END
-                  ) * (1 - %s)
-                ) * 0.80
-              ELSE
-                (
-                  CASE
-                    WHEN tipo='medico' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 40000
-                    WHEN tipo='medico' THEN 30000
-                    WHEN tipo='enfermero' AND (EXTRACT(HOUR FROM inicio_atencion)>=22 OR EXTRACT(HOUR FROM inicio_atencion)<6) THEN 30000
-                    ELSE 20000
-                  END
-                ) * 0.80
-              END
-            ),
+            COALESCE(SUM(
+              CASE WHEN COALESCE(c.metodo_pago, pc.metodo_pago, 'efectivo') != 'efectivo'
+                THEN COALESCE(pc.medico_neto, 0)
+              ELSE 0 END
+            ), 0)
+              - COALESCE(SUM(
+                CASE WHEN COALESCE(c.metodo_pago, pc.metodo_pago, 'efectivo') = 'efectivo'
+                  THEN COALESCE(pc.docya_comision, 0)
+                ELSE 0 END
+              ), 0),
 
             'pendiente'
-        FROM consultas
-        WHERE estado='finalizada'
-          AND inicio_atencion>=%s AND inicio_atencion<%s
-        GROUP BY medico_id
-    """, (inicio, fin, MP_FEE_RATE, MP_FEE_RATE, inicio, fin))
+        FROM consultas c
+        LEFT JOIN pagos_consulta pc ON pc.consulta_id = c.id
+        WHERE c.estado='finalizada'
+          AND c.inicio_atencion>=%s AND c.inicio_atencion<%s
+        GROUP BY c.medico_id
+    """, (inicio, fin, inicio, fin))
 
     db.commit()
     cur.close()
