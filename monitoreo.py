@@ -860,6 +860,15 @@ def borrar_medico(medico_id: int, db=Depends(get_db)):
         cur.execute("SELECT to_regclass('public.fcm_tokens')")
         if cur.fetchone()[0]:
             cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
+        cur.execute("SELECT to_regclass('public.recetario_recetas')")
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM recetario_recetas WHERE medico_id = %s", (medico_id,))
+        cur.execute("SELECT to_regclass('public.recetario_certificados')")
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM recetario_certificados WHERE medico_id = %s", (medico_id,))
+        cur.execute("SELECT to_regclass('public.recetario_pacientes')")
+        if cur.fetchone()[0]:
+            cur.execute("DELETE FROM recetario_pacientes WHERE medico_id = %s", (medico_id,))
         cur.execute(
             """
             UPDATE medicaciones

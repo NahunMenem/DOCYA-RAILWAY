@@ -7336,7 +7336,18 @@ def delete_medico(medico_id: int, db=Depends(get_db)):
     if cur.fetchone()[0]:
         cur.execute("DELETE FROM fcm_tokens WHERE medico_id = %s", (medico_id,))
 
-    # 4) Eliminar la cuenta del médico
+    # 4) Eliminar datos del recetario del médico
+    cur.execute("SELECT to_regclass('public.recetario_recetas')")
+    if cur.fetchone()[0]:
+        cur.execute("DELETE FROM recetario_recetas WHERE medico_id = %s", (medico_id,))
+    cur.execute("SELECT to_regclass('public.recetario_certificados')")
+    if cur.fetchone()[0]:
+        cur.execute("DELETE FROM recetario_certificados WHERE medico_id = %s", (medico_id,))
+    cur.execute("SELECT to_regclass('public.recetario_pacientes')")
+    if cur.fetchone()[0]:
+        cur.execute("DELETE FROM recetario_pacientes WHERE medico_id = %s", (medico_id,))
+
+    # 5) Eliminar la cuenta del médico
     cur.execute("DELETE FROM medicos WHERE id = %s", (medico_id,))
 
     db.commit()
