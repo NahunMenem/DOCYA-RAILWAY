@@ -1961,12 +1961,20 @@ async def intentar_reasignar(
 
 async def enviar_notificaciones_asignacion(medico_id, consulta_id, cur):
     """Encapsula la lógica de WS y Push para no ensuciar el motor"""
+    cur.execute(
+        "SELECT expira_en FROM consultas WHERE id = %s",
+        (consulta_id,),
+    )
+    row_expira = cur.fetchone()
+    expira_en = row_expira[0] if row_expira else None
+
     # WebSocket
     if medico_id in active_medicos:
         try:
             await active_medicos[medico_id]["ws"].send_json({
                 "tipo": "consulta_nueva",
-                "consulta_id": consulta_id
+                "consulta_id": consulta_id,
+                "expira_en": str(expira_en) if expira_en else None,
             })
             print("📤 WS enviado")
         except Exception as e:
@@ -1985,7 +1993,8 @@ async def enviar_notificaciones_asignacion(medico_id, consulta_id, cur):
                     "tipo": "consulta_nueva",
                     "consulta_id": str(consulta_id),
                     "medico_id": str(medico_id),
-                    "origen": "reasignacion"
+                    "origen": "reasignacion",
+                    "expira_en": str(expira_en) if expira_en else "",
                 }
             )
             print("📤 PUSH enviado")
@@ -2310,6 +2319,13 @@ async def solicitar_consulta(
         """, (consulta_id_previa, profesional_id))
         db.commit()
 
+        cur.execute(
+            "SELECT expira_en FROM consultas WHERE id = %s",
+            (consulta_id_previa,),
+        )
+        row_expira = cur.fetchone()
+        expira_en = row_expira[0] if row_expira else None
+
         # ---------------------------------------------------------
         # 1) WS REAL TIME
         # ---------------------------------------------------------
@@ -2338,6 +2354,7 @@ async def solicitar_consulta(
                     "metodo_pago": "tarjeta",
                     "profesional_tipo": tipo,
                     "creado_en": str(creado_en),
+                    "expira_en": str(expira_en) if expira_en else None,
                 })
                 print("📤 WS enviado")
             except Exception as e:
@@ -2359,7 +2376,8 @@ async def solicitar_consulta(
                         "tipo": "consulta_nueva",
                         "consulta_id": str(consulta_id_previa),
                         "medico_id": str(profesional_id),
-                        "origen": "asignacion"
+                        "origen": "asignacion",
+                        "expira_en": str(expira_en) if expira_en else ""
                     }
                 )
                 print("📤 PUSH enviado (asignación directa)")
@@ -2394,6 +2412,12 @@ async def solicitar_consulta(
                 row = cur_wd.fetchone()
         
                 if row and row[0]:
+                    cur_wd.execute(
+                        "SELECT expira_en FROM consultas WHERE id = %s",
+                        (consulta_id_previa,),
+                    )
+                    row_expira = cur_wd.fetchone()
+                    expira_en = row_expira[0] if row_expira else None
                     try:
                         enviar_push(
                             row[0],
@@ -2403,7 +2427,8 @@ async def solicitar_consulta(
                                 "tipo": "consulta_nueva",
                                 "consulta_id": str(consulta_id_previa),
                                 "medico_id": str(profesional_id),
-                                "fallback": True
+                                "fallback": True,
+                                "expira_en": str(expira_en) if expira_en else "",
                             }
                         )
                         print("📤 PUSH fallback enviado")
@@ -2558,7 +2583,6 @@ async def solicitar_consulta(
     consulta_id, creado_en = cur.fetchone()
     db.commit()
 
-
     print(f"🟢 Consulta {consulta_id} asignada a {profesional_id}")
 
     # Registrar intento
@@ -2567,6 +2591,13 @@ async def solicitar_consulta(
         VALUES (%s, %s)
     """, (consulta_id, profesional_id))
     db.commit()
+
+    cur.execute(
+        "SELECT expira_en FROM consultas WHERE id = %s",
+        (consulta_id,),
+    )
+    row_expira = cur.fetchone()
+    expira_en = row_expira[0] if row_expira else None
 
     # WS REAL TIME
     if profesional_id in active_medicos:
@@ -2586,6 +2617,7 @@ async def solicitar_consulta(
                 "metodo_pago": data.metodo_pago,
                 "profesional_tipo": tipo,
                 "creado_en": str(creado_en),
+                "expira_en": str(expira_en) if expira_en else None,
     
             })
             print("📤 WS enviado")
@@ -2608,7 +2640,8 @@ async def solicitar_consulta(
                     "tipo": "consulta_nueva",
                     "consulta_id": str(consulta_id),
                     "medico_id": str(profesional_id),
-                    "origen": "asignacion"
+                    "origen": "asignacion",
+                    "expira_en": str(expira_en) if expira_en else ""
                 }
             )
             print("📤 PUSH enviado (asignación directa)")
@@ -2643,6 +2676,12 @@ async def solicitar_consulta(
             row = cur_wd.fetchone()
     
             if row and row[0]:
+                cur_wd.execute(
+                    "SELECT expira_en FROM consultas WHERE id = %s",
+                    (consulta_id,),
+                )
+                row_expira = cur_wd.fetchone()
+                expira_en = row_expira[0] if row_expira else None
                 enviar_push(
                     row[0],
                     "📢 Nueva consulta",
@@ -2651,7 +2690,8 @@ async def solicitar_consulta(
                         "tipo": "consulta_nueva",
                         "consulta_id": str(consulta_id),
                         "medico_id": str(profesional_id),
-                        "fallback": True
+                        "fallback": True,
+                        "expira_en": str(expira_en) if expira_en else "",
                     }
                 )
                 print("📤 PUSH fallback enviado")
@@ -2782,7 +2822,8 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
                c.motivo, c.direccion, c.lat, c.lng, c.estado,
                m.latitud, m.longitud,
                m.tipo,
-               c.creado_en     -- 🔥 AGREGADO AQUÍ
+               c.creado_en,
+               c.expira_en
         FROM consultas c
         JOIN medicos m ON c.medico_id = m.id
         LEFT JOIN users u ON c.paciente_uuid = u.id
@@ -2800,7 +2841,7 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         consulta_id, paciente_uuid, paciente_nombre, paciente_telefono,
         motivo, direccion, lat, lng, estado,
         med_lat, med_lng, tipo_profesional,
-        creado_en                      # 🔥 RECIBIDO AQUÍ
+        creado_en, expira_en
     ) = row
 
     distancia_km = None
@@ -2832,7 +2873,8 @@ def consultas_asignadas(medico_id: int, db=Depends(get_db)):
         "lng": lng,
         "estado": estado,
         "tipo": tipo_profesional,
-        "creado_en": str(creado_en),     # 🔥 ENVIADO AL FRONT AQUÍ
+        "creado_en": str(creado_en),
+        "expira_en": str(expira_en) if expira_en else None,
         "distancia_km": round(distancia_km, 2) if distancia_km else None,
         "tiempo_estimado_min": tiempo_min if tiempo_min is not None else 0
     }
@@ -5042,14 +5084,27 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
             lng,
             estado,
             metodo_pago,
-            tipo
+            tipo,
+            asignada_en,
+            expira_en
         )
-        VALUES (%s,%s,'Pago aprobado','Dirección desde MP',%s,%s,'pendiente','tarjeta',%s)
+        VALUES (
+            %s,%s,'Pago aprobado','Dirección desde MP',%s,%s,
+            'pendiente','tarjeta',%s,
+            NOW(), NOW() + INTERVAL '20 seconds'
+        )
         RETURNING id, creado_en
     """, (paciente_uuid, medico_id, lat, lng, tipo))
     
     consulta_id, creado_en = cur.fetchone()
     db.commit()
+
+    cur.execute(
+        "SELECT expira_en FROM consultas WHERE id = %s",
+        (consulta_id,),
+    )
+    row_expira = cur.fetchone()
+    expira_en = row_expira[0] if row_expira else None
 
     # --------------------------------------------------------
     # 🔔 WebSocket — enviar solo si coincide el tipo
@@ -5063,7 +5118,8 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
                     "tipo": "consulta_nueva",
                     "consulta_id": consulta_id,
                     "paciente_uuid": paciente_uuid,
-                    "profesional_tipo": tipo
+                    "profesional_tipo": tipo,
+                    "expira_en": str(expira_en) if expira_en else None,
                 })
                 print(f"📤 WS enviado al {tipo} {medico_id}")
         except Exception as e:
@@ -5081,8 +5137,11 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
             "📢 Nueva consulta",
             "Tienes una nueva solicitud",
             {
+                "tipo": "consulta_nueva",
                 "consulta_id": consulta_id,
-                "profesional_tipo": tipo
+                "medico_id": str(medico_id),
+                "profesional_tipo": tipo,
+                "expira_en": str(expira_en) if expira_en else "",
             }
         )
 
