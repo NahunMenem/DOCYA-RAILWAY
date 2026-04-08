@@ -5278,7 +5278,7 @@ def consulta_activa_paciente(paciente_uuid: str, db=Depends(get_db)):
         FROM consultas c
         LEFT JOIN medicos m ON m.id = c.medico_id
         WHERE c.paciente_uuid = %s
-          AND c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio', 'en_curso')
+          AND c.estado IN ('pendiente', 'aceptada', 'en_camino', 'en_domicilio')
         ORDER BY c.creado_en DESC
         LIMIT 1
     """, (paciente_uuid,))
