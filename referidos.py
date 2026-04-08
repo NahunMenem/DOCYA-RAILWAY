@@ -13,6 +13,8 @@ import jwt
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from sib_api_v3_sdk import SendSmtpEmail
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token as google_id_token
 
 from fastapi import APIRouter, Depends, HTTPException, Header
 from pydantic import BaseModel, EmailStr
@@ -25,6 +27,22 @@ from settings import JWT_SECRET, create_access_token, now_argentina, pwd_context
 router = APIRouter(prefix="/referidos", tags=["referidos"])
 
 ESTADOS_VALIDOS = {"pendiente", "pagado", "anulado"}
+DEFAULT_GOOGLE_CLIENT_IDS = [
+    "117956759164-9q555tbkl8ulrmcapgj4emoqn827ltti.apps.googleusercontent.com",
+    "327572770521-tom99oocat1tcp9pahlejsar4iu62lhg.apps.googleusercontent.com",
+]
+GOOGLE_CLIENT_IDS = list(
+    dict.fromkeys(
+        DEFAULT_GOOGLE_CLIENT_IDS
+        + [
+            item.strip()
+            for item in os.getenv(
+                "GOOGLE_CLIENT_IDS", os.getenv("GOOGLE_CLIENT_ID", "")
+            ).split(",")
+            if item.strip()
+        ]
+    )
+)
 
 
 # ====================================================
@@ -47,6 +65,19 @@ class ReferenteLoginIn(BaseModel):
     password: str
 
 
+class GoogleReferenteIn(BaseModel):
+    id_token: str
+
+
+class GoogleReferenteRegisterIn(BaseModel):
+    id_token: str
+    dni: str
+    telefono: str
+    cbu_alias: str
+    tipo: str
+    acepto_condiciones: bool = False
+
+
 class ReferenteOut(BaseModel):
     id: str
     full_name: str
@@ -65,6 +96,65 @@ def _generar_codigo(full_name: str) -> str:
     base = full_name.strip().split()[0].upper()[:4]
     sufijo = "".join(random.choices(string.ascii_uppercase + string.digits, k=4))
     return f"{base}-{sufijo}"
+
+
+def _ensure_referente_google_columns(db):
+    cur = db.cursor()
+    cur.execute("ALTER TABLE referentes ADD COLUMN IF NOT EXISTS google_id TEXT")
+    cur.execute("ALTER TABLE referentes ADD COLUMN IF NOT EXISTS foto_url TEXT")
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_referentes_google_id_unique ON referentes (google_id) WHERE google_id IS NOT NULL"
+    )
+    db.commit()
+
+
+def _verify_google_identity(id_token: str) -> tuple[str, str, str, str | None]:
+    request_adapter = google_requests.Request()
+    payload = None
+    last_error = None
+    audiences = GOOGLE_CLIENT_IDS or [None]
+
+    for audience in audiences:
+        try:
+            payload = google_id_token.verify_oauth2_token(id_token, request_adapter, audience)
+            break
+        except Exception as exc:
+            last_error = exc
+
+    if payload is None:
+        raise HTTPException(status_code=401, detail=f"Token Google inválido: {last_error}")
+
+    google_sub = (payload.get("sub") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    full_name = (payload.get("name") or "Embajador DocYa").strip()
+    picture = (payload.get("picture") or "").strip() or None
+
+    if not google_sub or not email:
+        raise HTTPException(status_code=400, detail="Google no devolvió identidad suficiente.")
+
+    return google_sub, email, full_name, picture
+
+
+def _build_referente_auth_response(row):
+    token = create_access_token({
+        "sub": str(row["id"]),
+        "email": row["email"],
+        "role": "referente",
+        "tipo": row["tipo"],
+    })
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "referente": {
+            "id": str(row["id"]),
+            "full_name": row["full_name"],
+            "email": row["email"],
+            "tipo": row["tipo"],
+            "codigo_referido": row["codigo_referido"],
+            "link_referido": row["link_referido"],
+            "foto_url": row.get("foto_url"),
+        },
+    }
 
 
 def _link_referido(codigo: str) -> str:
@@ -197,6 +287,7 @@ def _enviar_email_bienvenida_referente(email: str, full_name: str, codigo: str, 
 @router.post("/register", response_model=ReferenteOut, status_code=201)
 def register_referente(data: ReferenteRegisterIn, db=Depends(get_db)):
     """Registra un nuevo referente. Genera automáticamente su código y link único."""
+    _ensure_referente_google_columns(db)
     if not data.acepto_condiciones:
         raise HTTPException(
             status_code=422,
@@ -297,12 +388,13 @@ def register_referente(data: ReferenteRegisterIn, db=Depends(get_db)):
 @router.post("/login")
 def login_referente(data: ReferenteLoginIn, db=Depends(get_db)):
     """Login del referente. Devuelve JWT + datos básicos del perfil."""
+    _ensure_referente_google_columns(db)
     cur = db.cursor()
     try:
         cur.execute(
             """
             SELECT id, full_name, email, tipo, password_hash,
-                   codigo_referido, link_referido, activo
+                   codigo_referido, link_referido, activo, foto_url
             FROM referentes
             WHERE lower(email) = %s
             LIMIT 1
@@ -316,7 +408,7 @@ def login_referente(data: ReferenteLoginIn, db=Depends(get_db)):
     if not row:
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
 
-    ref_id, full_name, email, tipo, password_hash, codigo, link, activo = row
+    ref_id, full_name, email, tipo, password_hash, codigo, link, activo, foto_url = row
 
     if not pwd_context.verify(data.password, password_hash):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos.")
@@ -324,25 +416,162 @@ def login_referente(data: ReferenteLoginIn, db=Depends(get_db)):
     if not activo:
         raise HTTPException(status_code=403, detail="Tu cuenta está desactivada. Contactá a soporte.")
 
-    token = create_access_token({
-        "sub": str(ref_id),
-        "email": email,
-        "role": "referente",
-        "tipo": tipo,
-    })
-
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "referente": {
-            "id": str(ref_id),
+    return _build_referente_auth_response(
+        {
+            "id": ref_id,
             "full_name": full_name,
             "email": email,
             "tipo": tipo,
             "codigo_referido": codigo,
             "link_referido": link,
+            "foto_url": foto_url,
         }
-    }
+    )
+
+
+@router.post("/google")
+def login_referente_google(data: GoogleReferenteIn, db=Depends(get_db)):
+    """Login del referente con Google o aviso de registro incompleto."""
+    _ensure_referente_google_columns(db)
+    google_sub, email, full_name, picture = _verify_google_identity(data.id_token)
+
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute(
+            """
+            SELECT id, full_name, email, tipo, codigo_referido, link_referido, activo, foto_url
+            FROM referentes
+            WHERE google_id = %s OR lower(email) = %s
+            LIMIT 1
+            """,
+            (google_sub, email),
+        )
+        referente = cur.fetchone()
+
+        if not referente:
+            raise HTTPException(
+                status_code=404,
+                detail="Esta cuenta Google todavía no está registrada en el programa de referidos.",
+            )
+
+        if not referente["activo"]:
+            raise HTTPException(status_code=403, detail="Tu cuenta está desactivada. Contactá a soporte.")
+
+        cur.execute(
+            """
+            UPDATE referentes
+            SET google_id = %s,
+                email = %s,
+                full_name = COALESCE(NULLIF(full_name, ''), %s),
+                foto_url = COALESCE(NULLIF(foto_url, ''), %s)
+            WHERE id = %s
+            RETURNING id, full_name, email, tipo, codigo_referido, link_referido, activo, foto_url
+            """,
+            (google_sub, email, full_name, picture, referente["id"]),
+        )
+        referente = cur.fetchone()
+        db.commit()
+    finally:
+        cur.close()
+
+    return _build_referente_auth_response(referente)
+
+
+@router.post("/google/register", status_code=201)
+def register_referente_google(data: GoogleReferenteRegisterIn, db=Depends(get_db)):
+    """Registro de referente con Google + datos adicionales obligatorios."""
+    _ensure_referente_google_columns(db)
+    if not data.acepto_condiciones:
+        raise HTTPException(
+            status_code=422,
+            detail="Debés aceptar los términos y condiciones para continuar."
+        )
+
+    tipos_validos = {"influencer", "embajador", "paciente", "partner"}
+    if data.tipo not in tipos_validos:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Tipo inválido. Valores permitidos: {', '.join(sorted(tipos_validos))}"
+        )
+
+    google_sub, email, full_name, picture = _verify_google_identity(data.id_token)
+
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    try:
+        cur.execute("SELECT id FROM referentes WHERE google_id = %s OR lower(email) = %s LIMIT 1", (google_sub, email))
+        existing = cur.fetchone()
+        if existing:
+            raise HTTPException(status_code=409, detail="Esta cuenta Google ya está registrada.")
+
+        cur.execute("SELECT id FROM referentes WHERE dni = %s", (data.dni.strip(),))
+        if cur.fetchone():
+            raise HTTPException(status_code=409, detail="El DNI ya está registrado en el programa de referidos.")
+
+        codigo = None
+        for _ in range(10):
+            candidato = _generar_codigo(full_name)
+            cur.execute("SELECT id FROM referentes WHERE codigo_referido = %s", (candidato,))
+            if not cur.fetchone():
+                codigo = candidato
+                break
+
+        if not codigo:
+            raise HTTPException(status_code=500, detail="No se pudo generar un código único. Intentá de nuevo.")
+
+        link = _link_referido(codigo)
+        google_password_hash = pwd_context.hash(f"google-referente::{google_sub}::{email}")
+
+        cur.execute(
+            """
+            INSERT INTO referentes (
+                full_name, dni, telefono, email, password_hash, cbu_alias, tipo,
+                codigo_referido, link_referido, acepto_condiciones, fecha_aceptacion,
+                activo, creado_en, google_id, foto_url
+            )
+            VALUES (
+                %s, %s, %s, %s, %s, %s, %s,
+                %s, %s, TRUE, %s,
+                TRUE, %s, %s, %s
+            )
+            RETURNING id, full_name, email, tipo, link_referido, codigo_referido, foto_url
+            """,
+            (
+                full_name,
+                data.dni.strip(),
+                data.telefono.strip(),
+                email,
+                google_password_hash,
+                data.cbu_alias.strip(),
+                data.tipo,
+                codigo,
+                link,
+                now_argentina(),
+                now_argentina(),
+                google_sub,
+                picture,
+            )
+        )
+        row = cur.fetchone()
+        db.commit()
+    finally:
+        cur.close()
+
+    try:
+        _enviar_email_bienvenida_referente(row["email"], row["full_name"], row["codigo_referido"], row["link_referido"])
+    except Exception as e:
+        print(f"⚠️ Email bienvenida Google referente falló (no crítico): {e}")
+
+    return _build_referente_auth_response(
+        {
+            "id": row["id"],
+            "full_name": row["full_name"],
+            "email": row["email"],
+            "tipo": row["tipo"],
+            "codigo_referido": row["codigo_referido"],
+            "link_referido": row["link_referido"],
+            "foto_url": row.get("foto_url"),
+        }
+    )
 
 
 # ──────────────────────────────────────────────────────────────────
