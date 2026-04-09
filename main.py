@@ -62,6 +62,13 @@ from settings import (
 # ====================================================
 active_medicos: Dict[int, WebSocket] = {}
 active_chats: Dict[int, list[WebSocket]] = {}
+GOOGLE_API_KEY = os.getenv(
+    "GOOGLE_API_KEY",
+    "AIzaSyDVv_barlVwHJTgLF66dP4ESUffCBuS3uA",
+).strip()
+GOOGLE_ROUTES_API_KEY = os.getenv("GOOGLE_ROUTES_API_KEY", GOOGLE_API_KEY).strip()
+GOOGLE_ROUTES_THROTTLE_SECONDS = int(os.getenv("GOOGLE_ROUTES_THROTTLE_SECONDS", "60"))
+_eta_google_cache: Dict[int, dict] = {}
 
 # ====================================================
 # ☁️ CONFIGURACIÓN CLOUDINARY / FIREBASE
@@ -2830,7 +2837,6 @@ def consultas_mias(medico_id: int, db=Depends(get_db)):
     ]
 
 # --- Consulta asignada ---
-GOOGLE_API_KEY = "AIzaSyDVv_barlVwHJTgLF66dP4ESUffCBuS3uA"  # 🔒 Reemplazá con tu API Key real de Google Cloud
 
 
 @app.get("/consultas/asignadas/{medico_id}")
@@ -4251,6 +4257,15 @@ def actualizar_ubicacion_medico(consulta_id: int, datos: dict, db=Depends(get_db
         # 5) CALCULAR ETA LOCAL
         # -----------------------------------------
         tiempo_min = calcular_eta_local(distancia_km)
+        eta_google = calcular_eta_google_rutas(
+            consulta_id,
+            lat_med,
+            lng_med,
+            lat_pac,
+            lng_pac,
+        )
+        if eta_google is not None:
+            tiempo_min = eta_google
 
         print(
             f"🧮 ETA local consulta {consulta_id}: "
@@ -5575,6 +5590,113 @@ def calcular_eta_local(distancia_km):
     return round((distancia_km / velocidad_kmh) * 60)
 
 
+def _calcular_eta_urbana_v2(distancia_km, ahora):
+    if distancia_km <= 0.15:
+        return 1
+
+    if time(7, 30) <= ahora <= time(20, 30):
+        velocidad_auto_kmh = 13
+    else:
+        velocidad_auto_kmh = 20
+
+    minutos_auto = (distancia_km / velocidad_auto_kmh) * 60
+    minutos_urbanos = (distancia_km / 6) * 60
+    eta = (minutos_auto * 0.7) + (minutos_urbanos * 0.3)
+
+    if distancia_km > 0.5:
+        eta += 1
+    if distancia_km > 2.0:
+        eta += 1
+
+    return max(1, round(eta))
+
+
+def calcular_eta_local(distancia_km):
+    ahora = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).time()
+    return _calcular_eta_urbana_v2(distancia_km, ahora)
+
+
+def _parse_duration_seconds(duration_value):
+    if duration_value is None:
+        return None
+
+    raw = str(duration_value).strip()
+    if not raw.endswith("s"):
+        return None
+
+    try:
+        return float(raw[:-1])
+    except Exception:
+        return None
+
+
+def calcular_eta_google_rutas(consulta_id, lat_med, lng_med, lat_pac, lng_pac):
+    if not GOOGLE_ROUTES_API_KEY:
+        return None
+
+    now_ts = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+    cache = _eta_google_cache.get(consulta_id)
+    if cache:
+        age_seconds = (now_ts - cache["timestamp"]).total_seconds()
+        if age_seconds < GOOGLE_ROUTES_THROTTLE_SECONDS:
+            return cache["eta"]
+
+    try:
+        response = requests.post(
+            "https://routes.googleapis.com/directions/v2:computeRoutes",
+            headers={
+                "Content-Type": "application/json",
+                "X-Goog-Api-Key": GOOGLE_ROUTES_API_KEY,
+                "X-Goog-FieldMask": "routes.duration,routes.distanceMeters",
+            },
+            json={
+                "origin": {
+                    "location": {
+                        "latLng": {"latitude": lat_med, "longitude": lng_med}
+                    }
+                },
+                "destination": {
+                    "location": {
+                        "latLng": {"latitude": lat_pac, "longitude": lng_pac}
+                    }
+                },
+                "travelMode": "DRIVE",
+                "routingPreference": "TRAFFIC_AWARE",
+                "languageCode": "es-AR",
+                "units": "METRIC",
+            },
+            timeout=5,
+        )
+
+        if response.status_code != 200:
+            print(
+                f"⚠️ Google Routes consulta {consulta_id}: "
+                f"{response.status_code} {response.text[:180]}"
+            )
+            return None
+
+        payload = response.json() or {}
+        routes = payload.get("routes") or []
+        if not routes:
+            return None
+
+        duration_seconds = _parse_duration_seconds(routes[0].get("duration"))
+        if duration_seconds is None:
+            return None
+
+        eta_min = max(1, round(duration_seconds / 60))
+        _eta_google_cache[consulta_id] = {
+            "eta": eta_min,
+            "timestamp": now_ts,
+        }
+
+        return eta_min
+
+    except Exception as e:
+        print(f"⚠️ Error Google Routes consulta {consulta_id}: {e}")
+        return None
+
+
 
 # --------------------------------------
 # 🟦 NUEVO ENDPOINT SIN ORS (LISTO)
@@ -5662,6 +5784,16 @@ def actualizar_ubicacion(medico_id: int, data: UbicacionIn, db=Depends(get_db)):
             if lat_pac is not None and lng_pac is not None:
                 distancia_km = calcular_distancia_km(lat_med, lng_med, float(lat_pac), float(lng_pac))
                 tiempo_min = calcular_eta_local(distancia_km)
+                if estado in ("aceptada", "en_camino"):
+                    eta_google = calcular_eta_google_rutas(
+                        consulta_id,
+                        lat_med,
+                        lng_med,
+                        float(lat_pac),
+                        float(lng_pac),
+                    )
+                    if eta_google is not None:
+                        tiempo_min = eta_google
 
                 print(f"🧮 Distancia: {distancia_km:.2f} km → ETA: {tiempo_min} min")
 
