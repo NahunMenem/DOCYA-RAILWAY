@@ -2008,13 +2008,14 @@ async def enviar_notificaciones_asignacion(medico_id, consulta_id, cur):
 async def procesar_timeouts(db):
     cur = db.cursor()
     try:
+        ahora_arg = now_argentina()
+        ahora_arg_naive = ahora_arg.replace(tzinfo=None)
         cur.execute("""
-            SELECT id, medico_id
+            SELECT id, medico_id, expira_en
             FROM consultas
             WHERE estado = 'pendiente'
               AND medico_id IS NOT NULL
               AND expira_en IS NOT NULL
-              AND expira_en < NOW()
         """)
         vencidas = cur.fetchall()
 
@@ -2022,8 +2023,28 @@ async def procesar_timeouts(db):
             db.rollback() # Limpieza de transacción idle
             return
 
-        for consulta_id, medico_id in vencidas:
-            print(f"⏳ Timeout BACKEND consulta {consulta_id} médico {medico_id}")
+        for consulta_id, medico_id, expira_en in vencidas:
+            if expira_en is None:
+                continue
+
+            expira_en_arg = (
+                expira_en.replace(tzinfo=ARG_TZ)
+                if expira_en.tzinfo is None
+                else expira_en.astimezone(ARG_TZ)
+            )
+            expira_en_cmp = (
+                expira_en
+                if expira_en.tzinfo is None
+                else expira_en_arg.replace(tzinfo=None)
+            )
+
+            if expira_en_cmp > ahora_arg_naive:
+                continue
+
+            print(
+                f"⏳ Timeout BACKEND consulta {consulta_id} médico {medico_id} "
+                f"| expira_en={expira_en_arg.isoformat()} | ahora_arg={ahora_arg.isoformat()}"
+            )
 
             # 1. Registrar intento fallido
             cur.execute("""
