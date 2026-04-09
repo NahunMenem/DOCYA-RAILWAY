@@ -1906,7 +1906,7 @@ async def intentar_reasignar(
                         medico_id = %s,
                         estado = 'pendiente',
                         asignada_en = NOW(),
-                        expira_en = NOW() + INTERVAL '20 seconds'
+                        expira_en = NOW() + INTERVAL '30 seconds'
                     WHERE
                         id = %s
                         AND medico_id IS NULL
@@ -2298,7 +2298,7 @@ async def solicitar_consulta(
                 metodo_pago='tarjeta',
                 tipo=%s,
                 asignada_en = NOW(),
-                expira_en = NOW() + INTERVAL '20 seconds'
+                expira_en = NOW() + INTERVAL '30 seconds'
             WHERE id=%s
             RETURNING creado_en;
         """, (
@@ -2566,7 +2566,7 @@ async def solicitar_consulta(
             %s, %s, 'pendiente',
             %s, %s, %s, %s, %s,
             %s,
-            NOW(), NOW() + INTERVAL '20 seconds'
+            NOW(), NOW() + INTERVAL '30 seconds'
         )
         RETURNING id, creado_en
     """, (
@@ -5091,7 +5091,7 @@ async def pagos_notificacion(request: Request, db=Depends(get_db)):
         VALUES (
             %s,%s,'Pago aprobado','Dirección desde MP',%s,%s,
             'pendiente','tarjeta',%s,
-            NOW(), NOW() + INTERVAL '20 seconds'
+            NOW(), NOW() + INTERVAL '30 seconds'
         )
         RETURNING id, creado_en
     """, (paciente_uuid, medico_id, lat, lng, tipo))
