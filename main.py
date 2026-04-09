@@ -62,10 +62,7 @@ from settings import (
 # ====================================================
 active_medicos: Dict[int, WebSocket] = {}
 active_chats: Dict[int, list[WebSocket]] = {}
-GOOGLE_API_KEY = os.getenv(
-    "GOOGLE_API_KEY",
-    "AIzaSyDVv_barlVwHJTgLF66dP4ESUffCBuS3uA",
-).strip()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY", "").strip()
 GOOGLE_ROUTES_API_KEY = os.getenv("GOOGLE_ROUTES_API_KEY", GOOGLE_API_KEY).strip()
 GOOGLE_ROUTES_THROTTLE_SECONDS = int(os.getenv("GOOGLE_ROUTES_THROTTLE_SECONDS", "60"))
 _eta_google_cache: Dict[int, dict] = {}
@@ -1884,10 +1881,20 @@ async def intentar_reasignar(
                 FROM medicos
                 WHERE
                     disponible = TRUE
+                    AND activo = TRUE
                     AND tipo = %s
                     AND latitud IS NOT NULL
                     AND longitud IS NOT NULL
-            """, (lat, lng, lat, tipo))
+                    AND (
+                        (6371 * acos(
+                            cos(radians(%s)) *
+                            cos(radians(latitud)) *
+                            cos(radians(longitud) - radians(%s)) +
+                            sin(radians(%s)) *
+                            sin(radians(latitud))
+                        )) <= 10
+                    )
+            """, (lat, lng, lat, tipo, lat, lng, lat))
 
             # 3️⃣ Ordenar por cercanía
             medicos = sorted(cur.fetchall(), key=lambda x: x[3])
@@ -2547,9 +2554,10 @@ async def solicitar_consulta(
         cur.execute("""
             INSERT INTO consultas (
                 paciente_uuid, medico_id, estado, motivo,
-                direccion, lat, lng, metodo_pago, tipo
+                direccion, lat, lng, metodo_pago, tipo,
+                asignada_en, expira_en
             )
-            VALUES (%s,NULL,'pendiente',%s,%s,%s,%s,%s,%s)
+            VALUES (%s,NULL,'pendiente',%s,%s,%s,%s,%s,%s,NOW(), NOW() + INTERVAL '60 seconds')
             RETURNING id, creado_en
         """, (
             str(data.paciente_uuid),
@@ -2565,11 +2573,17 @@ async def solicitar_consulta(
         db.commit()
 
         print("⚠️ Consulta sin médico disponible")
+        background_tasks.add_task(
+            worker_busqueda_consulta_pendiente,
+            consulta_id,
+            data.tipo,
+        )
         asyncio.create_task(notificar_consulta_nueva_telegram(consulta_id, False))
 
         return {
             "consulta_id": consulta_id,
             "estado": "pendiente",
+            "mensaje": "Seguimos buscando profesionales disponibles durante los próximos segundos.",
             "profesional": None
         }
 
