@@ -3501,6 +3501,12 @@ def enviar_push(
     time_sensitive: bool = False,
     app_kind: str = "pro",
 ):
+    tipo_push = str(data.get("tipo", ""))
+    if tipo_push == "consulta_nueva" and app_kind == "pro":
+        android_channel_id = "docya_consultas_v2"
+        android_sound = "docya_alert"
+        apns_sound = "alert.caf"
+
     project_id = get_fcm_project_id(app_kind)
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
 
