@@ -6,6 +6,7 @@ import os
 import json
 import math
 import jwt
+from html import escape
 from urllib.parse import quote
 from datetime import datetime, timedelta, date, time
 import asyncio
@@ -3905,33 +3906,282 @@ class RecetaIn(BaseModel):
     medicamentos: list[dict]
 
 
-def _render_consulta_medicamentos_html(medicamentos) -> str:
-    bloques = []
-    for idx, med in enumerate(medicamentos or [], 1):
-        if isinstance(med, dict):
-            nombre = str(med.get("nombre") or "MEDICAMENTO").strip()
-            dosis = str(med.get("dosis") or "").strip()
-            frecuencia = str(med.get("frecuencia") or "").strip()
-            duracion = str(med.get("duracion") or "").strip()
-        else:
-            nombre = str(med[0] or "MEDICAMENTO").strip()
-            dosis = str(med[1] or "").strip()
-            frecuencia = str(med[2] or "").strip()
-            duracion = str(med[3] or "").strip()
+def _consulta_receta_item_campos(med) -> tuple[str, str, str, str]:
+    if isinstance(med, dict):
+        nombre = str(med.get("nombre") or "MEDICAMENTO").strip()
+        dosis = str(med.get("dosis") or "").strip()
+        frecuencia = str(med.get("frecuencia") or "").strip()
+        duracion = str(med.get("duracion") or "").strip()
+        return nombre, dosis, frecuencia, duracion
+    else:
+        nombre = str(med[0] or "MEDICAMENTO").strip()
+        dosis = str(med[1] or "").strip()
+        frecuencia = str(med[2] or "").strip()
+        duracion = str(med[3] or "").strip()
+        return nombre, dosis, frecuencia, duracion
 
-        detalle_parts = [part.upper() for part in [dosis, frecuencia, duracion] if part]
+    return "".join(bloques) or '<div class="med-rp"><strong>SIN MEDICACIÓN CARGADA</strong></div>'
+
+def _render_consulta_medicamentos_html(medicamentos) -> tuple[str, str]:
+    bloques_rp = []
+    bloques_indicaciones = []
+    for idx, med in enumerate(medicamentos or [], 1):
+        nombre, dosis, frecuencia, duracion = _consulta_receta_item_campos(med)
+        nombre_html = escape(nombre.upper())
+
+        detalle_parts = [escape(part.upper()) for part in [dosis] if part]
         detalle_html = (
             f'<span class="med-det">{" &mdash; ".join(detalle_parts)}</span><br>'
             if detalle_parts else ""
         )
-        bloques.append(
+
+        indicaciones_parts = []
+        if dosis:
+            indicaciones_parts.append(f"Dosis: {dosis}")
+        if frecuencia:
+            indicaciones_parts.append(f"Frecuencia: {frecuencia}")
+        if duracion:
+            indicaciones_parts.append(f"Duración: {duracion}")
+
+        indicaciones_html = (
+            escape(" - ".join(indicaciones_parts))
+            if indicaciones_parts else
+            '<em style="color:#aaa">Sin indicaciones</em>'
+        )
+
+        bloques_rp.append(
             f'<div class="med-rp"><span class="med-num">{idx})</span> '
-            f'<strong>{nombre.upper()}</strong><br>'
+            f'<strong>{nombre_html}</strong><br>'
             f'{detalle_html}'
             f'<span class="med-cant">Cant: 1 (uno)</span></div>'
         )
+        bloques_indicaciones.append(
+            f'<div class="med-com"><span class="med-num">{idx})</span> {indicaciones_html}</div>'
+        )
 
-    return "".join(bloques) or '<div class="med-rp"><strong>SIN MEDICACIÓN CARGADA</strong></div>'
+    rp_html = "".join(bloques_rp) or '<div class="med-rp"><strong>SIN MEDICACIÓN CARGADA</strong></div>'
+    indicaciones_html = "".join(bloques_indicaciones) or '<div class="med-com"><em style="color:#aaa">Sin indicaciones</em></div>'
+    return rp_html, indicaciones_html
+
+
+def _build_consulta_receta_html(
+    *,
+    receta_id: int,
+    medico_nombre: str,
+    especialidad: str,
+    matricula: str,
+    firma_url: str | None,
+    paciente_nombre: str,
+    paciente_dni: str | None,
+    obra_social: str | None,
+    nro_credencial: str | None,
+    diagnostico: str | None,
+    creado_en,
+    medicamentos,
+    verification_url: str,
+) -> str:
+    meds_rp_html, meds_com_html = _render_consulta_medicamentos_html(medicamentos)
+    fecha_emision = creado_en.strftime("%d/%m/%Y %H:%M") if creado_en else "&mdash;"
+    qr_url = f"https://api.qrserver.com/v1/create-qr-code/?size=96x96&data={quote(verification_url, safe='')}"
+    firma_html = (
+        f'<img src="{escape(firma_url, quote=True)}" alt="Firma" class="firma-img">'
+        if firma_url else '<div class="firma-linea"></div>'
+    )
+    diagnostico_html = (
+        f'<div class="diag-row"><strong>Diagnóstico:</strong> {escape(diagnostico)}</div>'
+        if diagnostico else ""
+    )
+
+    medico_nombre_html = escape(medico_nombre or "—")
+    especialidad_html = escape(especialidad or "MÉDICO")
+    matricula_html = escape(matricula or "—")
+    paciente_nombre_html = escape(paciente_nombre or "—")
+    paciente_dni_html = escape(str(paciente_dni or "—"))
+    obra_social_html = escape(obra_social or "—")
+    credencial_html = escape(nro_credencial or "—")
+    verification_url_html = escape(verification_url)
+
+    def _copy(badge: str, watermark_text: str = "") -> str:
+        watermark_html = f'<div class="watermark">{escape(watermark_text)}</div>' if watermark_text else ""
+        return f"""
+    <div class="copy">
+      {watermark_html}
+      <div class="top-strip">
+        <div class="top-center">
+          <img src="https://res.cloudinary.com/dqsacd9ez/image/upload/v1757197807/logo_1_svfdye.png" class="logo" alt="DocYa">
+          <span class="copy-badge">{escape(badge)}</span>
+        </div>
+        <div class="top-info">
+          <strong>{medico_nombre_html}</strong><br>
+          {especialidad_html}<br>
+          MN {matricula_html}<br>
+          <span class="fecha-teal">{fecha_emision}</span>
+        </div>
+      </div>
+
+      <div class="pac-grid">
+        <div class="pf pf-name"><label>Paciente</label><strong>{paciente_nombre_html}</strong></div>
+        <div class="pf"><label>DNI</label><strong>{paciente_dni_html}</strong></div>
+        <div class="pf"><label>Obra Social</label><strong>{obra_social_html}</strong></div>
+        <div class="pf"><label>N° Credencial</label><strong>{credencial_html}</strong></div>
+      </div>
+
+      <div class="content-box">
+        <div class="col">
+          <div class="sec-title">Rp/</div>
+          {meds_rp_html}
+          {diagnostico_html}
+        </div>
+        <div class="inner-divider"></div>
+        <div class="col">
+          <div class="sec-title ind-title">Indicaciones:</div>
+          {meds_com_html}
+        </div>
+      </div>
+
+      <div class="sig-footer">
+        <div>
+          <p class="sig-legal">Este documento ha sido firmado electrónicamente por<br><strong>{medico_nombre_html}</strong><br>conforme Ley 25.506 de Firma Digital y Ley 27.553.</p>
+          <p class="sig-date">{fecha_emision}</p>
+        </div>
+        <div class="sig-right">
+          {firma_html}
+          <div class="firma-label">{medico_nombre_html}</div>
+          <div class="firma-sub">{especialidad_html} · MN {matricula_html}</div>
+          <div class="firma-stamp">FIRMA Y SELLO</div>
+        </div>
+      </div>
+
+      <div class="qr-strip">
+        <img src="{qr_url}" alt="QR" class="qr-img">
+        <div class="strip-info">
+          <strong>DocYa · Receta electrónica</strong><br>
+          {medico_nombre_html}<br>
+          <span class="strip-note">Verificar autenticidad: {verification_url_html}</span>
+        </div>
+        <div class="strip-badge">receta<br>electrónica</div>
+      </div>
+    </div>"""
+
+    return f"""<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Receta #{receta_id} &mdash; DocYa</title>
+<style>
+* {{ box-sizing: border-box; margin: 0; padding: 0; }}
+:root {{
+  --teal: #14b8a6;
+  --teal-dark: #0d9488;
+  --ink: #111827;
+  --muted: #6b7280;
+  --line: #e5e7eb;
+  --sheet-w: 297mm;
+  --sheet-h: 210mm;
+  --print-w: 283mm;
+  --print-h: 196mm;
+  --half-w: 141.5mm;
+  --half-h: 190mm;
+}}
+body {{
+  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ink);
+  background: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+}}
+.no-print {{ position: sticky; top: 0; z-index: 20; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 16px; background: #111827; }}
+.no-print button {{ border: none; border-radius: 999px; padding: 8px 18px; background: var(--teal); color: #fff; font-size: 13px; font-weight: 700; cursor: pointer; }}
+.no-print a {{ color: var(--teal); text-decoration: none; font-size: 13px; }}
+.page-label {{ margin-left: auto; color: #94a3b8; font-size: 12px; }}
+.page {{ width: min(100%, var(--sheet-w)); min-height: var(--sheet-h); margin: 14px auto; background: #fff; border-top: 3px solid var(--teal); box-shadow: 0 4px 28px rgba(0,0,0,0.15); }}
+.sheet {{ width: var(--print-w); min-height: var(--print-h); margin: 0 auto; display: grid; grid-template-columns: var(--half-w) 1px var(--half-w); align-items: start; padding-top: 3mm; }}
+.divider {{ width: 1px; height: var(--half-h); background: repeating-linear-gradient(to bottom, #6b7280 0, #6b7280 2px, transparent 2px, transparent 4px); }}
+.copy {{ height: var(--half-h); padding: 7px 10px 6px; overflow: hidden; position: relative; }}
+.watermark {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 900; letter-spacing: 4px; color: rgba(0,0,0,0.05); transform: rotate(-30deg); pointer-events: none; }}
+.top-strip {{ display: grid; grid-template-columns: 1fr 92px; gap: 8px; align-items: start; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }}
+.top-center {{ text-align: left; }}
+.logo {{ display: block; height: 21px; margin: 0 0 2px; }}
+.copy-badge {{ display: inline-block; padding: 2px 7px; border-radius: 999px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }}
+.top-info {{ text-align: right; font-size: 8px; line-height: 1.35; color: #374151; }}
+.fecha-teal {{ color: var(--teal-dark); font-weight: 700; }}
+.pac-grid {{ display: flex; flex-wrap: wrap; margin-bottom: 5px; overflow: hidden; border: 1.5px solid var(--teal-dark); border-radius: 3px; }}
+.pf {{ flex: 1 1 50%; min-width: 0; padding: 2px 5px; border-right: 1px solid #ccfbf1; border-bottom: 1px solid #ccfbf1; }}
+.pf-name {{ flex: 1 1 100%; background: #f0fdfa; }}
+.pf label {{ display: block; margin-bottom: 1px; color: var(--muted); font-size: 6.5px; letter-spacing: 0.3px; text-transform: uppercase; }}
+.pf strong {{ font-size: 8.5px; }}
+.content-box {{ display: grid; grid-template-columns: 1fr 1px 1fr; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }}
+.col {{ min-height: 96mm; padding: 4px 5px; }}
+.col:last-child {{ background: #fafafa; }}
+.inner-divider {{ width: 1px; background: var(--line); }}
+.sec-title {{ margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid var(--line); color: var(--teal-dark); font-size: 11px; font-weight: 900; }}
+.ind-title {{ color: #374151; font-size: 10px; }}
+.med-rp, .med-com {{ margin: 2px 0; font-size: 8.5px; line-height: 1.35; }}
+.med-num {{ color: var(--teal-dark); font-weight: 700; }}
+.med-det {{ color: #475569; font-size: 7.5px; }}
+.med-cant {{ color: var(--muted); font-size: 7.5px; }}
+.diag-row {{ margin-top: 6px; padding: 2px 6px; border-left: 2px solid var(--teal-dark); background: #f0fdfa; color: #374151; font-size: 7.5px; }}
+.sig-footer {{ display: grid; grid-template-columns: 1fr 92px; gap: 6px; align-items: end; margin-bottom: 4px; padding-top: 4px; border-top: 1px dashed #9ca3af; }}
+.sig-legal, .firma-sub, .strip-note {{ font-size: 6.5px; }}
+.sig-legal {{ color: var(--muted); line-height: 1.45; }}
+.sig-date, .firma-label, .firma-stamp, .strip-info {{ font-size: 7px; }}
+.sig-date {{ margin-top: 4px; font-weight: 700; }}
+.sig-right {{ text-align: center; }}
+.firma-img {{ display: block; width: auto; max-width: 84px; max-height: 32px; margin: 0 auto 2px; object-fit: contain; }}
+.firma-linea {{ width: 80px; height: 28px; margin: 0 auto 2px; border-bottom: 1.5px solid #111; }}
+.firma-label {{ font-weight: 700; }}
+.firma-sub {{ color: #555; }}
+.firma-stamp {{ margin-top: 3px; color: var(--teal-dark); font-weight: 800; letter-spacing: 0.5px; }}
+.qr-strip {{ display: grid; grid-template-columns: 48px 1fr auto; gap: 5px; align-items: center; padding: 4px 5px; background: #f8fafc; border: 1px solid var(--line); border-radius: 3px; }}
+.qr-img {{ display: block; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 2px; }}
+.strip-info {{ line-height: 1.45; color: #374151; }}
+.strip-note {{ display: block; margin-top: 1px; color: var(--muted); word-break: break-word; }}
+.strip-badge {{ padding: 3px 5px; border-radius: 3px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; line-height: 1.35; letter-spacing: 0.4px; text-align: center; text-transform: uppercase; }}
+@media print {{
+  html, body {{ width: var(--sheet-w); height: var(--sheet-h); margin: 0; padding: 0; background: #fff; }}
+  .no-print {{ display: none !important; }}
+  .page {{ width: var(--sheet-w); min-height: var(--sheet-h); margin: 0; border-top: 0; box-shadow: none; page-break-after: always; break-after: page; }}
+  .page:last-child {{ page-break-after: auto; break-after: auto; }}
+  .sheet, .copy, .content-box, .sig-footer, .qr-strip {{ break-inside: avoid; page-break-inside: avoid; }}
+  @page {{ size: A4 landscape; margin: 7mm; }}
+}}
+@media screen and (max-width: 700px) {{
+  .no-print {{ position: static; gap: 8px; padding: 10px 12px; }}
+  .page-label {{ width: 100%; margin-left: 0; }}
+  .page {{ width: auto; min-height: unset; margin: 8px; border-top-width: 2px; border-radius: 6px; }}
+  .sheet {{ width: 100%; min-height: unset; padding: 8px; grid-template-columns: 1fr; row-gap: 10px; }}
+  .divider {{ width: 100%; height: 1px; background: repeating-linear-gradient(to right, #6b7280 0, #6b7280 2px, transparent 2px, transparent 4px); }}
+  .copy {{ height: auto; min-height: unset; padding: 10px; }}
+  .top-strip {{ grid-template-columns: 1fr; }}
+  .top-center, .top-info {{ text-align: left; }}
+  .pf {{ flex: 1 1 100%; }}
+  .content-box {{ grid-template-columns: 1fr; }}
+  .inner-divider {{ width: 100%; height: 1px; }}
+  .col {{ min-height: unset; }}
+  .sig-footer {{ grid-template-columns: 1fr; }}
+  .sig-right {{ text-align: left; }}
+  .firma-img, .firma-linea {{ margin-left: 0; }}
+  .qr-strip {{ grid-template-columns: 56px 1fr; }}
+  .qr-img {{ width: 56px; height: 56px; }}
+  .strip-badge {{ grid-column: 1 / -1; justify-self: end; }}
+}}
+</style>
+</head>
+<body>
+<div class="no-print">
+  <button onclick="window.print()">Imprimir / PDF</button>
+  <a href="{verification_url_html}" target="_blank">Verificar</a>
+  <span class="page-label">Receta #{receta_id}</span>
+</div>
+<div class="page">
+  <div class="sheet">
+    {_copy("Original")}
+    <div class="divider"></div>
+    {_copy("Duplicado", "DUPLICADO")}
+  </div>
+</div>
+</body>
+</html>"""
 
 # --- POST: crear receta ---
 @app.post("/consultas/{consulta_id}/receta")
@@ -3967,6 +4217,49 @@ from fastapi.responses import HTMLResponse
 
 @app.get("/consultas/{consulta_id}/receta", response_class=HTMLResponse)
 def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula, m.firma_url,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON m.id = c.medico_id
+        JOIN users u ON u.id = r.paciente_uuid
+        WHERE r.consulta_id = %s
+        ORDER BY r.creado_en DESC
+        LIMIT 1
+    """, (consulta_id,))
+    receta = cur.fetchone()
+    if not receta:
+        raise HTTPException(status_code=404, detail="No existe receta para esta consulta")
+
+    receta_id = receta[0]
+    cur.execute("""
+        SELECT nombre, dosis, frecuencia, duracion
+        FROM receta_items
+        WHERE receta_id = %s
+    """, (receta_id,))
+    medicamentos = cur.fetchall()
+
+    verification_url = f"https://docya-railway-production.up.railway.app/ver_receta/{receta_id}"
+    html = _build_consulta_receta_html(
+        receta_id=receta_id,
+        medico_nombre=receta[5],
+        especialidad=receta[6],
+        matricula=receta[7],
+        firma_url=receta[8],
+        paciente_nombre=receta[9],
+        paciente_dni=receta[10],
+        obra_social=receta[1],
+        nro_credencial=receta[2],
+        diagnostico=receta[3],
+        creado_en=receta[4],
+        medicamentos=medicamentos,
+        verification_url=verification_url,
+    )
+    return HTMLResponse(html)
+
     """
     Muestra la receta de una consulta (última generada) en formato HTML DocYa, incluyendo la firma digital real del médico.
     """
@@ -4803,6 +5096,59 @@ import tempfile
 
 @app.post("/consultas/{consulta_id}/receta_pdf_html")
 def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
+    cur = db.cursor()
+    cur.execute("""
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+               m.full_name AS medico_nombre, m.matricula, m.especialidad, m.firma_url,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON r.medico_id = m.id
+        JOIN users u ON r.paciente_uuid = u.id
+        WHERE c.id = %s
+        ORDER BY r.creado_en DESC
+        LIMIT 1
+    """, (consulta_id,))
+    receta = cur.fetchone()
+    if not receta:
+        raise HTTPException(status_code=404, detail="Receta no encontrada")
+
+    receta_id = receta[0]
+    cur.execute("""
+        SELECT nombre, dosis, frecuencia, duracion
+        FROM receta_items
+        WHERE receta_id = %s
+    """, (receta_id,))
+    medicamentos = cur.fetchall()
+
+    verification_url = f"https://docya-railway-production.up.railway.app/ver_receta/{receta_id}"
+    html = _build_consulta_receta_html(
+        receta_id=receta_id,
+        medico_nombre=receta[5],
+        especialidad=receta[7],
+        matricula=receta[6],
+        firma_url=receta[8],
+        paciente_nombre=receta[9],
+        paciente_dni=receta[10],
+        obra_social=receta[1],
+        nro_credencial=receta[2],
+        diagnostico=receta[3],
+        creado_en=receta[4],
+        medicamentos=medicamentos,
+        verification_url=verification_url,
+    )
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
+        HTML(string=html).write_pdf(tmp_pdf.name)
+        tmp_pdf.seek(0)
+        pdf_bytes = tmp_pdf.read()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"inline; filename=receta_{consulta_id}.pdf"},
+    )
+
     cur = db.cursor()
     cur.execute("""
         SELECT r.id, r.consulta_id, r.paciente_uuid, r.medico_id,
@@ -6521,6 +6867,46 @@ from psycopg2.extras import RealDictCursor
 
 @app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
 def ver_receta(receta_id: int, db=Depends(get_db)):
+    cur = db.cursor(cursor_factory=RealDictCursor)
+    cur.execute("""
+        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+               m.full_name AS medico_nombre, m.especialidad, m.matricula, m.firma_url,
+               u.full_name AS paciente_nombre, u.dni
+        FROM recetas r
+        JOIN consultas c ON c.id = r.consulta_id
+        JOIN medicos m ON m.id = c.medico_id
+        JOIN users u ON u.id = r.paciente_uuid
+        WHERE r.id = %s
+    """, (receta_id,))
+    receta = cur.fetchone()
+    if not receta:
+        return HTMLResponse("<h2>Receta no encontrada</h2>", status_code=404)
+
+    cur.execute("""
+        SELECT nombre, dosis, frecuencia, duracion
+        FROM receta_items
+        WHERE receta_id = %s
+    """, (receta_id,))
+    medicamentos = cur.fetchall()
+
+    verification_url = f"https://docya-railway-production.up.railway.app/ver_receta/{receta_id}"
+    html = _build_consulta_receta_html(
+        receta_id=receta_id,
+        medico_nombre=receta["medico_nombre"],
+        especialidad=receta["especialidad"],
+        matricula=receta["matricula"],
+        firma_url=receta["firma_url"],
+        paciente_nombre=receta["paciente_nombre"],
+        paciente_dni=receta["dni"],
+        obra_social=receta["obra_social"],
+        nro_credencial=receta["nro_credencial"],
+        diagnostico=receta["diagnostico"],
+        creado_en=receta["creado_en"],
+        medicamentos=medicamentos,
+        verification_url=verification_url,
+    )
+    return HTMLResponse(html)
+
     cur = db.cursor(cursor_factory=RealDictCursor)
 
     # Traer datos principales
