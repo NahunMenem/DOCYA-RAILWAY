@@ -212,7 +212,7 @@ def _render_certificado_body(
     paciente = escape(paciente_nombre)
     documento = escape(paciente_documento)
     edad_txt = str(edad) if edad is not None else "-"
-    diagnostico_html = escape(diagnostico or "Sin diagnostico especificado")
+    diagnostico_html = escape(diagnostico or "Sin diagn&oacute;stico especificado")
 
     if tipo_certificado == "ausentismo_laboral":
         return f"""
@@ -220,9 +220,9 @@ def _render_certificado_body(
     <div class="body-copy">
       <div class="body-kicker">Constancia profesional</div>
       <h2>Ausentismo laboral</h2>
-      <p>Se deja constancia de que <strong>{paciente}</strong>, {documento}, de <strong>{edad_txt}</strong> anos, fue evaluado/a por el profesional firmante en fecha <strong>{fecha_emision}</strong>.</p>
-      <p>Diagnostico o motivo clinico informado: <strong>{diagnostico_html}</strong>.</p>
-      <p>Se indica <strong>{escape(_valor_campo(campos, 'tipo_indicacion', 'ausencia laboral justificada'))}</strong> por <strong>{escape(_valor_campo(campos, 'dias_indicados', str(reposo_dias or '-')))}</strong> dia(s), desde <strong>{escape(_valor_campo(campos, 'fecha_inicio'))}</strong> hasta <strong>{escape(_valor_campo(campos, 'fecha_fin'))}</strong>.</p>
+      <p>Se deja constancia de que <strong>{paciente}</strong>, {documento}, de <strong>{edad_txt}</strong> a&ntilde;os, fue evaluado/a por el profesional firmante en fecha <strong>{fecha_emision}</strong>.</p>
+      <p>Diagn&oacute;stico o motivo cl&iacute;nico informado: <strong>{diagnostico_html}</strong>.</p>
+      <p>Se indica <strong>{escape(_valor_campo(campos, 'tipo_indicacion', 'ausencia laboral justificada'))}</strong> por <strong>{escape(_valor_campo(campos, 'dias_indicados', str(reposo_dias or '-')))}</strong> d&iacute;a(s), desde <strong>{escape(_valor_campo(campos, 'fecha_inicio'))}</strong> hasta <strong>{escape(_valor_campo(campos, 'fecha_fin'))}</strong>.</p>
       <p>El presente se extiende para ser presentado ante <strong>{escape(_valor_campo(campos, 'presentar_ante'))}</strong>.</p>
     </div>
     <div class="body-side">
@@ -246,12 +246,12 @@ def _render_certificado_body(
         return f"""
   <div class="body-grid">
     <div class="body-copy">
-      <div class="body-kicker">Certificacion para institucion educativa</div>
+      <div class="body-kicker">Certificaci&oacute;n para instituci&oacute;n educativa</div>
       <h2>Ausentismo escolar</h2>
-      <p>Se certifica que <strong>{paciente}</strong>, {documento}, de <strong>{edad_txt}</strong> anos, fue evaluado/a por el profesional firmante.</p>
-      <p>Motivo clinico o cuadro constatado: <strong>{diagnostico_html}</strong>.</p>
-      <p>Por tal motivo, estuvo imposibilitado/a de concurrir al establecimiento educativo <strong>{escape(_valor_campo(campos, 'institucion'))}</strong> desde <strong>{escape(_valor_campo(campos, 'fecha_desde'))}</strong> hasta <strong>{escape(_valor_campo(campos, 'fecha_hasta'))}</strong>, por <strong>{escape(_valor_campo(campos, 'dias_habiles'))}</strong> dia(s) habiles.</p>
-      <p>Consta ademas que el presente se emite a solicitud de <strong>{escape(_valor_campo(campos, 'responsable'))}</strong>.</p>
+      <p>Se certifica que <strong>{paciente}</strong>, {documento}, de <strong>{edad_txt}</strong> a&ntilde;os, fue evaluado/a por el profesional firmante.</p>
+      <p>Motivo cl&iacute;nico o cuadro constatado: <strong>{diagnostico_html}</strong>.</p>
+      <p>Por tal motivo, estuvo imposibilitado/a de concurrir al establecimiento educativo <strong>{escape(_valor_campo(campos, 'institucion'))}</strong> desde <strong>{escape(_valor_campo(campos, 'fecha_desde'))}</strong> hasta <strong>{escape(_valor_campo(campos, 'fecha_hasta'))}</strong>, por <strong>{escape(_valor_campo(campos, 'dias_habiles'))}</strong> d&iacute;a(s) h&aacute;biles.</p>
+      <p>Consta adem&aacute;s que el presente se emite a solicitud de <strong>{escape(_valor_campo(campos, 'responsable'))}</strong>.</p>
     </div>
     <div class="body-side">
       <div class="side-card">
@@ -274,12 +274,12 @@ def _render_certificado_body(
         return f"""
   <div class="body-grid">
     <div class="body-copy">
-      <div class="body-kicker">Documento sin revelacion diagnostica obligatoria</div>
+      <div class="body-kicker">Documento sin revelaci&oacute;n diagn&oacute;stica obligatoria</div>
       <h2>Constancia de asistencia</h2>
-      <p>Se deja constancia de que <strong>{paciente}</strong>, {documento}, concurrio a consulta medica el dia <strong>{escape(_valor_campo(campos, 'fecha_asistencia', fecha_emision.split(' ')[0]))}</strong> a las <strong>{escape(_valor_campo(campos, 'hora_asistencia'))}</strong>.</p>
-      <p>La atencion tuvo una duracion aproximada de <strong>{escape(_valor_campo(campos, 'duracion_minutos'))}</strong> minutos.</p>
-      <p>Motivo de consulta consignado: <strong>{escape(_valor_campo(campos, 'motivo_consulta', diagnostico or 'Consulta medica general'))}</strong>.</p>
-      <p>La presente constancia se emite a pedido del/la interesado/a para ser presentada ante quien corresponda, manteniendo reserva profesional sobre detalles clinicos adicionales.</p>
+      <p>Se deja constancia de que <strong>{paciente}</strong>, {documento}, concurri&oacute; a consulta m&eacute;dica el d&iacute;a <strong>{escape(_valor_campo(campos, 'fecha_asistencia', fecha_emision.split(' ')[0]))}</strong> a las <strong>{escape(_valor_campo(campos, 'hora_asistencia'))}</strong>.</p>
+      <p>La atenci&oacute;n tuvo una duraci&oacute;n aproximada de <strong>{escape(_valor_campo(campos, 'duracion_minutos'))}</strong> minutos.</p>
+      <p>Motivo de consulta consignado: <strong>{escape(_valor_campo(campos, 'motivo_consulta', diagnostico or 'Consulta m&eacute;dica general'))}</strong>.</p>
+      <p>La presente constancia se emite a pedido del/la interesado/a para ser presentada ante quien corresponda, manteniendo reserva profesional sobre detalles cl&iacute;nicos adicionales.</p>
     </div>
     <div class="body-side">
       <div class="side-card">
@@ -292,7 +292,7 @@ def _render_certificado_body(
       </div>
       <div class="side-card">
         <span class="side-label">Motivo</span>
-        <strong>{escape(_valor_campo(campos, 'motivo_consulta', diagnostico or 'Consulta medica'))}</strong>
+        <strong>{escape(_valor_campo(campos, 'motivo_consulta', diagnostico or 'Consulta m&eacute;dica'))}</strong>
       </div>
     </div>
   </div>"""
@@ -300,11 +300,11 @@ def _render_certificado_body(
     return f"""
   <div class="body-grid">
     <div class="body-copy">
-      <div class="body-kicker">Indicacion clinica</div>
+      <div class="body-kicker">Indicaci&oacute;n cl&iacute;nica</div>
       <h2>Reposo domiciliario</h2>
-      <p>Se certifica que <strong>{paciente}</strong>, {documento}, de <strong>{edad_txt}</strong> anos, fue evaluado/a por el profesional firmante.</p>
-      <p>Diagnostico o cuadro clinico: <strong>{diagnostico_html}</strong>.</p>
-      <p>Se prescribe <strong>reposo domiciliario {escape(_valor_campo(campos, 'tipo_reposo', 'relativo'))}</strong> por <strong>{escape(_valor_campo(campos, 'dias_indicados', str(reposo_dias or '-')))}</strong> dia(s), desde <strong>{escape(_valor_campo(campos, 'fecha_inicio'))}</strong> hasta <strong>{escape(_valor_campo(campos, 'fecha_fin'))}</strong>.</p>
+      <p>Se certifica que <strong>{paciente}</strong>, {documento}, de <strong>{edad_txt}</strong> a&ntilde;os, fue evaluado/a por el profesional firmante.</p>
+      <p>Diagn&oacute;stico o cuadro cl&iacute;nico: <strong>{diagnostico_html}</strong>.</p>
+      <p>Se prescribe <strong>reposo domiciliario {escape(_valor_campo(campos, 'tipo_reposo', 'relativo'))}</strong> por <strong>{escape(_valor_campo(campos, 'dias_indicados', str(reposo_dias or '-')))}</strong> d&iacute;a(s), desde <strong>{escape(_valor_campo(campos, 'fecha_inicio'))}</strong> hasta <strong>{escape(_valor_campo(campos, 'fecha_fin'))}</strong>.</p>
       <p>Indicaciones adicionales: <strong>{escape(_valor_campo(campos, 'indicaciones_adicionales', 'Sin indicaciones adicionales'))}</strong>.</p>
     </div>
     <div class="body-side">
@@ -877,7 +877,7 @@ def certificado_html(
     fecha_emision_larga = _fmt_datetime(creado_en)
     fecha_nac_str = _fmt_fecha(fecha_nac)
     sexo_label = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo or "-")
-    esp_label = (especialidad or tipo_med or "Medico/a").title()
+    esp_label = (especialidad or tipo_med or "M&eacute;dico/a").title()
     mat_label = matricula or "-"
     paciente_nombre = f"{pac_apellido.upper()}, {pac_nombre}"
     paciente_documento = f"{tipo_doc} {nro_doc}"
@@ -1110,13 +1110,13 @@ body {{
     <div class="logo-wrap">
       <img src="{logo_src}" class="logo" alt="DocYa">
       <div class="brand-copy">
-        <div class="eyebrow">Documentacion medica digital</div>
+        <div class="eyebrow">Documentaci&oacute;n m&eacute;dica digital</div>
         <strong>DocYa Certificados</strong>
-        <span>Diseno institucional con firma y validacion</span>
+        <span>Dise&ntilde;o institucional con firma y validaci&oacute;n</span>
       </div>
     </div>
     <div class="header-right">
-      <strong>Fecha de emision:</strong> {fecha_emision_larga}<br>
+      <strong>Fecha de emisi&oacute;n:</strong> {fecha_emision_larga}<br>
       <strong>ID:</strong> {cert_id_val:08d}<br>
       <strong>Modelo:</strong> {escape(titulo_cert)}
     </div>
@@ -1125,7 +1125,7 @@ body {{
   <div class="cert-title">
     <div class="cert-title-main">
       <strong>{escape(titulo_cert)}</strong>
-      <span>Documento medico con validez profesional</span>
+      <span>Documento m&eacute;dico con validez profesional</span>
     </div>
     <div class="cert-pill">DocYa</div>
   </div>
@@ -1151,7 +1151,7 @@ body {{
     <div class="sig-legal">
       Este documento ha sido firmado digitalmente por<br>
       <strong>{escape(med_nombre)}</strong> - {escape(esp_label)} - MN {escape(mat_label)}<br>
-      conforme a la <a href="#">Ley 25.506</a> de Firma Digital de la Republica Argentina.<br>
+      conforme a la <a href="#">Ley 25.506</a> de Firma Digital de la Rep&uacute;blica Argentina.<br>
       Verifica su autenticidad en: <a href="{ver_url}">{ver_url}</a>
     </div>
     <div class="sig-block">
@@ -1166,7 +1166,7 @@ body {{
   <div class="qr-strip">
     <img src="{qr_url}" width="90" height="90" alt="QR" class="qr-img">
     <div class="qr-info">
-      <strong>DocYa - Documentos Medicos Digitales</strong><br>
+      <strong>DocYa - Documentos M&eacute;dicos Digitales</strong><br>
       {escape(med_nombre)} | {escape(esp_label)} | MN {escape(mat_label)}<br>
       Verificar autenticidad: {ver_url}
     </div>
@@ -1174,7 +1174,7 @@ body {{
   </div>
 
   <div class="footer">
-    Certificado generado digitalmente mediante DocYa - Plataforma de Documentos Medicos Electronicos.<br>
+    Certificado generado digitalmente mediante DocYa - Plataforma de Documentos M&eacute;dicos Electr&oacute;nicos.<br>
     &copy; {datetime.now().year} DocYa - Todos los derechos reservados.
   </div>
 
