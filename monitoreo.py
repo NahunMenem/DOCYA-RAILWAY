@@ -3,6 +3,7 @@
 # ====================================================
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from psycopg2.extras import RealDictCursor
+from datetime import datetime, timedelta
 import json
 import asyncio
 from database import get_db
@@ -775,30 +776,41 @@ def medicos_registrados(db=Depends(get_db)):
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
             SELECT 
-                id,
-                full_name,
-                email,
-                telefono,
-                matricula,
-                especialidad,
-                provincia,
-                localidad,
-                dni,
-                tipo_documento,
-                numero_documento,
-                direccion,
-                acepta_terminos,
-                tipo,
-                foto_perfil,
-                foto_dni_frente,
-                foto_dni_dorso,
-                selfie_dni,
-                validado,
-                matricula_validada,
-                ultimo_ping,        
-                created_at
-            FROM medicos
-            ORDER BY created_at DESC;
+                m.id,
+                m.full_name,
+                m.email,
+                m.telefono,
+                m.matricula,
+                m.especialidad,
+                m.provincia,
+                m.localidad,
+                m.dni,
+                m.tipo_documento,
+                m.numero_documento,
+                m.direccion,
+                m.acepta_terminos,
+                m.tipo,
+                m.foto_perfil,
+                m.foto_dni_frente,
+                m.foto_dni_dorso,
+                m.selfie_dni,
+                m.validado,
+                m.matricula_validada,
+                m.ultimo_ping,
+                m.created_at,
+                COALESCE(v.reputacion_promedio, 0) AS reputacion_promedio,
+                COALESCE(v.reputacion_total, 0) AS reputacion_total
+            FROM medicos m
+            LEFT JOIN (
+                SELECT
+                    COALESCE(medico_id, enfermero_id) AS profesional_id,
+                    ROUND(AVG(puntaje)::numeric, 2) AS reputacion_promedio,
+                    COUNT(*) AS reputacion_total
+                FROM valoraciones
+                WHERE puntaje IS NOT NULL
+                GROUP BY COALESCE(medico_id, enfermero_id)
+            ) v ON v.profesional_id = m.id
+            ORDER BY m.created_at DESC;
         """)
 
         medicos = cur.fetchall()
@@ -975,6 +987,26 @@ def listar_consultas(
 ):
     cur = db.cursor(cursor_factory=RealDictCursor)
 
+    def _normalizar_desde(valor: str | None):
+        if not valor:
+            return None
+        try:
+            if len(valor) == 10:
+                return datetime.strptime(valor, "%Y-%m-%d")
+        except ValueError:
+            return valor
+        return valor
+
+    def _normalizar_hasta(valor: str | None):
+        if not valor:
+            return None
+        try:
+            if len(valor) == 10:
+                return datetime.strptime(valor, "%Y-%m-%d") + timedelta(days=1)
+        except ValueError:
+            return valor
+        return valor
+
     page = max(page, 1)
     limit = max(1, min(limit, 500))
     offset = (page - 1) * limit
@@ -984,10 +1016,10 @@ def listar_consultas(
 
     if desde:
         filtros.append("c.creado_en >= %s")
-        params.append(desde)
+        params.append(_normalizar_desde(desde))
     if hasta:
-        filtros.append("c.creado_en <= %s")
-        params.append(hasta)
+        filtros.append("c.creado_en < %s")
+        params.append(_normalizar_hasta(hasta))
     if excluir_estados:
         estados_list = [e.strip() for e in excluir_estados.split(",") if e.strip()]
         if estados_list:
