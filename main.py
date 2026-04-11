@@ -3901,59 +3901,128 @@ class RecetaIn(BaseModel):
     medico_id: int
     paciente_uuid: str
     obra_social: Optional[str] = None
+    plan: Optional[str] = None
     nro_credencial: Optional[str] = None
     diagnostico: Optional[str] = None
     medicamentos: list[dict]
 
 
-def _consulta_receta_item_campos(med) -> tuple[str, str, str, str]:
+def _ensure_consulta_receta_schema(db) -> None:
+    cur = db.cursor()
+    cur.execute("ALTER TABLE recetas ADD COLUMN IF NOT EXISTS plan TEXT")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS ifa TEXT")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS nombre_comercial TEXT")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS forma_farmaceutica TEXT")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS concentracion TEXT")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS presentacion TEXT")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS cantidad INTEGER DEFAULT 1")
+    cur.execute("ALTER TABLE receta_items ADD COLUMN IF NOT EXISTS indicaciones TEXT")
+    db.commit()
+
+
+def _consulta_detalle_medicamento(forma: str, concentracion: str, presentacion: str) -> str:
+    forma_concentracion = " ".join(part for part in [forma, concentracion] if part).strip()
+    if not presentacion:
+        return forma_concentracion
+    if not forma_concentracion:
+        return presentacion
+
+    presentacion_norm = " ".join(presentacion.lower().split())
+    forma_norm = " ".join(forma_concentracion.lower().split())
+
+    if presentacion_norm == forma_norm:
+        return presentacion
+    if presentacion_norm.startswith(forma_norm):
+        return presentacion
+    if forma_norm.startswith(presentacion_norm):
+        return forma_concentracion
+
+    return f"{forma_concentracion} &mdash; {presentacion}"
+
+
+def _consulta_receta_item_campos(med) -> tuple[str, str, str, str, str, int, str]:
     if isinstance(med, dict):
-        nombre = str(med.get("nombre") or "MEDICAMENTO").strip()
+        ifa = str(
+            med.get("ifa") or
+            med.get("principio_activo_str") or
+            med.get("principio_activo") or
+            med.get("nombre") or
+            "MEDICAMENTO"
+        ).strip()
+        nombre_comercial = str(med.get("nombre_comercial") or med.get("nombre") or "").strip()
+        forma = str(med.get("forma_farmaceutica") or med.get("forma") or "").strip()
+        concentracion = str(med.get("concentracion") or "").strip()
+        presentacion = str(med.get("presentacion") or "").strip()
+        cantidad = int(med.get("cantidad") or 1)
+        indicaciones = str(med.get("indicaciones") or "").strip()
         dosis = str(med.get("dosis") or "").strip()
         frecuencia = str(med.get("frecuencia") or "").strip()
         duracion = str(med.get("duracion") or "").strip()
-        return nombre, dosis, frecuencia, duracion
+        if not indicaciones:
+            indicaciones = ", ".join(
+                part for part in [dosis, frecuencia, duracion] if part
+            ).strip(", ")
+        if nombre_comercial and ifa and nombre_comercial.lower() == ifa.lower():
+            nombre_comercial = ""
+        return ifa, nombre_comercial, forma, concentracion, presentacion, cantidad, indicaciones
     else:
+        if len(med) >= 8:
+            ifa = str(med[0] or "MEDICAMENTO").strip()
+            nombre_comercial = str(med[1] or "").strip()
+            forma = str(med[2] or "").strip()
+            concentracion = str(med[3] or "").strip()
+            presentacion = str(med[4] or "").strip()
+            cantidad = int(med[5] or 1)
+            indicaciones = str(med[6] or "").strip()
+            fallback_nombre = str(med[7] or "").strip()
+            if not ifa:
+                ifa = fallback_nombre or "MEDICAMENTO"
+            if nombre_comercial and ifa and nombre_comercial.lower() == ifa.lower():
+                nombre_comercial = ""
+            return ifa, nombre_comercial, forma, concentracion, presentacion, cantidad, indicaciones
+
         nombre = str(med[0] or "MEDICAMENTO").strip()
         dosis = str(med[1] or "").strip()
         frecuencia = str(med[2] or "").strip()
         duracion = str(med[3] or "").strip()
-        return nombre, dosis, frecuencia, duracion
-
-    return "".join(bloques) or '<div class="med-rp"><strong>SIN MEDICACIÓN CARGADA</strong></div>'
+        indicaciones = ", ".join(
+            part for part in [dosis, frecuencia, duracion] if part
+        ).strip(", ")
+        return nombre, "", "", dosis, "", 1, indicaciones
 
 def _render_consulta_medicamentos_html(medicamentos) -> tuple[str, str]:
     bloques_rp = []
     bloques_indicaciones = []
+    cantidad_textos = {1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco"}
     for idx, med in enumerate(medicamentos or [], 1):
-        nombre, dosis, frecuencia, duracion = _consulta_receta_item_campos(med)
-        nombre_html = escape(nombre.upper())
-
-        detalle_parts = [escape(part.upper()) for part in [dosis] if part]
-        detalle_html = (
-            f'<span class="med-det">{" &mdash; ".join(detalle_parts)}</span><br>'
-            if detalle_parts else ""
+        ifa, nombre_comercial, forma, concentracion, presentacion, cantidad, indicaciones = _consulta_receta_item_campos(med)
+        nombre_html = escape(ifa.upper())
+        detalle = _consulta_detalle_medicamento(
+            forma.upper(),
+            concentracion.upper(),
+            presentacion.upper(),
         )
-
-        indicaciones_parts = []
-        if dosis:
-            indicaciones_parts.append(f"Dosis: {dosis}")
-        if frecuencia:
-            indicaciones_parts.append(f"Frecuencia: {frecuencia}")
-        if duracion:
-            indicaciones_parts.append(f"Duración: {duracion}")
-
+        sugerido_html = (
+            f'<span class="med-brand">Marca sugerida: {escape(nombre_comercial.upper())}</span><br>'
+            if nombre_comercial else ""
+        )
+        detalle_html = (
+            f'<span class="med-det">{detalle}</span><br>'
+            if detalle else ""
+        )
         indicaciones_html = (
-            escape(" - ".join(indicaciones_parts))
-            if indicaciones_parts else
+            escape(indicaciones)
+            if indicaciones else
             '<em style="color:#aaa">Sin indicaciones</em>'
         )
+        cantidad_txt = cantidad_textos.get(int(cantidad), str(cantidad))
 
         bloques_rp.append(
             f'<div class="med-rp"><span class="med-num">{idx})</span> '
             f'<strong>{nombre_html}</strong><br>'
+            f'{sugerido_html}'
             f'{detalle_html}'
-            f'<span class="med-cant">Cant: 1 (uno)</span></div>'
+            f'<span class="med-cant">Cant: {cantidad} ({cantidad_txt})</span></div>'
         )
         bloques_indicaciones.append(
             f'<div class="med-com"><span class="med-num">{idx})</span> {indicaciones_html}</div>'
@@ -3974,6 +4043,7 @@ def _build_consulta_receta_html(
     paciente_nombre: str,
     paciente_dni: str | None,
     obra_social: str | None,
+    plan: str | None,
     nro_credencial: str | None,
     diagnostico: str | None,
     creado_en,
@@ -3998,6 +4068,7 @@ def _build_consulta_receta_html(
     paciente_nombre_html = escape(paciente_nombre or "—")
     paciente_dni_html = escape(str(paciente_dni or "—"))
     obra_social_html = escape(obra_social or "—")
+    plan_html = escape(plan or "—")
     credencial_html = escape(nro_credencial or "—")
     verification_url_html = escape(verification_url)
 
@@ -4023,6 +4094,7 @@ def _build_consulta_receta_html(
         <div class="pf pf-name"><label>Paciente</label><strong>{paciente_nombre_html}</strong></div>
         <div class="pf"><label>DNI</label><strong>{paciente_dni_html}</strong></div>
         <div class="pf"><label>Obra Social</label><strong>{obra_social_html}</strong></div>
+        <div class="pf"><label>Plan</label><strong>{plan_html}</strong></div>
         <div class="pf"><label>N° Credencial</label><strong>{credencial_html}</strong></div>
       </div>
 
@@ -4186,16 +4258,18 @@ body {{
 # --- POST: crear receta ---
 @app.post("/consultas/{consulta_id}/receta")
 def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
+    _ensure_consulta_receta_schema(db)
     cur = db.cursor()
     cur.execute("""
-        INSERT INTO recetas (consulta_id, medico_id, paciente_uuid, obra_social, nro_credencial, diagnostico)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO recetas (consulta_id, medico_id, paciente_uuid, obra_social, plan, nro_credencial, diagnostico)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
         RETURNING id
     """, (
         consulta_id,
         data.medico_id,
         data.paciente_uuid,
         data.obra_social,
+        data.plan,
         data.nro_credencial,
         data.diagnostico
     ))
@@ -4204,9 +4278,26 @@ def crear_receta(consulta_id: int, data: RecetaIn, db=Depends(get_db)):
 
     for m in data.medicamentos:
         cur.execute("""
-            INSERT INTO receta_items (receta_id, nombre, dosis, frecuencia, duracion)
-            VALUES (%s, %s, %s, %s, %s)
-        """, (receta_id, m["nombre"], m["dosis"], m["frecuencia"], m["duracion"]))
+            INSERT INTO receta_items (
+                receta_id, nombre, dosis, frecuencia, duracion,
+                ifa, nombre_comercial, forma_farmaceutica, concentracion,
+                presentacion, cantidad, indicaciones
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            receta_id,
+            m.get("nombre"),
+            m.get("dosis"),
+            m.get("frecuencia"),
+            m.get("duracion"),
+            m.get("ifa") or m.get("principio_activo") or m.get("principio_activo_str"),
+            m.get("nombre_comercial"),
+            m.get("forma_farmaceutica") or m.get("forma"),
+            m.get("concentracion"),
+            m.get("presentacion"),
+            m.get("cantidad") or 1,
+            m.get("indicaciones"),
+        ))
 
     db.commit()
     return {"ok": True, "receta_id": receta_id}
@@ -4217,9 +4308,10 @@ from fastapi.responses import HTMLResponse
 
 @app.get("/consultas/{consulta_id}/receta", response_class=HTMLResponse)
 def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
+    _ensure_consulta_receta_schema(db)
     cur = db.cursor()
     cur.execute("""
-        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+        SELECT r.id, r.obra_social, r.plan, r.nro_credencial, r.diagnostico, r.creado_en,
                m.full_name AS medico_nombre, m.especialidad, m.matricula, m.firma_url,
                u.full_name AS paciente_nombre, u.dni
         FROM recetas r
@@ -4236,7 +4328,8 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
 
     receta_id = receta[0]
     cur.execute("""
-        SELECT nombre, dosis, frecuencia, duracion
+        SELECT ifa, nombre_comercial, forma_farmaceutica, concentracion,
+               presentacion, cantidad, indicaciones, nombre
         FROM receta_items
         WHERE receta_id = %s
     """, (receta_id,))
@@ -4245,16 +4338,17 @@ def ver_receta_consulta(consulta_id: int, db=Depends(get_db)):
     verification_url = f"https://docya-railway-production.up.railway.app/ver_receta/{receta_id}"
     html = _build_consulta_receta_html(
         receta_id=receta_id,
-        medico_nombre=receta[5],
-        especialidad=receta[6],
-        matricula=receta[7],
-        firma_url=receta[8],
-        paciente_nombre=receta[9],
-        paciente_dni=receta[10],
+        medico_nombre=receta[6],
+        especialidad=receta[7],
+        matricula=receta[8],
+        firma_url=receta[9],
+        paciente_nombre=receta[10],
+        paciente_dni=receta[11],
         obra_social=receta[1],
-        nro_credencial=receta[2],
-        diagnostico=receta[3],
-        creado_en=receta[4],
+        plan=receta[2],
+        nro_credencial=receta[3],
+        diagnostico=receta[4],
+        creado_en=receta[5],
         medicamentos=medicamentos,
         verification_url=verification_url,
     )
@@ -5096,9 +5190,10 @@ import tempfile
 
 @app.post("/consultas/{consulta_id}/receta_pdf_html")
 def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
+    _ensure_consulta_receta_schema(db)
     cur = db.cursor()
     cur.execute("""
-        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+        SELECT r.id, r.obra_social, r.plan, r.nro_credencial, r.diagnostico, r.creado_en,
                m.full_name AS medico_nombre, m.matricula, m.especialidad, m.firma_url,
                u.full_name AS paciente_nombre, u.dni
         FROM recetas r
@@ -5115,7 +5210,8 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
 
     receta_id = receta[0]
     cur.execute("""
-        SELECT nombre, dosis, frecuencia, duracion
+        SELECT ifa, nombre_comercial, forma_farmaceutica, concentracion,
+               presentacion, cantidad, indicaciones, nombre
         FROM receta_items
         WHERE receta_id = %s
     """, (receta_id,))
@@ -5128,12 +5224,13 @@ def generar_receta_pdf_html(consulta_id: int, db=Depends(get_db)):
         especialidad=receta[7],
         matricula=receta[6],
         firma_url=receta[8],
-        paciente_nombre=receta[9],
-        paciente_dni=receta[10],
+        paciente_nombre=receta[10],
+        paciente_dni=receta[11],
         obra_social=receta[1],
-        nro_credencial=receta[2],
-        diagnostico=receta[3],
-        creado_en=receta[4],
+        plan=receta[2],
+        nro_credencial=receta[3],
+        diagnostico=receta[4],
+        creado_en=receta[5],
         medicamentos=medicamentos,
         verification_url=verification_url,
     )
@@ -6867,9 +6964,10 @@ from psycopg2.extras import RealDictCursor
 
 @app.get("/ver_receta/{receta_id}", response_class=HTMLResponse)
 def ver_receta(receta_id: int, db=Depends(get_db)):
+    _ensure_consulta_receta_schema(db)
     cur = db.cursor(cursor_factory=RealDictCursor)
     cur.execute("""
-        SELECT r.id, r.obra_social, r.nro_credencial, r.diagnostico, r.creado_en,
+        SELECT r.id, r.obra_social, r.plan, r.nro_credencial, r.diagnostico, r.creado_en,
                m.full_name AS medico_nombre, m.especialidad, m.matricula, m.firma_url,
                u.full_name AS paciente_nombre, u.dni
         FROM recetas r
@@ -6883,7 +6981,8 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         return HTMLResponse("<h2>Receta no encontrada</h2>", status_code=404)
 
     cur.execute("""
-        SELECT nombre, dosis, frecuencia, duracion
+        SELECT ifa, nombre_comercial, forma_farmaceutica, concentracion,
+               presentacion, cantidad, indicaciones, nombre
         FROM receta_items
         WHERE receta_id = %s
     """, (receta_id,))
@@ -6899,6 +6998,7 @@ def ver_receta(receta_id: int, db=Depends(get_db)):
         paciente_nombre=receta["paciente_nombre"],
         paciente_dni=receta["dni"],
         obra_social=receta["obra_social"],
+        plan=receta["plan"],
         nro_credencial=receta["nro_credencial"],
         diagnostico=receta["diagnostico"],
         creado_en=receta["creado_en"],
