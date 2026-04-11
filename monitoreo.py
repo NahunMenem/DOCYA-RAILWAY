@@ -775,6 +775,74 @@ def medicos_registrados(db=Depends(get_db)):
     try:
         cur = db.cursor(cursor_factory=RealDictCursor)
         cur.execute("""
+            SELECT column_name
+            FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name = 'valoraciones'
+              AND column_name IN ('medico_id', 'enfermero_id');
+        """)
+        valoraciones_columns = {row["column_name"] for row in cur.fetchall()}
+
+        valoraciones_sources = []
+        if "medico_id" in valoraciones_columns:
+            valoraciones_sources.append("""
+                SELECT
+                    medico_id AS profesional_id,
+                    puntaje
+                FROM valoraciones
+                WHERE puntaje IS NOT NULL
+                  AND medico_id IS NOT NULL
+            """)
+
+        if "enfermero_id" in valoraciones_columns:
+            valoraciones_sources.append("""
+                SELECT
+                    enfermero_id AS profesional_id,
+                    puntaje
+                FROM valoraciones
+                WHERE puntaje IS NOT NULL
+                  AND enfermero_id IS NOT NULL
+            """)
+
+        if valoraciones_sources:
+            union_sql = "\nUNION ALL\n".join(valoraciones_sources)
+            valoraciones_join_sql = f"""
+                LEFT JOIN (
+                    SELECT
+                        profesional_id,
+                        ROUND(AVG(puntaje)::numeric, 2) AS reputacion_promedio,
+                        COUNT(*) AS reputacion_total
+                    FROM (
+                        {union_sql}
+                    ) valoraciones_profesional
+                    GROUP BY profesional_id
+                ) v ON v.profesional_id = m.id
+            """
+        elif "medico_id" in valoraciones_columns:
+            valoraciones_join_sql = """
+                LEFT JOIN (
+                    SELECT
+                        medico_id AS profesional_id,
+                        ROUND(AVG(puntaje)::numeric, 2) AS reputacion_promedio,
+                        COUNT(*) AS reputacion_total
+                    FROM valoraciones
+                    WHERE puntaje IS NOT NULL
+                      AND medico_id IS NOT NULL
+                    GROUP BY medico_id
+                ) v ON v.profesional_id = m.id
+            """
+        else:
+            valoraciones_join_sql = """
+                LEFT JOIN (
+                    SELECT
+                        NULL::integer AS profesional_id,
+                        0::numeric AS reputacion_promedio,
+                        0::bigint AS reputacion_total
+                    WHERE FALSE
+                ) v ON v.profesional_id = m.id
+            """
+
+        cur.execute(f"""
             SELECT 
                 m.id,
                 m.full_name,
@@ -801,15 +869,7 @@ def medicos_registrados(db=Depends(get_db)):
                 COALESCE(v.reputacion_promedio, 0) AS reputacion_promedio,
                 COALESCE(v.reputacion_total, 0) AS reputacion_total
             FROM medicos m
-            LEFT JOIN (
-                SELECT
-                    COALESCE(medico_id, enfermero_id) AS profesional_id,
-                    ROUND(AVG(puntaje)::numeric, 2) AS reputacion_promedio,
-                    COUNT(*) AS reputacion_total
-                FROM valoraciones
-                WHERE puntaje IS NOT NULL
-                GROUP BY COALESCE(medico_id, enfermero_id)
-            ) v ON v.profesional_id = m.id
+            {valoraciones_join_sql}
             ORDER BY m.created_at DESC;
         """)
 
