@@ -1646,11 +1646,11 @@ body {{
 .divider {{ width: 1px; height: var(--half-h); background: repeating-linear-gradient(to bottom, #6b7280 0, #6b7280 2px, transparent 2px, transparent 4px); }}
 .copy {{ height: var(--half-h); padding: 7px 10px 6px; overflow: hidden; position: relative; }}
 .watermark {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 900; letter-spacing: 4px; color: rgba(0,0,0,0.05); transform: rotate(-30deg); pointer-events: none; }}
-.top-strip {{ display: grid; grid-template-columns: 88px 1fr 92px; gap: 8px; align-items: start; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }}
-.top-barcodes {{ display: flex; flex-direction: column; gap: 2px; }}
-.barcode {{ display: block; width: auto; max-width: 84px; height: 18px; object-fit: contain; }}
-.barcode-cuir {{ height: 20px; }}
-.cuir-code {{ font-size: 6px; color: var(--muted); word-break: break-all; line-height: 1.2; }}
+.top-strip {{ display: grid; grid-template-columns: 118px 1fr 92px; gap: 8px; align-items: start; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }}
+.top-barcodes {{ display: flex; flex-direction: column; gap: 3px; }}
+.barcode {{ display: block; width: 100%; max-width: 112px; height: 24px; object-fit: contain; }}
+.barcode-cuir {{ height: 28px; }}
+.cuir-code {{ font-size: 7px; color: var(--muted); word-break: break-all; line-height: 1.25; }}
 .top-center {{ text-align: center; }}
 .logo {{ display: block; height: 21px; margin: 0 auto 2px; }}
 .copy-badge {{ display: inline-block; padding: 2px 7px; border-radius: 999px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }}
