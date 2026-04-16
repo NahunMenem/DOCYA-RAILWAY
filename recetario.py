@@ -1658,7 +1658,7 @@ body {{
 .top-barcodes {{ display: flex; flex-direction: column; gap: 3px; }}
 .barcode {{ display: block; width: 100%; max-width: 144px; height: 34px; object-fit: contain; }}
 .barcode-cuir {{ height: 38px; }}
-.cuir-code {{ font-size: 8px; color: var(--muted); word-break: break-all; line-height: 1.25; }}
+.cuir-code {{ font-size: 7px; color: var(--muted); word-break: break-all; line-height: 1.25; }}
 .top-center {{ text-align: center; }}
 .logo {{ display: block; height: 21px; margin: 0 auto 2px; }}
 .copy-badge {{ display: inline-block; padding: 2px 7px; border-radius: 999px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }}
