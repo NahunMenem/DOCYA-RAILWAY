@@ -1557,6 +1557,7 @@ def receta_html(
           <p class="sig-legal"><strong>Diagn&oacute;stico:</strong> {diagnostico or "&mdash;"}</p>
           <p class="sig-legal"><strong>Fecha:</strong> {fecha_emision}</p>
           <p class="sig-legal"><strong>Firma profesional:</strong> {med_nombre}</p>
+          <p class="sig-legal"><strong>CUIR:</strong> {escape(cuir or "&mdash;")}</p>
           <p class="sig-legal">Este documento ha sido firmado electr&oacute;nica o digitalmente por Dr. {med_nombre}</p>
           <p class="sig-legal">Esta receta fue creada por un emisor inscripto y validado en el Registro de Recetarios Electr&oacute;nicos del Ministerio de Salud de la Naci&oacute;n - RL-2026-37903200-APN-SSVEIYES#MS</p>
         </div>
@@ -1677,7 +1678,7 @@ body {{
 .pf strong {{ font-size: 8.5px; }}
 .content-box {{ display: grid; grid-template-columns: 1fr 1px 1fr; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }}
 .content-box.ind-only {{ grid-template-columns: 1fr; }}
-.col {{ min-height: 96mm; padding: 4px 5px; }}
+.col {{ min-height: 92mm; padding: 4px 5px; }}
 .col:last-child {{ background: #fafafa; }}
 .inner-divider {{ width: 1px; background: var(--line); }}
 .sec-title {{ margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid var(--line); color: var(--teal-dark); font-size: 11px; font-weight: 900; }}
@@ -1697,7 +1698,7 @@ body {{
 .firma-label {{ font-weight: 700; }}
 .firma-sub {{ color: #555; }}
 .firma-stamp {{ margin-top: 3px; color: var(--teal-dark); font-weight: 800; letter-spacing: 0.5px; }}
-.qr-strip {{ display: grid; grid-template-columns: 48px 1fr auto; gap: 5px; align-items: center; padding: 4px 5px; background: #f8fafc; border: 1px solid var(--line); border-radius: 3px; }}
+.qr-strip {{ display: grid; grid-template-columns: 48px 1fr auto; gap: 5px; align-items: center; padding: 5px; margin-top: 2px; background: #f8fafc; border: 1px solid var(--line); border-radius: 3px; }}
 .qr-img {{ display: block; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 2px; }}
 .strip-info {{ line-height: 1.45; color: #374151; }}
 .strip-note {{ display: block; margin-top: 1px; color: var(--muted); }}
