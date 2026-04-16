@@ -1528,12 +1528,16 @@ def receta_html(
           <span class="copy-badge">{badge}</span>
         </div>
         <div class="top-info">
-          <strong>Profesional:</strong> {med_nombre}<br>
-          <strong>Profesi&oacute;n / Especialidad:</strong> {esp_label}<br>
-          <strong>Matr&iacute;cula N&deg;:</strong> {mat_label}<br>
-          <span class="top-address"><strong>Domicilio profesional:</strong> {direccion_label}</span><br>
           <span class="fecha-teal">{fecha_emision}</span>
         </div>
+      </div>"""
+
+    med_grid = f"""
+      <div class="med-grid">
+        <div class="mf mf-name"><label>Profesional</label><strong>{med_nombre}</strong></div>
+        <div class="mf"><label>Profesi&oacute;n / Especialidad</label><strong>{esp_label}</strong></div>
+        <div class="mf"><label>Matr&iacute;cula N&deg;</label><strong>{mat_label}</strong></div>
+        <div class="mf mf-address"><label>Domicilio profesional</label><strong>{direccion_label}</strong></div>
       </div>"""
 
     pac_grid = f"""
@@ -1604,6 +1608,7 @@ def receta_html(
     <div class="copy">
       {watermark_html}
       {_top(badge)}
+      {med_grid}
       {pac_grid}
       {_content_box(only_indications)}
       {sig_footer}
@@ -1659,6 +1664,12 @@ body {{
 .top-info {{ text-align: right; font-size: 8px; line-height: 1.35; color: #374151; }}
 .top-address {{ display: inline-block; max-width: 88px; color: var(--muted); line-height: 1.25; }}
 .fecha-teal {{ color: var(--teal-dark); font-weight: 700; }}
+.med-grid {{ display: flex; flex-wrap: wrap; margin-bottom: 5px; overflow: hidden; border: 1.5px solid var(--teal-dark); border-radius: 3px; }}
+.mf {{ flex: 1 1 33%; min-width: 0; padding: 2px 5px; border-right: 1px solid #ccfbf1; border-bottom: 1px solid #ccfbf1; }}
+.mf-name {{ flex: 1 1 100%; background: #f0fdfa; }}
+.mf-address {{ flex: 1 1 100%; }}
+.mf label {{ display: block; margin-bottom: 1px; color: var(--muted); font-size: 6.5px; letter-spacing: 0.3px; text-transform: uppercase; }}
+.mf strong {{ font-size: 8.5px; }}
 .pac-grid {{ display: flex; flex-wrap: wrap; margin-bottom: 5px; overflow: hidden; border: 1.5px solid var(--teal-dark); border-radius: 3px; }}
 .pf {{ flex: 1 1 33%; min-width: 0; padding: 2px 5px; border-right: 1px solid #ccfbf1; border-bottom: 1px solid #ccfbf1; }}
 .pf-name {{ flex: 1 1 100%; background: #f0fdfa; }}
@@ -1709,6 +1720,7 @@ body {{
   .copy {{ height: auto; min-height: unset; padding: 10px; }}
   .top-strip {{ grid-template-columns: 1fr; }}
   .top-center, .top-info {{ text-align: left; }}
+  .mf {{ flex: 1 1 100%; }}
   .pf {{ flex: 1 1 100%; }}
   .content-box {{ grid-template-columns: 1fr; }}
   .inner-divider {{ width: 100%; height: 1px; }}
