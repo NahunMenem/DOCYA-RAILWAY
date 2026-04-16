@@ -1482,18 +1482,18 @@ def receta_html(
         cantidad_txt = {1: "uno", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco"}.get(int(cantidad), str(cantidad))
         indicaciones_html = indicaciones if indicaciones else '<em style="color:#aaa">Sin indicaciones</em>'
         sugerido_html = (
-            f'<span class="med-brand">Marca sugerida: {nombre_comercial}</span><br>'
+            f'<span class="med-brand">Marca: {nombre_comercial}</span><br>'
             if nombre_comercial else ""
         )
         detalle_html = (
-            f'<span class="med-det">Forma: {forma or "&mdash;"} &nbsp;&middot;&nbsp; Presentaci&oacute;n: {presentacion or "&mdash;"}</span><br>'
+            f'<span class="med-det">Forma farmac&eacute;utica: {forma or "&mdash;"} &nbsp;&middot;&nbsp; Presentaci&oacute;n: {presentacion or "&mdash;"}</span><br>'
         )
         meds_rp_html += (
             f'<div class="med-rp"><span class="med-num">{i})</span> '
             f'<strong>{ifa or "NO INFORMADO"}</strong><br>'
             f'{sugerido_html}'
             f'{detalle_html}'
-            f'<span class="med-cant">Cant: {cantidad} ({cantidad_txt})</span></div>'
+            f'<span class="med-cant">Cantidad: {cantidad} ({cantidad_txt})</span></div>'
         )
         meds_com_html += f'<div class="med-com"><span class="med-num">{i})</span> {indicaciones_html}</div>'
 
@@ -1528,10 +1528,10 @@ def receta_html(
           <span class="copy-badge">{badge}</span>
         </div>
         <div class="top-info">
-          <strong>{med_nombre}</strong><br>
-          {esp_label}<br>
-          MN {mat_label}<br>
-          <span class="top-address">{direccion_label}</span><br>
+          <strong>Profesional:</strong> {med_nombre}<br>
+          <strong>Profesi&oacute;n / Especialidad:</strong> {esp_label}<br>
+          <strong>Matr&iacute;cula N&deg;:</strong> {mat_label}<br>
+          <span class="top-address"><strong>Domicilio profesional:</strong> {direccion_label}</span><br>
           <span class="fecha-teal">{fecha_emision}</span>
         </div>
       </div>"""
@@ -1550,9 +1550,11 @@ def receta_html(
     sig_footer = f"""
       <div class="sig-footer">
         <div>
-          <p class="sig-legal">Este documento ha sido firmado electr&oacute;nicamente por Dr. {med_nombre}</p>
+          <p class="sig-legal"><strong>Diagn&oacute;stico:</strong> {diagnostico or "&mdash;"}</p>
+          <p class="sig-legal"><strong>Fecha:</strong> {fecha_emision}</p>
+          <p class="sig-legal"><strong>Firma profesional:</strong> {med_nombre}</p>
+          <p class="sig-legal">Este documento ha sido firmado electr&oacute;nica o digitalmente por Dr. {med_nombre}</p>
           <p class="sig-legal">Esta receta fue creada por un emisor inscripto y validado en el Registro de Recetarios Electr&oacute;nicos del Ministerio de Salud de la Naci&oacute;n - RL-2026-37903200-APN-SSVEIYES#MS</p>
-          <p class="sig-date">{fecha_emision}</p>
         </div>
         <div class="sig-right">
           {firma_html}
