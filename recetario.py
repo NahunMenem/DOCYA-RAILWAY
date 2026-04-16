@@ -466,10 +466,19 @@ def _code128_svg(value: str) -> str:
     if not value:
         return ""
 
-    start_code_b = 104
     stop_code = 106
-    values = [start_code_b] + [ord(char) - 32 for char in value]
-    checksum = start_code_b
+    values: List[int]
+
+    # Use Code Set C for numeric payloads so long CUIRs don't become unreadable.
+    if value.isdigit() and len(value) >= 4:
+        if len(value) % 2 == 0:
+            values = [105] + [int(value[i:i + 2]) for i in range(0, len(value), 2)]
+        else:
+            values = [104, ord(value[0]) - 32, 99] + [int(value[i:i + 2]) for i in range(1, len(value), 2)]
+    else:
+        values = [104] + [ord(char) - 32 for char in value]
+
+    checksum = values[0]
     for idx, code in enumerate(values[1:], 1):
         checksum += code * idx
     values.extend([checksum % 103, stop_code])
