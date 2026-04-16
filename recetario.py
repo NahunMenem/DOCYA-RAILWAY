@@ -1654,11 +1654,11 @@ body {{
 .divider {{ width: 1px; height: var(--half-h); background: repeating-linear-gradient(to bottom, #6b7280 0, #6b7280 2px, transparent 2px, transparent 4px); }}
 .copy {{ height: var(--half-h); padding: 7px 10px 6px; overflow: hidden; position: relative; }}
 .watermark {{ position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 34px; font-weight: 900; letter-spacing: 4px; color: rgba(0,0,0,0.05); transform: rotate(-30deg); pointer-events: none; }}
-.top-strip {{ display: grid; grid-template-columns: 118px 1fr 92px; gap: 8px; align-items: start; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }}
+.top-strip {{ display: grid; grid-template-columns: 138px 1fr 92px; gap: 8px; align-items: start; padding-bottom: 5px; margin-bottom: 5px; border-bottom: 1px solid var(--line); }}
 .top-barcodes {{ display: flex; flex-direction: column; gap: 3px; }}
-.barcode {{ display: block; width: 100%; max-width: 112px; height: 24px; object-fit: contain; }}
-.barcode-cuir {{ height: 28px; }}
-.cuir-code {{ font-size: 7px; color: var(--muted); word-break: break-all; line-height: 1.25; }}
+.barcode {{ display: block; width: 100%; max-width: 132px; height: 30px; object-fit: contain; }}
+.barcode-cuir {{ height: 34px; }}
+.cuir-code {{ font-size: 7.5px; color: var(--muted); word-break: break-all; line-height: 1.25; }}
 .top-center {{ text-align: center; }}
 .logo {{ display: block; height: 21px; margin: 0 auto 2px; }}
 .copy-badge {{ display: inline-block; padding: 2px 7px; border-radius: 999px; background: linear-gradient(135deg, #0ae6c7, var(--teal-dark)); color: #fff; font-size: 6.5px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; }}
@@ -1678,7 +1678,7 @@ body {{
 .pf strong {{ font-size: 8.5px; }}
 .content-box {{ display: grid; grid-template-columns: 1fr 1px 1fr; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }}
 .content-box.ind-only {{ grid-template-columns: 1fr; }}
-.col {{ min-height: 92mm; padding: 4px 5px; }}
+.col {{ min-height: 84mm; padding: 4px 5px; }}
 .col:last-child {{ background: #fafafa; }}
 .inner-divider {{ width: 1px; background: var(--line); }}
 .sec-title {{ margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid var(--line); color: var(--teal-dark); font-size: 11px; font-weight: 900; }}
@@ -1687,7 +1687,7 @@ body {{
 .med-num {{ color: var(--teal-dark); font-weight: 700; }}
 .med-cant, .med-det, .med-brand {{ color: var(--muted); font-size: 7.5px; }}
 .diag-row {{ margin-top: 6px; padding: 2px 6px; border-left: 2px solid var(--teal-dark); background: #f0fdfa; color: #374151; font-size: 7.5px; }}
-.sig-footer {{ display: grid; grid-template-columns: 1fr 92px; gap: 6px; align-items: end; margin-bottom: 4px; padding-top: 4px; border-top: 1px dashed #9ca3af; }}
+.sig-footer {{ display: grid; grid-template-columns: 1fr 92px; gap: 6px; align-items: end; margin-bottom: 3px; padding-top: 3px; border-top: 1px dashed #9ca3af; }}
 .sig-legal, .firma-sub, .strip-note {{ font-size: 6.2px; }}
 .sig-legal {{ color: var(--muted); line-height: 1.35; }}
 .sig-date, .firma-label, .firma-stamp, .strip-info {{ font-size: 7px; }}
@@ -1698,7 +1698,7 @@ body {{
 .firma-label {{ font-weight: 700; }}
 .firma-sub {{ color: #555; }}
 .firma-stamp {{ margin-top: 3px; color: var(--teal-dark); font-weight: 800; letter-spacing: 0.5px; }}
-.qr-strip {{ display: grid; grid-template-columns: 48px 1fr auto; gap: 5px; align-items: center; padding: 5px; margin-top: 2px; background: #f8fafc; border: 1px solid var(--line); border-radius: 3px; }}
+.qr-strip {{ display: grid; grid-template-columns: 48px 1fr auto; gap: 5px; align-items: center; padding: 5px; margin-top: 1px; background: #f8fafc; border: 1px solid var(--line); border-radius: 3px; }}
 .qr-img {{ display: block; width: 48px; height: 48px; border: 1px solid var(--line); border-radius: 2px; }}
 .strip-info {{ line-height: 1.45; color: #374151; }}
 .strip-note {{ display: block; margin-top: 1px; color: var(--muted); }}
