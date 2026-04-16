@@ -1687,7 +1687,7 @@ body {{
 .pf strong {{ font-size: 8.5px; }}
 .content-box {{ display: grid; grid-template-columns: 1fr 1px 1fr; margin-bottom: 4px; border: 1px solid var(--line); border-radius: 3px; overflow: hidden; }}
 .content-box.ind-only {{ grid-template-columns: 1fr; }}
-.col {{ min-height: 84mm; padding: 4px 5px; }}
+.col {{ min-height: 64mm; padding: 4px 5px; }}
 .col:last-child {{ background: #fafafa; }}
 .inner-divider {{ width: 1px; background: var(--line); }}
 .sec-title {{ margin-bottom: 4px; padding-bottom: 2px; border-bottom: 1px solid var(--line); color: var(--teal-dark); font-size: 11px; font-weight: 900; }}
