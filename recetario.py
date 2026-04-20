@@ -26,7 +26,7 @@ import re
 import time
 import jwt
 import psycopg2
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from typing import Optional, List, Dict, Any
 from zoneinfo import ZoneInfo
@@ -44,6 +44,7 @@ JWT_SECRET   = os.getenv("JWT_SECRET", "change_me")
 LOGGER = logging.getLogger("docya.recetario")
 
 router = APIRouter(prefix="/recetario", tags=["Recetario"])
+ARG_TZ = ZoneInfo("America/Argentina/Buenos_Aires")
 
 
 # ====================================================
@@ -175,6 +176,9 @@ def _certificado_campos(campos_raw) -> Dict[str, Any]:
 def _fmt_fecha(value) -> str:
     if not value:
         return "-"
+    value = _to_argentina_datetime(value)
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y")
     if hasattr(value, "strftime"):
         return value.strftime("%d/%m/%Y")
     return str(value)
@@ -183,15 +187,28 @@ def _fmt_fecha(value) -> str:
 def _fmt_datetime(value) -> str:
     if not value:
         return "-"
+    value = _to_argentina_datetime(value)
+    if isinstance(value, datetime):
+        return value.strftime("%d/%m/%Y %H:%M")
     if hasattr(value, "strftime"):
         return value.strftime("%d/%m/%Y %H:%M")
     return str(value)
 
 
+def _to_argentina_datetime(value):
+    if not isinstance(value, datetime):
+        return value
+    if value.tzinfo is None:
+        # En Railway/Postgres recibimos algunos timestamps naive que en la
+        # práctica representan UTC. Normalizamos antes de mostrar.
+        value = value.replace(tzinfo=timezone.utc)
+    return value.astimezone(ARG_TZ)
+
+
 def _edad_paciente(fecha_nacimiento) -> Optional[int]:
     if not fecha_nacimiento:
         return None
-    today = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+    today = datetime.now(ARG_TZ).date()
     years = today.year - fecha_nacimiento.year
     if (today.month, today.day) < (fecha_nacimiento.month, fecha_nacimiento.day):
         years -= 1
@@ -426,7 +443,7 @@ def _build_patient_cuil(nro_documento: Optional[str], sexo: Optional[str]) -> Op
 
 
 def _generate_prescription_group_id() -> str:
-    timestamp = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y%m%d%H%M%S%f")
+    timestamp = datetime.now(ARG_TZ).strftime("%Y%m%d%H%M%S%f")
     random_suffix = f"{random.SystemRandom().randint(0, 99999):05d}"
     return f"{timestamp}{random_suffix}"[:25]
 
@@ -906,7 +923,7 @@ def listar_recetas(
         recetas.append({
             "id": row[0], "uuid": str(row[1]), "cuir": row[2], "estado": row[3],
             "diagnostico": row[4],
-            "fecha": row[5].strftime("%d/%m/%Y %H:%M") if row[5] else None,
+            "fecha": _fmt_datetime(row[5]) if row[5] else None,
             "sent_to_farmalink": bool(row[6]),
             "paciente": f"{row[8]}, {row[7]}",
             "documento": f"{row[10]} {row[9]}",
@@ -940,7 +957,7 @@ def ver_receta_json(
         "id": row[0], "uuid": str(row[1]), "cuir": row[2], "estado": row[3],
         "diagnostico": row[4], "medicamentos": row[5],
         "obra_social": row[6], "plan": row[7], "nro_credencial": row[8],
-        "fecha": row[9].strftime("%d/%m/%Y %H:%M") if row[9] else None,
+        "fecha": _fmt_datetime(row[9]) if row[9] else None,
         "motivo_anulacion": row[10],
         "sent_to_farmalink": bool(row[11]),
         "farmalink_response": row[12],
@@ -1003,7 +1020,7 @@ def verificar_receta(uuid_receta: str, db=Depends(get_db)):
     uuid_val, cuir, estado, diagnostico, creado_en, pac_nombre, pac_apellido, \
         med_nombre, matricula, especialidad, tipo_med = row
 
-    fecha_str = creado_en.strftime("%d de %B de %Y") if creado_en else "â€”"
+    fecha_str = _to_argentina_datetime(creado_en).strftime("%d de %B de %Y") if creado_en else "â€”"
     es_valida  = estado == "valida"
 
     return HTMLResponse(_html_verificacion(
@@ -1092,7 +1109,7 @@ def listar_certificados(
         {
             "id": r[0], "tipo_certificado": r[1], "tipo_label": _certificado_tipo_label(r[1]),
             "diagnostico": r[2], "reposo_dias": r[3],
-            "fecha": r[4].strftime("%d/%m/%Y") if r[4] else None,
+            "fecha": _fmt_fecha(r[4]) if r[4] else None,
             "paciente": f"{r[6]}, {r[5]}",
             "documento": f"{r[7]} {r[8]}",
         } for r in rows
@@ -1474,8 +1491,8 @@ def receta_html(
      sexo, fecha_nac, cuil,
      med_nombre, matricula, especialidad, tipo_med, firma_url, direccion_medico) = row
 
-    fecha_emision = creado_en.strftime("%d/%m/%Y") if creado_en else "&mdash;"
-    fecha_nac_str = fecha_nac.strftime("%d/%m/%Y") if fecha_nac else "&mdash;"
+    fecha_emision = _fmt_fecha(creado_en) if creado_en else "&mdash;"
+    fecha_nac_str = _fmt_fecha(fecha_nac) if fecha_nac else "&mdash;"
     sexo_label = {"M": "Masculino", "F": "Femenino", "X": "No binario"}.get(sexo, sexo)
 
     meds_rp_html = ""
