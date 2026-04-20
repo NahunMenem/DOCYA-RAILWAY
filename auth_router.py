@@ -53,6 +53,8 @@ ALGORITHM = "HS256"
 TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "120"))
 DEFAULT_GOOGLE_CLIENT_IDS = [
     "117956759164-9q555tbkl8ulrmcapgj4emoqn827ltti.apps.googleusercontent.com",
+    "117956759164-mqep8e78d7fraoki2uqvcf4ja8m7ct5t.apps.googleusercontent.com",
+    "117956759164-4eeokd1a5evfb6562j2q9j70bsls4ml0.apps.googleusercontent.com",
     "327572770521-tom99oocat1tcp9pahlejsar4iu62lhg.apps.googleusercontent.com",
 ]
 GOOGLE_CLIENT_IDS = list(
@@ -70,6 +72,32 @@ GOOGLE_CLIENT_IDS = list(
 E164_REGEX = r"^\+[1-9]\d{7,14}$"
 TIPOS_DOCUMENTO = {"dni", "pasaporte", "otro"}
 SEXOS_VALIDOS = {"masculino", "femenino", "otro"}
+
+
+def _verify_google_token_payload(raw_id_token: str):
+    request_adapter = google_requests.Request()
+    payload = None
+    last_error = None
+    audiences = GOOGLE_CLIENT_IDS or [None]
+
+    for audience in audiences:
+        try:
+            payload = google_id_token.verify_oauth2_token(
+                raw_id_token, request_adapter, audience
+            )
+            print(
+                f"✅ Google token verificado con audience={audience} "
+                f"aud={payload.get('aud')} azp={payload.get('azp')}"
+            )
+            return payload
+        except Exception as exc:
+            last_error = exc
+
+    print(
+        f"⚠️ Google token inválido. audiences_intentadas={audiences} "
+        f"ultimo_error={last_error}"
+    )
+    raise HTTPException(status_code=401, detail=f"Token Google inválido: {last_error}")
 
 
 def _ensure_user_profile_columns(db):
@@ -703,18 +731,7 @@ def auth_google(data: GoogleAuthIn, db=Depends(get_db)):
     """Login/registro con Google y creación automática de paciente base."""
     _ensure_user_profile_columns(db)
     try:
-        request_adapter = google_requests.Request()
-        payload = None
-        last_error = None
-        audiences = GOOGLE_CLIENT_IDS or [None]
-        for audience in audiences:
-            try:
-                payload = google_id_token.verify_oauth2_token(data.id_token, request_adapter, audience)
-                break
-            except Exception as exc:
-                last_error = exc
-        if payload is None:
-            raise HTTPException(status_code=401, detail=f"Token Google inválido: {last_error}")
+        payload = _verify_google_token_payload(data.id_token)
 
         google_sub = payload.get("sub")
         email = (payload.get("email") or "").lower().strip()
@@ -887,23 +904,7 @@ def auth_google_medico(data: GoogleAuthIn, db=Depends(get_db)):
     """Login/registro con Google para profesionales."""
     _ensure_medico_profile_columns(db)
     try:
-        request_adapter = google_requests.Request()
-        payload = None
-        last_error = None
-        audiences = GOOGLE_CLIENT_IDS or [None]
-        for audience in audiences:
-            try:
-                payload = google_id_token.verify_oauth2_token(
-                    data.id_token, request_adapter, audience
-                )
-                break
-            except Exception as exc:
-                last_error = exc
-
-        if payload is None:
-            raise HTTPException(
-                status_code=401, detail=f"Token Google inválido: {last_error}"
-            )
+        payload = _verify_google_token_payload(data.id_token)
 
         google_sub = payload.get("sub")
         email = (payload.get("email") or "").lower().strip()
