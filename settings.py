@@ -52,6 +52,8 @@ ALLOWED_ORIGINS = [
     "https://comunidaddocya-tfq8.vercel.app",
     "https://www.docya.com.ar",
     "https://docyarecetario.vercel.app",
+    "https://docyarecetario.com",
+    "https://www.docyarecetario.com",
     "https://monitoreodocyasas-ua4l-gsyz2umjm.vercel.app/",
     "https://monitoreodocyasas-git-988b6f-nahundeveloper-gmailcoms-projects.vercel.app",
     "https://www.docya.online",
