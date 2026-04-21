@@ -6,6 +6,8 @@ import os
 import json
 import math
 import jwt
+import base64
+import binascii
 from html import escape
 from urllib.parse import quote
 from datetime import datetime, timedelta, date, time
@@ -84,17 +86,46 @@ def _load_service_account_json(env_name: str) -> Optional[dict]:
     raw = os.getenv(env_name, "").strip()
     if not raw:
         return None
-    return json.loads(raw)
+    if raw.startswith("{"):
+        return json.loads(raw)
+    if os.path.exists(raw):
+        with open(raw, "r", encoding="utf-8") as f:
+            return json.load(f)
+    try:
+        decoded = base64.b64decode(raw).decode("utf-8")
+        return json.loads(decoded)
+    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError(
+            f"{env_name} debe contener el JSON de service account, una ruta a un "
+            "archivo JSON o el JSON codificado en base64."
+        ) from exc
 
 
-service_account_info = _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON") or {}
-service_account_info_pro = (
-    _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON_PRO")
-    or service_account_info
+FCM_PROJECT_ID_PRO = os.getenv("FCM_PROJECT_ID_PRO", "docya-pro").strip()
+FCM_PROJECT_ID_PACIENTE = os.getenv(
+    "FCM_PROJECT_ID_PACIENTE", "docya-paciente"
+).strip()
+
+
+def _matches_project(service_info: dict | None, project_id: str) -> bool:
+    return bool(service_info and service_info.get("project_id") == project_id)
+
+
+service_account_info = _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON")
+service_account_info_pro = _load_service_account_json(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON_PRO"
+) or (
+    service_account_info
+    if not service_account_info
+    or _matches_project(service_account_info, FCM_PROJECT_ID_PRO)
+    else None
 )
-service_account_info_paciente = (
-    _load_service_account_json("GOOGLE_APPLICATION_CREDENTIALS_JSON_PACIENTE")
-    or service_account_info_pro
+service_account_info_paciente = _load_service_account_json(
+    "GOOGLE_APPLICATION_CREDENTIALS_JSON_PACIENTE"
+) or (
+    service_account_info
+    if _matches_project(service_account_info, FCM_PROJECT_ID_PACIENTE)
+    else None
 )
 
 
@@ -115,22 +146,23 @@ fcm_credentials_map = {
 
 def get_access_token(app_kind: str = "pro"):
     kind = app_kind if app_kind in fcm_credentials_map else "pro"
-    credentials = fcm_credentials_map.get(kind) or fcm_credentials_map.get("pro")
+    credentials = fcm_credentials_map.get(kind)
     if credentials is None:
-        raise RuntimeError("Firebase service account no configurada")
+        raise RuntimeError(f"Firebase service account no configurada para {kind}")
     request = google_requests.Request()
     credentials.refresh(request)
     return credentials.token
 
 
 def get_fcm_project_id(app_kind: str = "pro") -> str:
-    if app_kind == "paciente" and service_account_info_paciente:
-        return service_account_info_paciente["project_id"]
-    if service_account_info_pro:
+    kind = app_kind if app_kind in fcm_credentials_map else "pro"
+    if kind == "paciente":
+        if service_account_info_paciente:
+            return service_account_info_paciente["project_id"]
+        raise RuntimeError("Firebase project_id no configurado para paciente")
+    if kind == "pro" and service_account_info_pro:
         return service_account_info_pro["project_id"]
-    if service_account_info:
-        return service_account_info["project_id"]
-    raise RuntimeError("Firebase project_id no configurado")
+    raise RuntimeError(f"Firebase project_id no configurado para {kind}")
 
 # ====================================================
 # 🚀 CREAR APP FASTAPI
@@ -3515,18 +3547,23 @@ def enviar_push(
     fcm_token: str,
     titulo: str,
     cuerpo: str,
-    data: dict = {},
+    data: dict | None = None,
     android_channel_id: str = "default_channel_id",
     android_sound: str | None = None,
     apns_sound: str = "default",
     time_sensitive: bool = False,
     app_kind: str = "pro",
 ):
+    data = data or {}
     tipo_push = str(data.get("tipo", ""))
     if tipo_push == "consulta_nueva" and app_kind == "pro":
         android_channel_id = "docya_consultas_v2"
         android_sound = "docya_alert"
         apns_sound = "alert.caf"
+    elif tipo_push == "nuevo_mensaje" and app_kind == "paciente":
+        android_channel_id = "docya_mensajes_v2"
+        android_sound = "alerta"
+        apns_sound = "alerta.caf"
 
     project_id = get_fcm_project_id(app_kind)
     url = f"https://fcm.googleapis.com/v1/projects/{project_id}/messages:send"
