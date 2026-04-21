@@ -11,6 +11,7 @@ Agrupa:
 
 import os
 import re
+from urllib.parse import urlencode
 from datetime import date, datetime, time, timedelta, timezone
 
 import cloudinary
@@ -150,6 +151,16 @@ def _upload_base64_image(imagen_base64, folder, public_id):
 
 def _normalize_bool(value) -> bool:
     return bool(value) is True
+
+
+def _patient_register_url(ref: str | None = None) -> str:
+    base_url = os.getenv(
+        "PATIENT_REGISTER_URL",
+        "https://www.docya.com.ar/registro/paciente",
+    ).rstrip("/")
+    if not ref:
+        return base_url
+    return f"{base_url}?{urlencode({'ref': ref})}"
 
 
 class RegisterIn(BaseModel):
@@ -567,14 +578,14 @@ def register(request: Request, data: RegisterIn, db=Depends(get_db)):
 @router.get("/registro/paciente")
 def registro(request: Request):
     """Página pública de registro paciente."""
-    return templates.TemplateResponse("registro.html", {"request": request})
+    return RedirectResponse(url=_patient_register_url())
 
 
 @router.get("/r")
 def referido(request: Request):
     """Guarda el referido en cookie y redirige al registro."""
     ref = request.query_params.get("ref")
-    response = RedirectResponse(url="/registro/paciente")
+    response = RedirectResponse(url=_patient_register_url(ref))
     if ref:
         response.set_cookie(
             key="ref_code",

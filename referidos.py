@@ -6,6 +6,7 @@ import os
 import uuid
 import string
 import random
+from urllib.parse import urlencode
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -151,15 +152,18 @@ def _build_referente_auth_response(row):
             "email": row["email"],
             "tipo": row["tipo"],
             "codigo_referido": row["codigo_referido"],
-            "link_referido": row["link_referido"],
+            "link_referido": _link_referido(row["codigo_referido"]),
             "foto_url": row.get("foto_url"),
         },
     }
 
 
 def _link_referido(codigo: str) -> str:
-    base_url = os.getenv("FRONTEND_URL", "https://referidos.docya.online")
-    return f"{base_url}/?ref={codigo}"
+    register_url = os.getenv(
+        "PATIENT_REGISTER_URL",
+        "https://www.docya.com.ar/registro/paciente",
+    ).rstrip("/")
+    return f"{register_url}?{urlencode({'ref': codigo})}"
 
 
 def _get_referente_id_from_token(authorization: str | None) -> str:
