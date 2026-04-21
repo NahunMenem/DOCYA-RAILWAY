@@ -28,6 +28,7 @@ from settings import JWT_SECRET, create_access_token, now_argentina, pwd_context
 router = APIRouter(prefix="/referidos", tags=["referidos"])
 
 ESTADOS_VALIDOS = {"pendiente", "pagado", "anulado"}
+MONTO_RECOMPENSA_REFERIDO = float(os.getenv("REFERIDOS_MONTO_RECOMPENSA", "1000"))
 DEFAULT_GOOGLE_CLIENT_IDS = [
     "117956759164-9q555tbkl8ulrmcapgj4emoqn827ltti.apps.googleusercontent.com",
     "327572770521-tom99oocat1tcp9pahlejsar4iu62lhg.apps.googleusercontent.com",
@@ -192,6 +193,82 @@ def _require_admin(authorization: str | None):
         raise HTTPException(status_code=500, detail="ADMIN_API_KEY no configurada.")
     if not authorization or authorization != f"Bearer {admin_key}":
         raise HTTPException(status_code=403, detail="Acceso de administrador requerido.")
+
+
+def _ensure_recompensas_referentes_table(db):
+    cur = db.cursor()
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS recompensas_referentes (
+            id SERIAL PRIMARY KEY,
+            referente_id TEXT NOT NULL,
+            paciente_uuid UUID NOT NULL,
+            consulta_id INTEGER,
+            monto_referente NUMERIC(12,2) NOT NULL DEFAULT 1000,
+            estado TEXT NOT NULL DEFAULT 'pendiente',
+            creado_en TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    cur.execute("ALTER TABLE recompensas_referentes ADD COLUMN IF NOT EXISTS referente_id TEXT")
+    cur.execute("ALTER TABLE recompensas_referentes ADD COLUMN IF NOT EXISTS paciente_uuid UUID")
+    cur.execute("ALTER TABLE recompensas_referentes ADD COLUMN IF NOT EXISTS consulta_id INTEGER")
+    cur.execute(
+        "ALTER TABLE recompensas_referentes ADD COLUMN IF NOT EXISTS monto_referente NUMERIC(12,2) DEFAULT 1000"
+    )
+    cur.execute("ALTER TABLE recompensas_referentes ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'pendiente'")
+    cur.execute("ALTER TABLE recompensas_referentes ADD COLUMN IF NOT EXISTS creado_en TIMESTAMPTZ DEFAULT NOW()")
+    cur.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_recompensas_referentes_consulta_unique
+        ON recompensas_referentes (consulta_id)
+        WHERE consulta_id IS NOT NULL
+        """
+    )
+    db.commit()
+
+
+def _backfill_recompensas_referente(referente_id: str, codigo: str, db):
+    """
+    Crea recompensas pendientes para consultas ya finalizadas de pacientes referidos.
+    Es idempotente por consulta_id, así el panel puede recalcular sin duplicar pagos.
+    """
+    _ensure_recompensas_referentes_table(db)
+    cur = db.cursor()
+    try:
+        cur.execute(
+            """
+            INSERT INTO recompensas_referentes (
+                referente_id, paciente_uuid, consulta_id, monto_referente, estado, creado_en
+            )
+            SELECT
+                %s,
+                u.id,
+                c.id,
+                %s,
+                'pendiente',
+                COALESCE(c.fin_atencion, c.creado_en, NOW())
+            FROM users u
+            JOIN consultas c
+              ON c.paciente_uuid = u.id
+            WHERE TRIM(LOWER(u.codigo_referido)) = TRIM(LOWER(%s))
+              AND c.estado = 'finalizada'
+              AND COALESCE(c.fin_atencion, c.creado_en, NOW()) >= u.created_at
+              AND COALESCE(c.fin_atencion, c.creado_en, NOW()) < u.created_at + INTERVAL '12 months'
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM recompensas_referentes rr
+                  WHERE rr.consulta_id = c.id
+              )
+            """,
+            (str(referente_id), MONTO_RECOMPENSA_REFERIDO, codigo),
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        cur.close()
 
 
 def _enviar_email_bienvenida_referente(email: str, full_name: str, codigo: str, link: str):
@@ -605,6 +682,8 @@ def stats_referente(
 
         _, full_name, codigo = ref
 
+        _backfill_recompensas_referente(referente_id, codigo, db)
+
         # Usar TRIM/LOWER para consistencia con mis-referidos
         cur.execute(
             "SELECT COUNT(*) FROM users WHERE TRIM(LOWER(codigo_referido)) = TRIM(LOWER(%s))",
@@ -677,6 +756,8 @@ def mis_referidos(
             raise HTTPException(status_code=404, detail="Referente no encontrado.")
 
         _, codigo = ref
+
+        _backfill_recompensas_referente(referente_id, codigo, db)
 
         cur.execute(
             """
